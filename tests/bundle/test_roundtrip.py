@@ -796,3 +796,31 @@ async def test_chat_history_enabled_keeps_memory_chat(db_client, tmp_workspace_r
     assert keep_phrase in new_memory[0]["memory"], (
         "happy-path chat memory must survive when include_chat_history=True"
     )
+
+
+@pytest.mark.asyncio
+async def test_export_refuses_a_team_the_exporter_does_not_own(db_client, tmp_workspace_root):
+    """The agent list is owner-checked; the team must be too, or a foreign
+    team_id ships someone else's name, intro, bulletin and work board."""
+    from narranexus.platform.bundle.builder import ExportSelection, build_bundle
+
+    user_id = "test_user"
+    aid = "agent_teamown0001"
+    await _seed_agent(db_client, aid, "Team Owner Agent", user_id)
+    await db_client.insert("teams", {
+        "team_id": "team_victim0001", "owner_user_id": "victim", "name": "Victim Team",
+    })
+    await db_client.insert("teams", {
+        "team_id": "team_mine0001", "owner_user_id": user_id, "name": "My Team",
+    })
+
+    with pytest.raises(ValueError, match="Forbidden"):
+        await build_bundle(
+            user_id,
+            ExportSelection(agent_ids=[aid], team_id="team_victim0001"),
+            tmp_workspace_root.parent / "foreign_team.nxbundle",
+        )
+
+    own_path = tmp_workspace_root.parent / "own_team.nxbundle"
+    await build_bundle(user_id, ExportSelection(agent_ids=[aid], team_id="team_mine0001"), own_path)
+    assert own_path.exists() and own_path.stat().st_size > 0

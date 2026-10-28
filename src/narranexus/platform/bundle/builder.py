@@ -290,6 +290,17 @@ async def _export_work_items(db, team_id: str) -> list:
     ]
 
 
+def assert_team_owned(team_row: Optional[dict], team_id: str, user_id: str) -> None:
+    """A bundle may carry a team only if the exporter owns it.
+
+    The agent list is owner-checked a few lines earlier; the team was read by
+    id alone, so a foreign team_id exported someone else's name, intro,
+    bulletin and work board (2026-10-28). Same error shape as the agent check.
+    """
+    if team_row is not None and team_row.get("owner_user_id") != user_id:
+        raise ValueError(f"Forbidden: team {team_id} not owned by {user_id}")
+
+
 async def build_bundle(
     user_id: str,
     selection: ExportSelection,
@@ -1103,6 +1114,7 @@ async def build_bundle(
         team_meta = None
         if selection.team_id:
             team_row = await db.get_one("teams", {"team_id": selection.team_id})
+            assert_team_owned(team_row, selection.team_id, user_id)
             if team_row:
                 team_meta = {
                     "team_id": team_row["team_id"],

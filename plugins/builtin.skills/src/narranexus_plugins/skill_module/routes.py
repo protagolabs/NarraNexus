@@ -302,7 +302,7 @@ async def list_skills(
 
     except Exception as e:
         logger.exception(f"Failed to list skills: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.post("/install", response_model=SkillOperationResponse)
@@ -384,7 +384,7 @@ async def install_skill(
         raise _reject(str(e))
     except Exception as e:
         logger.exception(f"Failed to install skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
     # The verdict lives OUTSIDE the try above on purpose: a 4xx raised inside
     # it would be caught by the `except Exception` and re-labelled 500.
@@ -444,7 +444,7 @@ async def remove_skill(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to remove skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.put("/{skill_name}/disable", response_model=SkillOperationResponse)
@@ -470,7 +470,7 @@ async def disable_skill(
         raise
     except Exception as e:
         logger.exception(f"Failed to disable skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.put("/{skill_name}/enable", response_model=SkillOperationResponse)
@@ -496,7 +496,7 @@ async def enable_skill(
         raise
     except Exception as e:
         logger.exception(f"Failed to enable skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 # =========================================================================
@@ -554,7 +554,7 @@ async def study_skill(
         raise
     except Exception as e:
         logger.exception(f"Failed to start skill study: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.get("/{skill_name}/study", response_model=SkillStudyResponse)
@@ -577,7 +577,7 @@ async def get_study_status(
 
     except Exception as e:
         logger.exception(f"Failed to get study status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 # =========================================================================
@@ -630,7 +630,7 @@ async def get_skill_env(
         raise
     except Exception as e:
         logger.exception(f"Failed to get skill env config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.put("/{skill_name}/env", response_model=SkillEnvConfigResponse)
@@ -684,7 +684,7 @@ async def set_skill_env(
         raise
     except Exception as e:
         logger.exception(f"Failed to set skill env config: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 @router.get("/{skill_name}", response_model=SkillOperationResponse)
@@ -715,7 +715,7 @@ async def get_skill(
         raise
     except Exception as e:
         logger.exception(f"Failed to get skill: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Skill operation failed.")
 
 
 # ---- plugin contribution (batch 3c.5): this router belongs to builtin.skills and is

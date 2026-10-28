@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
@@ -27,7 +27,7 @@ from narranexus.platform.settings import settings
 from narranexus.platform.utils.db.db_factory import get_db_client
 from backend.integrations.netmind.identity_migration import execute_migration
 
-from ._admin_secret import require_admin_secret
+from ._admin_secret import admin_secret_dependency
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -50,10 +50,8 @@ class MigrateIdentityResponse(BaseModel):
 @router.post("/migrate-identity", response_model=MigrateIdentityResponse)
 async def migrate_identity(
     request: MigrateIdentityRequest,
-    x_admin_secret: str = Header(default=""),
+    _: None = Depends(admin_secret_dependency),
 ) -> MigrateIdentityResponse:
-    require_admin_secret(x_admin_secret)
-
     if len(request.to_power_hex) != 32:
         raise HTTPException(
             status_code=400,

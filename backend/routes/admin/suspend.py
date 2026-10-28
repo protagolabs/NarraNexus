@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -43,7 +43,7 @@ from narranexus.platform.repository.ban_audit_repository import (
 )
 from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES, UserStatus
 
-from ._admin_secret import require_admin_secret
+from ._admin_secret import admin_secret_dependency
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -194,10 +194,8 @@ def _invalidate_cache(user_id: str) -> None:
 @router.post("/suspend", response_model=SuspendResponse)
 async def suspend_account(
     request: SuspendRequest,
-    x_admin_secret: str = Header(default=""),
+    _: None = Depends(admin_secret_dependency),
 ) -> SuspendResponse:
-    require_admin_secret(x_admin_secret)
-
     db = await get_db_client()
     user_repo = UserRepository(db)
     user = await user_repo.get_user(request.user_id)
@@ -247,10 +245,8 @@ async def suspend_account(
 @router.post("/reinstate", response_model=ReinstateResponse)
 async def reinstate_account(
     request: ReinstateRequest,
-    x_admin_secret: str = Header(default=""),
+    _: None = Depends(admin_secret_dependency),
 ) -> ReinstateResponse:
-    require_admin_secret(x_admin_secret)
-
     db = await get_db_client()
     user_repo = UserRepository(db)
     user = await user_repo.get_user(request.user_id)
@@ -313,10 +309,8 @@ async def reinstate_account(
 @router.get("/account-state/{user_id}", response_model=AccountStateResponse)
 async def get_account_state(
     user_id: str,
-    x_admin_secret: str = Header(default=""),
+    _: None = Depends(admin_secret_dependency),
 ) -> AccountStateResponse:
-    require_admin_secret(x_admin_secret)
-
     db = await get_db_client()
     user = await UserRepository(db).get_user(user_id)
     if user is None:

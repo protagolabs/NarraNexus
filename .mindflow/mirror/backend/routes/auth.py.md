@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `/agents` 预览只给自己的 agent；funnel 全局桶改为兜底
+
+- 侧栏"最近一条回复"预览原来对列表里的**公开 agent**也查：任何人能看到别人公开 agent
+  最近回复的前 200 字。现在只对 `created_by == 调用者` 的 agent 查预览。
+- funnel-report 的全局桶 120/min 四个 IP 就能把正常用户的上报挤掉；按 IP 的 30/min
+  才是真正的限制，全局改成 2000/min 的兜底。
 
 ## 2026-09-10（PR #394 第二轮 review I-4）— 活性规则单一导入路径
 

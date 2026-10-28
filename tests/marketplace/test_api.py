@@ -106,6 +106,23 @@ async def test_publish_requires_token(app, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_publish_token_is_checked_before_the_body(app):
+    """No token and no file must be 403, not a 422 that spells out the
+    multipart schema; the right token with no file reaches body validation."""
+    async with await _client(app) as ac:
+        missing = await ac.post("/api/marketplace/skills/publish")
+        wrong = await ac.post(
+            "/api/marketplace/skills/publish", headers={"X-Publish-Token": "wrong"}
+        )
+        right = await ac.post(
+            "/api/marketplace/skills/publish", headers={"X-Publish-Token": TOKEN}
+        )
+    assert missing.status_code == 403, missing.text
+    assert wrong.status_code == 403, wrong.text
+    assert right.status_code == 422, right.text
+
+
+@pytest.mark.asyncio
 async def test_publish_without_configured_token_allowed_in_local_mode(
     app, tmp_path, monkeypatch
 ):

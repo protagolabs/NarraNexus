@@ -172,6 +172,12 @@ async def export_bundle(payload: ExportRequest, request: Request):
                     "hits": e.hits,
                 },
             )
+        # The builder refuses an agent or team the exporter does not own with
+        # ValueError("Forbidden: ..."). That is an authorization verdict, not
+        # a server fault: answer 403 without echoing the foreign id.
+        if isinstance(e, ValueError) and str(e).startswith("Forbidden"):
+            logger.warning(f"export refused for {user_id}: {e}")
+            raise HTTPException(status_code=403, detail="Forbidden")
         logger.exception("export build failed")
         raise HTTPException(status_code=500, detail="Failed to build the export.")
 
@@ -353,7 +359,8 @@ async def _stream_download(url: str, dst: Path) -> None:
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="upstream fetch timed out")
     except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"upstream fetch failed: {e}")
+        logger.warning(f"bundle from-url upstream fetch failed: {e}")
+        raise HTTPException(status_code=502, detail="upstream fetch failed")
 
 
 class ImportFromUrlRequest(BaseModel):

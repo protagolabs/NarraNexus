@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-09-23
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 新 run 先确认 agent 可见（归属或公开）
+
+安全审计发现：握手只校验了 JWT 与 payload 的 user_id 一致，**从不检查 agent_id 是谁的**；
+而 runtime 会把 user_id 改写成 agent 的 created_by，于是任何登录用户拿到别人的 agent_id
+就能用主人的 workspace、工具、渠道和额度跑一轮。现在在 fresh-run 校验之后、熔断门之前
+调用 dashboard 的 `assert_agent_visible`（自有或 is_public），失败统一回 `AgentNotFound`
+错误帧并关闭——与 dashboard 同口径，不暴露 agent_id 是否存在。公开 agent 仍可被陌生人
+驱动，这是现有"访客聊天"语义，未改。重连分支早已有 owner 检查。
 
 ## 2026-09-23 - Own runs before Step 0
 

@@ -787,20 +787,30 @@ async def auth_middleware(request: Request, call_next):
     # quota resolver below on purpose — these are repository operations, not
     # LLM spends (same reason SAFE_HTTP_METHODS skip it).
     #
-    # KNOWN, DELIBERATE BOUNDARY: this branch returns BEFORE the account-state
-    # gate further down. Suspension governs a user's OWN sessions and normal API
-    # traffic (login + user-JWT requests). A suspended user's IN-FLIGHT background
-    # work — a job/agent already running, calling backend via the service bearer —
-    # is NOT stopped here; it is stopped by the operator side revoking the user's
-    # gateway key (their LLM spend then fails) and, when armed, tearing down their
-    # executor. Adding a gate here would put a per-request users-table read on the
-    # hot internal path; deferring in-flight teardown to key-revoke keeps it off.
+    # Account state is enforced here too (2026-10-28): a suspended / banned
+    # user's service bearer gets the same 403 ACCOUNT_SUSPENDED as their JWT,
+    # so background work already running for them (jobs, agent turns calling
+    # backend via the executor) stops at its next backend call instead of
+    # riding the token's TTL. ``_account_state`` is TTL-cached, so this costs
+    # at most one users-table read per user per TTL on the internal hot path.
     if has_bearer and _is_nx_service_bearer(auth_header):
         identity = _verify_nx_service_bearer(request)
         if identity is None:
             return auth_error_response(
                 TOKEN_INVALID, "Invalid NarraNexus service identity",
                 path=path, method=request.method,
+            )
+        # A sandbox token must die with the account (2026-10-28: an attacker
+        # replayed one from the internet; a banned user's executor token kept
+        # working for its 72h TTL). Same reader, same statuses as the JWT path.
+        if (await _account_state(identity.user_id)) in NON_TRANSACTING_USER_STATUSES:
+            return auth_error_response(
+                ACCOUNT_SUSPENDED,
+                "Account is not available",
+                path=path,
+                method=request.method,
+                user_id=identity.user_id,
+                status_code=403,
             )
         request.state.user_id = identity.user_id
         request.state.role = "user"

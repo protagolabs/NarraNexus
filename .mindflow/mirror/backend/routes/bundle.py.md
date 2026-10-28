@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-08-18
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 导出时的归属拒绝是 403
+
+`build_bundle` 对不属于导出者的 agent / team 抛 `ValueError("Forbidden: ...")`。`/export`
+原来把所有异常都折成 500；现在以 `Forbidden` 开头的 ValueError 映射 403，detail 固定为
+`Forbidden`（不回显对方的 id），其余异常仍是 500 + 固定文案。
+
+## 2026-10-28 — from-url 上游失败不回显异常
+
+`upstream fetch failed: {e}` 会把连接错误原文（含内网主机名/端口判断依据）带给用户；
+改为固定文案，细节进日志。
 
 ## 2026-08-18 三审 — 闸口挪进线程
 

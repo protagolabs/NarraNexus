@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/bundle/builder.py
-last_verified: 2026-09-07
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 导出的 team 必须归导出者所有
+
+agent 列表早有 created_by 校验，team 只按 id 读：传别人的 team_id 能把对方团队的名称、
+intro、公告栏、工作板打进 manifest。新增 `assert_team_owned`（与 agent 校验同形的
+ValueError "Forbidden"），在读 team 行之后立刻调用；`backend/routes/bundle.py` 把它映射成 403。
+team 行不存在时放行（没有可泄露的内容）。`build_bundle` 级回归测试在
+`tests/bundle/test_roundtrip.py::test_export_refuses_a_team_the_exporter_does_not_own`。
 
 ## 2026-08-18 五审 — 来源点闸口的适用范围写清楚
 

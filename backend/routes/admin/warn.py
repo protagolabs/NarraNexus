@@ -31,7 +31,7 @@ import json
 from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -45,7 +45,7 @@ from narranexus.platform.utils.timezone import coerce_utc, utc_now
 from narranexus.platform.repository.user_repository import UserRepository
 from narranexus.platform.repository.ban_audit_repository import ACTION_WARN, BanAuditRepository
 
-from ._admin_secret import require_admin_secret
+from ._admin_secret import admin_secret_dependency
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -93,10 +93,8 @@ class WarnResponse(BaseModel):
 @router.post("/warn-user", response_model=WarnResponse)
 async def warn_user(
     request: WarnRequest,
-    x_admin_secret: str = Header(default=""),
+    _: None = Depends(admin_secret_dependency),
 ) -> WarnResponse:
-    require_admin_secret(x_admin_secret)
-
     db = await get_db_client()
     user = await UserRepository(db).get_user(request.user_id)
     if user is None:

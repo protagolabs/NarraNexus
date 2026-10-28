@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py
-last_verified: 2026-09-10
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — 500 不再回显异常原文
+
+十处 `HTTPException(500, detail=str(e))` 改为固定文案 "Skill operation failed."；异常细节
+由各 handler 原有的那一行 `logger.exception` 记录（每个异常只记一次）——2026-08-11 P2-2 的脱敏在插件里回退了。用户可操作的 400
+（ValueError 文案）保持。
 
 ## 2026-09-09 — install 端点分开汇报成功与失败（GitHub #95，复审 C3）
 

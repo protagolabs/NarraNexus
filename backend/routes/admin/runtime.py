@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from narranexus.platform.agent_framework.loop.broker_client import broker_url
 from narranexus.platform.agent_runtime.admission import get_admission_controller
@@ -38,11 +38,12 @@ from narranexus.platform.repository.service_audit_repository import (
     ServiceAuditRepository,
 )
 from narranexus.platform.utils.db.db_factory import get_db_client
+from narranexus.platform.utils.deployment_mode import is_cloud_mode
 # Re-exported so tests can override the admin secret via ``mod.settings``; the
 # shared ``require_admin_secret`` helper reads the same ``settings`` singleton.
 from narranexus.platform.settings import settings  # noqa: F401
 
-from ._admin_secret import require_admin_secret
+from ._admin_secret import admin_secret_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,8 @@ async def _get_audit_counts() -> dict:
 
 
 @router.get("/status")
-async def runtime_status(x_admin_secret: str = Header(default="")) -> dict:
+async def runtime_status(_: None = Depends(admin_secret_dependency)) -> dict:
     """Live scheduling/resource state. Read-only; never 500s on a sub-section."""
-    require_admin_secret(x_admin_secret)
     try:
         executors = await _get_executor_list()
     except Exception as e:  # noqa: BLE001
@@ -193,7 +193,7 @@ async def _get_worker_snapshot() -> dict:
 
 
 @router.get("/workers")
-async def worker_status() -> dict:
+async def worker_status(request: Request) -> dict:
     """Per-worker liveness of the consolidated worker supervisor.
 
     Read-only L2 view for the desktop System page's single "Workers" card:
@@ -202,6 +202,11 @@ async def worker_status() -> dict:
     surfaces each one's state + cumulative restart_count. Never 500s: an
     unreachable DB or an absent supervisor yields ``available: false``.
     """
+    # Desktop/local mode has no roles and shows this on its System page; in
+    # cloud it is staff-only — `last_error` carries worker exception text
+    # (2026-10-28: any logged-in user could read it).
+    if is_cloud_mode() and getattr(request.state, "role", "") != "staff":
+        raise HTTPException(status_code=403, detail="staff only")
     try:
         return await _get_worker_snapshot()
     except Exception as e:  # noqa: BLE001 — advisory view, never 500s

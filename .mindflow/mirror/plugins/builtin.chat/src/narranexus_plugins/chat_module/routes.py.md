@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.chat/src/narranexus_plugins/chat_module/routes.py
-last_verified: 2026-09-08
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `event-log/{event_id}` 加 owner 门
+
+这条路由连 `request` 都没收，按 (event_id, agent_id) 直接返回整轮 thinking 与全部工具
+调用输入输出。兄弟路由 `/events/{event_id}` 一直是 owner-only。现在先
+`require_agent_owner(request, agent_id)`（SDK seam）。
 
 ## 2026-09-08（dev 实测）— 历史行带 `bootstrap` 标记
 

@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/admin/_admin_secret.py
-last_verified: 2026-08-13
+last_verified: 2026-10-28
 stub: false
 ---
+
+## 2026-10-28 — `admin_secret_dependency`
+
+`Depends` 形式的同一检查。作为依赖项它在请求体校验**之前**解析：没带 secret 的请求得到
+403，而不是一个把 body 字段名列出来的 422（审计发现 migrate-identity 等端点泄露 schema）。
+五个 admin 路由文件全部改用它；`require_admin_secret` 保留给依赖项内部调用。
 
 # admin/_admin_secret.py — 自凭证 admin 路由的共享 secret 闸门
 

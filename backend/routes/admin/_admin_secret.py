@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import HTTPException
+from fastapi import Header, HTTPException
 
 from narranexus.platform.settings import settings
 
@@ -43,3 +43,13 @@ def require_admin_secret(provided: str) -> None:
         provided.encode(), expected.encode()
     ):
         raise HTTPException(status_code=403, detail="invalid admin secret")
+
+
+async def admin_secret_dependency(x_admin_secret: str = Header(default="")) -> None:
+    """``Depends``-form of :func:`require_admin_secret`.
+
+    Declared as a dependency it is resolved BEFORE the request body is
+    validated, so an unauthenticated caller gets 403 and never a 422 that
+    spells out the body schema (2026-10-28 audit).
+    """
+    require_admin_secret(x_admin_secret)

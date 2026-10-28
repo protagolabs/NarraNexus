@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4 as _uuid4
 import jwt
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 from loguru import logger
 
@@ -1000,6 +1000,24 @@ async def websocket_agent_run(websocket: WebSocket):
                 "type": "error",
                 "error_message": "agent_id and input_content are required for fresh runs",
                 "error_type": "ValidationError",
+            })
+            await websocket.close()
+            return
+
+        # Ownership / visibility (2026-10-28): the runtime runs a turn AS the
+        # agent's owner (agent_runtime overrides user_id with created_by), so
+        # a stranger who knows an agent_id would otherwise drive the owner's
+        # workspace, tools, channels and quota. Same rule as the dashboard:
+        # the caller owns the agent or it is public; everything else is a
+        # uniform "not found" so agent ids cannot be enumerated here.
+        from backend.routes.dashboard.routes import assert_agent_visible
+        try:
+            await assert_agent_visible(request.user_id, request.agent_id)
+        except HTTPException:
+            await websocket.send_json({
+                "type": "error",
+                "error_message": "agent not found",
+                "error_type": "AgentNotFound",
             })
             await websocket.close()
             return
