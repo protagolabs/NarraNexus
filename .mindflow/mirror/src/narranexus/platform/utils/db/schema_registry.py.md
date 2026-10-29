@@ -1,8 +1,24 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-10-08
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — 新表 `instance_login_ips`（滥用 IP↔账号联动）
+
+记 `(user_id, 公网 ip, last_seen)`：登录时写一次，之后鉴权请求按 (user, ip) 节流刷新
+（写入方 `backend/middleware/login_ips.py`），所以 `last_seen` 是**该 IP 上最近一次活动**，
+不是 token 签发时刻。`nexus_sentinel` 只读：扫描 IP 被边缘自动封时，查近窗口内从它活跃
+过的账号一并封。几个有意的设计点，别"顺手改回"惯例：
+- **`pair_key = f"{user_id}|{ip}"` 单列做 upsert 冲突目标**。通用 `upsert()` 在 SQLite
+  发单列 `ON CONFLICT`，复合 `(user_id, ip)` 目标会**静默漏命中**→每次插重复行。
+- **MySQL 的唯一性只来自 `idx_login_ips_pair`**：MySQL DDL 生成器忽略
+  `Column(unique=True)`，`ON DUPLICATE KEY` 命中的就是这个唯一索引——别当成"和列标记重复"
+  删掉，删了 MySQL 上每次登录都插新行（真 MySQL 孪生测试钉住）。
+- **`last_seen` 是 epoch 秒（BIGINT）**：读方是另一个进程、可能另一种方言，整型 epoch
+  绕开跨进程窗口比较的时区/格式错配。
+- **保留期**：闲置超过 30 天的行被机会式清理（走 `idx_login_ips_last_seen`），必须远大于
+  哨兵的 24h 联动窗口。
 
 ## 2026-10-08（PR #410 review）
 

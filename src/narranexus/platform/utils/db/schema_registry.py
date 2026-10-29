@@ -3355,6 +3355,47 @@ _register(
 )
 
 
+# instance_login_ips — (user_id, public client_ip) a user has authenticated
+# from, for abuse IP<->account linkage (2026-10-28 incident). Written by
+# backend/middleware/login_ips.py: at every netmind-login, and on authenticated
+# requests throttled per (user, ip) — so `last_seen` is the last ACTIVITY from
+# that IP (a JWT is portable across addresses), not the token's mint time. The
+# sentinel reads it read-only: a scanning IP -> the account(s) active from it
+# recently, so an IP ban and an account ban go out together.
+#
+# Two deliberate departures from house style:
+# - `pair_key` = f"{user_id}|{ip}" is a single-column upsert conflict target:
+#   the generic AsyncDatabaseClient.upsert() emits a single-column ON CONFLICT
+#   on SQLite, and a composite (user_id, ip) target would silently miss there.
+#   NOTE the MySQL DDL generator ignores Column(unique=True): on MySQL the
+#   uniqueness comes ONLY from idx_login_ips_pair, which is the ON DUPLICATE KEY
+#   target — never drop that index as "redundant with the column flag", or
+#   every login silently inserts a new row on MySQL.
+# - `last_seen` is epoch SECONDS (BIGINT), not a DATETIME: the reader is a
+#   separate process on a possibly different dialect, and an integer epoch
+#   sidesteps every timezone / format mismatch in its window comparison.
+# Rows idle past the retention period are pruned via idx_login_ips_last_seen.
+_register(
+    TableDef(
+        name="instance_login_ips",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("ip", "TEXT", "VARCHAR(45)", nullable=False),
+            Column("pair_key", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("last_seen", "INTEGER", "BIGINT", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_login_ips_pair", ["pair_key"], unique=True),
+            Index("idx_login_ips_ip_seen", ["ip", "last_seen"]),
+            Index("idx_login_ips_user_seen", ["user_id", "last_seen"]),
+            Index("idx_login_ips_last_seen", ["last_seen"]),
+        ],
+    )
+)
+
+
 # ============================================================================
 # DDL Generation
 # ============================================================================

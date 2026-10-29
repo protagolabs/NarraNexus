@@ -1,10 +1,16 @@
 ---
 code_file: backend/routes/_client_ip.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
 
 # routes/_client_ip.py — the one answer to "who is calling"
+
+## 2026-10-29 — 参数放宽为 `HTTPConnection`
+
+`client_ip` 只读 `headers` 和 `client`，HTTP 请求和 WebSocket 走的是同一条代理链，所以签名
+从 `Request` 放宽到 starlette 的 `HTTPConnection`（两者的共同基类）。WS 鉴权处要用它记下
+用户的公网 IP（滥用 IP↔账号联动），口径必须和 HTTP 侧、和哨兵在 Caddy 日志里看到的一致。
 
 ## Intent
 

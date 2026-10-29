@@ -33,11 +33,17 @@ from typing import Any, Optional
 from uuid import uuid4 as _uuid4
 import jwt
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 from pydantic import BaseModel, ValidationError
 from loguru import logger
 
 from backend.config import settings
 from backend.auth import _account_state, _is_cloud_mode, decode_token
+from backend.middleware.login_ips import (
+    note_authenticated_request,
+    start_connection_presence,
+)
+from backend.routes._client_ip import client_ip
 from backend.routes._mcp_egress import filter_public_mcp_servers
 from backend.auth_errors import (
     ACCOUNT_SUSPENDED,
@@ -979,6 +985,22 @@ async def websocket_agent_run(websocket: WebSocket):
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
+
+            # Abuse IP<->account linkage: WS is exempt from the HTTP auth
+            # middleware, so note the active user's public IP here too — a token
+            # replayed over WS from a new address must reach instance_login_ips
+            # (throttled, background, never fails the connection). A WS carries
+            # one run and runs can last hours, so a presence task keeps the pair
+            # fresh until the socket closes (it then exits on its own; covers the
+            # new-run, reconnect and cross-process-follow branches alike).
+            ws_ip = client_ip(websocket)
+            note_authenticated_request(token_user_id, ws_ip)
+            start_connection_presence(
+                token_user_id,
+                ws_ip,
+                lambda: websocket.application_state == WebSocketState.CONNECTED
+                and websocket.client_state == WebSocketState.CONNECTED,
+            )
 
         # ---- Phase C reconnect branch ----
         # If the client supplied ``run_id``, this WS is reconnecting to

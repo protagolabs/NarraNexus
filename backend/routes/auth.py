@@ -75,6 +75,7 @@ from backend.auth_errors import (
     AuthError,
 )
 from backend.routes._client_ip import client_ip
+from backend.middleware.login_ips import record_login_ip
 from backend.routes._email_policy import is_blocked_email
 from backend.routes._rate_limiter import SlidingWindowRateLimiter, env_limit
 from narranexus.platform.agent_profile import apply_agent_profile_change
@@ -111,7 +112,11 @@ async def _schedule_login_rearm(user_id: str) -> None:
 
         await notify_user_runnability_changed(user_id)
     except Exception:  # noqa: BLE001 — never let recovery wiring break login
-        pass
+        # Log, never re-raise: login must not fail on the re-arm, but
+        # emit_host_event deliberately raises UnknownEntry (renamed or
+        # unregistered hook) so "jobs stop re-arming after login" is visible —
+        # a bare `pass` here would erase that signal.
+        logger.opt(exception=True).warning(f"[login] rearm notify failed user={user_id}")
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -797,7 +802,19 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         f"netmind-login ok: user={user.user_id} new={is_new} "
         f"source={request.source or '-'}"
     )
-    _schedule_login_rearm(user.user_id)
+    # Awaited: it is `async def`, and calling it bare only built a coroutine that
+    # was garbage-collected — cloud logins never revived PAUSED_NO_QUOTA jobs
+    # (the local /login path below always awaited it). It only schedules the
+    # recovery work and swallows its own errors, so login stays fast and safe.
+    await _schedule_login_rearm(user.user_id)
+
+    # Record (user_id, client_ip) for abuse IP<->account linkage (2026-10-28
+    # incident): the sentinel ties a scanning IP to the account(s) behind it.
+    # Placed AFTER every refusal `raise` above, so a refused login records
+    # nothing; best-effort inside (never breaks a login). Subsequent activity
+    # from other IPs is noted by the auth middleware — see
+    # backend/middleware/login_ips.py for why login alone is not enough.
+    await record_login_ip(db_client, user.user_id, client_ip(http_request))
 
     # Provision the user's providers — free tier FIRST, then their own NetMind
     # account. Both are fire-and-forget (login must never block on, or fail
