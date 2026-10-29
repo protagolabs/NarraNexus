@@ -1,8 +1,23 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — JWT 分支记下活跃用户的公网 IP（滥用 IP↔账号联动）
+
+账号状态门通过之后（只有**活跃的真实用户 JWT**，被封账号 403 在前、服务身份分支更早
+return）调 `backend.middleware.login_ips.note_authenticated_request(user_id, client_ip)`：
+按 (user, ip) 节流、后台写 `instance_login_ips`，不阻塞也不失败请求。为什么不只在登录时记：
+JWT 活 7 天且可换地址用，只记登录会让 `last_seen` 停在签发时刻（哨兵 24h 窗口查不到人），
+也看不到 token 被**重放**的那个 IP——正是"A 地址登录、VPS 上扫描"的攻击者。
+**nx-agent 服务 bearer 分支同样记**（review #423 I-5）：它也是把请求认成具体 user_id 的鉴权
+入口，而且正是 2026-10-28 攻击者从公网重放的那种凭证。放在它自己的账号状态门之后、
+`return` 之前，与 JWT 分支同一个"只记活跃账号"语义；集群内 executor→backend 的正常调用来自
+docker 内网地址，被记录器的公网过滤挡掉，所以只有公网重放才落行。
+记录器 `note_authenticated_request` 在模块顶层导入（它不依赖 `backend.routes`）；只有
+`client_ip` 必须函数内导入——`backend.routes` 的包 init 会导入引用本模块的路由，顶层导入
+会循环。
 
 ## 2026-10-28 — service bearer 不再绕过封号门
 

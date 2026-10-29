@@ -203,3 +203,60 @@ async def test_ws_hands_back_a_won_probe_when_setup_throws_before_the_run(
             ws.receive_json()
 
     assert released == [(_first_message("alice")["agent_id"], "tok-ws")]
+
+
+@pytest.mark.asyncio
+async def test_active_user_ws_notes_its_public_ip(
+    force_cloud_mode, clear_state_cache, wire_db, monkeypatch
+):
+    """WS is the main run path and is exempt from the HTTP auth middleware, so it
+    must note (user, ip) itself — a token replayed over WS from a new address
+    (to drive an agent) has to reach instance_login_ips too. The recorder is
+    covered in test_login_ips.py; this pins the wiring."""
+    await _seed(wire_db, "alice", status="active")
+
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb_mod
+
+    async def _skip(_agent_id, db=None):
+        return cb_mod.GateVerdict(skip=True, reason="cooling")
+
+    monkeypatch.setattr(cb_mod, "should_skip", _skip)
+    noted = []
+    presence = []
+    monkeypatch.setattr(ws_mod, "note_authenticated_request", lambda uid, ip: noted.append((uid, ip)))
+    monkeypatch.setattr(
+        ws_mod, "start_connection_presence",
+        lambda uid, ip, is_alive: presence.append((uid, ip, is_alive())),
+    )
+
+    client = TestClient(_build_app())
+    with client.websocket_connect(
+        "/ws/agent/run", headers={"x-forwarded-for": "93.184.216.34, 10.0.0.1"}
+    ) as ws:
+        ws.send_json(_first_message("alice"))
+        ws.receive_json()
+
+    assert noted == [("alice", "93.184.216.34")]
+    # a long run keeps last_seen fresh: presence starts for the same pair, and
+    # its liveness probe reads the live socket
+    assert presence == [("alice", "93.184.216.34", True)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["banned", "blocked"])
+async def test_suspended_user_ws_is_not_noted(
+    force_cloud_mode, clear_state_cache, wire_db, monkeypatch, status
+):
+    await _seed(wire_db, "bob", status=status)
+    noted = []
+    monkeypatch.setattr(ws_mod, "note_authenticated_request", lambda uid, ip: noted.append((uid, ip)))
+    monkeypatch.setattr(ws_mod, "start_connection_presence", lambda *a: noted.append(("presence",)))
+
+    client = TestClient(_build_app())
+    with client.websocket_connect(
+        "/ws/agent/run", headers={"x-forwarded-for": "93.184.216.34, 10.0.0.1"}
+    ) as ws:
+        ws.send_json(_first_message("bob"))
+        ws.receive_json()
+
+    assert noted == []

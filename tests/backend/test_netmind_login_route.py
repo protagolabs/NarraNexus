@@ -302,3 +302,164 @@ async def test_a_failing_free_tier_does_not_block_the_netmind_card(monkeypatch):
 
     await _provision_providers(_CODE, "tok")
     assert ran == [_CODE]
+
+
+# ─────────────────── login-IP recording (abuse IP↔account linkage) ───────────
+# A successful login records (user_id, client_ip) in instance_login_ips so the
+# sentinel can later link a scanning IP to the account(s) behind it and ban both
+# together (2026-10-28 incident response). The IP is the one client_ip() sees
+# behind the Caddy->nginx chain, so an X-Forwarded-For with 2+ hops is needed
+# for the -2nd entry to be the "client". It must be a PUBLIC address — the
+# recorder drops private / doc-range / loopback ones (see test_login_ips.py).
+
+PUBLIC_IP = "93.184.216.34"
+OTHER_PUBLIC_IP = "1.1.1.1"
+
+
+def _silence_login_background_work(monkeypatch):
+    """Silence every background job a successful login schedules (both provider
+    provisioners AND the onboarding guide agent, which is ON by default) so the
+    login path leaks no task racing the test DB — the known "pytest won't exit"
+    pit."""
+    import backend.integrations.free_tier.provisioner as prov_mod
+    import backend.integrations.netmind.netmind_provisioner as nm_prov_mod
+    import backend.routes.auth as auth_mod
+
+    async def _noop(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(prov_mod, "ensure_free_tier_provider", _noop)
+    monkeypatch.setattr(nm_prov_mod, "ensure_netmind_provider", _noop)
+    monkeypatch.setattr(auth_mod, "_schedule_guide_agent_provisioning", lambda *a, **k: None)
+
+
+@pytest.fixture
+def _fresh_login_ip_recorder(monkeypatch):
+    import backend.middleware.login_ips as login_ips
+
+    monkeypatch.setattr(login_ips, "_last_recorded", {})
+    monkeypatch.setattr(login_ips, "_last_prune", 0.0)
+    return login_ips
+
+
+@pytest.mark.asyncio
+async def test_netmind_login_records_client_ip(db_client, monkeypatch, _fresh_login_ip_recorder):
+    _silence_login_background_work(monkeypatch)
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
+
+    resp = client.post(
+        "/api/auth/netmind-login",
+        json={"netmind_token": "t"},
+        headers={"x-forwarded-for": f"{PUBLIC_IP}, 10.0.0.1"},
+    )
+    assert resp.status_code == 200
+
+    rows = await db_client.get("instance_login_ips", {"user_id": _CODE})
+    assert len(rows) == 1
+    assert rows[0]["ip"] == PUBLIC_IP
+    assert rows[0]["last_seen"] > 0
+
+
+@pytest.mark.asyncio
+async def test_netmind_login_ip_upsert_dedups_and_bumps_last_seen(
+    db_client, monkeypatch, _fresh_login_ip_recorder
+):
+    login_ips = _fresh_login_ip_recorder
+    _silence_login_background_work(monkeypatch)
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
+    hdr = {"x-forwarded-for": f"{PUBLIC_IP}, 10.0.0.1"}
+
+    # Pin the clock: whole-second epochs from two back-to-back logins are equal,
+    # so a ">=" check would pass even if the conflict arm never updated.
+    monkeypatch.setattr(login_ips, "wall_clock", lambda: 1_000)
+    assert client.post("/api/auth/netmind-login", json={"netmind_token": "t"}, headers=hdr).status_code == 200
+    first = (await db_client.get("instance_login_ips", {"user_id": _CODE}))[0]
+
+    monkeypatch.setattr(login_ips, "wall_clock", lambda: 2_000)
+    assert client.post("/api/auth/netmind-login", json={"netmind_token": "t"}, headers=hdr).status_code == 200
+
+    rows = await db_client.get("instance_login_ips", {"user_id": _CODE})
+    assert len(rows) == 1                               # same (user,ip) → one row
+    assert rows[0]["last_seen"] == 2_000                # strictly advanced
+    assert rows[0]["created_at"] == first["created_at"]  # first-seen preserved
+
+
+@pytest.mark.asyncio
+async def test_netmind_login_distinct_ips_make_distinct_rows(db_client, monkeypatch, _fresh_login_ip_recorder):
+    _silence_login_background_work(monkeypatch)
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
+
+    client.post("/api/auth/netmind-login", json={"netmind_token": "t"},
+                headers={"x-forwarded-for": f"{PUBLIC_IP}, 10.0.0.1"})
+    client.post("/api/auth/netmind-login", json={"netmind_token": "t"},
+                headers={"x-forwarded-for": f"{OTHER_PUBLIC_IP}, 10.0.0.1"})
+
+    rows = await db_client.get("instance_login_ips", {"user_id": _CODE})
+    assert {r["ip"] for r in rows} == {PUBLIC_IP, OTHER_PUBLIC_IP}
+
+
+@pytest.mark.asyncio
+async def test_refused_login_records_no_ip(db_client, monkeypatch, _fresh_login_ip_recorder):
+    """A login refused AFTER the account is known (suspended) must NOT record an
+    IP — the upsert sits past every refusal `raise`, not before it."""
+    _silence_login_background_work(monkeypatch)
+    code = _CODE
+    await db_client.insert(
+        "users", {"user_id": code, "user_type": "individual", "status": "banned"}
+    )
+    user = NetmindUser(user_system_code=code, email="x@y.z", nickname="X")
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(user))
+
+    resp = client.post(
+        "/api/auth/netmind-login",
+        json={"netmind_token": "t"},
+        headers={"x-forwarded-for": f"{PUBLIC_IP}, 10.0.0.1"},
+    )
+    assert resp.status_code == 403
+
+    rows = await db_client.get("instance_login_ips", {"user_id": code})
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_netmind_login_actually_runs_the_rearm(db_client, monkeypatch, _fresh_login_ip_recorder):
+    """_schedule_login_rearm is `async def`; called without `await` it only built
+    a coroutine that was garbage-collected, so cloud logins never revived a
+    user's PAUSED_NO_QUOTA jobs (the local /login path awaited it)."""
+    import backend.host_events as host_events
+
+    seen: list[str] = []
+
+    async def _notify(user_id):
+        seen.append(user_id)
+
+    monkeypatch.setattr(host_events, "notify_user_runnability_changed", _notify)
+    _silence_login_background_work(monkeypatch)
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
+
+    assert client.post("/api/auth/netmind-login", json={"netmind_token": "t"}).status_code == 200
+    assert seen == [_CODE]
+
+
+
+@pytest.mark.asyncio
+async def test_rearm_failure_is_logged_not_swallowed(db_client, monkeypatch, _fresh_login_ip_recorder):
+    """Once awaited, the rearm's except must not erase the signal: emit_host_event
+    deliberately raises UnknownEntry (renamed/unregistered hook) so that "jobs
+    stop re-arming after login" is visible. The login still succeeds."""
+    import backend.host_events as host_events
+    from loguru import logger
+
+    async def _boom(user_id):
+        raise RuntimeError("hook renamed")
+
+    monkeypatch.setattr(host_events, "notify_user_runnability_changed", _boom)
+    _silence_login_background_work(monkeypatch)
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="WARNING")
+    try:
+        client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
+        assert client.post("/api/auth/netmind-login", json={"netmind_token": "t"}).status_code == 200
+    finally:
+        logger.remove(sink)
+    assert any("rearm" in ln and "hook renamed" in ln for ln in lines)
