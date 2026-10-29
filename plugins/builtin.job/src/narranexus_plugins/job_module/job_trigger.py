@@ -166,7 +166,11 @@ def _is_no_quota_failure(result: Dict[str, Any]) -> bool:
     """True when a failed job result won't fix itself by waiting — pause
     (PAUSED_NO_QUOTA) instead of rescheduling.
 
-    Covers three groups:
+    A platform-side executor failure (``error_type == infra_transient``) is
+    excluded up front — it is never the owner's quota problem, and its message
+    carries raw detail the substring markers below would misread.
+
+    Otherwise covers three groups:
     1. quota/provider-config exhaustion by error TYPE (`_NO_QUOTA_ERROR_TYPES`);
     2. any deterministic SELF-SERVICEABLE failure — insufficient balance/quota,
        context window too small, model-not-found (#110's `classify_self_serviceable`,
