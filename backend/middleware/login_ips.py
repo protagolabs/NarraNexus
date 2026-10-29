@@ -44,13 +44,17 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 from time import time as wall_clock
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
 from narranexus.kernel.deployment import is_cloud_mode
 
 TABLE = "instance_login_ips"
+# These two values are the contract the reader (deploy repo, nexus_sentinel
+# app/account_linker.py WRITER_REFRESH_SEC / WRITER_RETENTION_SEC) mirrors to
+# reject an ACCESS_LINK_WINDOW_SEC outside (refresh, retention) at boot.
+# Change them together.
 #: authenticated activity refreshes a (user, ip) row at most this often
 RECORD_THROTTLE_SEC = 600
 #: rows idle longer than this are pruned (≫ the sentinel's 24h link window)
@@ -84,19 +88,36 @@ def _mark(user_id: str, ip: str, now: float) -> None:
     _last_recorded[(user_id, ip)] = now
 
 
-async def _maybe_prune(db_client: Any, now: int) -> None:
+def _spawn(coro) -> asyncio.Task:
+    """Background task with a strong ref and a failure log (CLAUDE.md lesson #2)."""
+    task = asyncio.get_running_loop().create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    task.add_done_callback(_log_task_failure)
+    return task
+
+
+async def _prune(db_client: Any, cutoff: int) -> None:
+    try:
+        await db_client.execute(
+            f"DELETE FROM {TABLE} WHERE last_seen < %s",
+            params=(cutoff,),
+            fetch=False,
+        )
+    except Exception:  # noqa: BLE001 — retention is housekeeping, never a failure path
+        logger.opt(exception=True).warning("[login-ips] prune failed")
+
+
+def _maybe_prune(db_client: Any, now: int) -> None:
+    """Schedule the retention DELETE at most once per interval, in the
+    background: the login path awaits record_login_ip and must not wait on
+    housekeeping. The clock is stamped BEFORE the attempt so a persistently
+    failing DELETE is retried hourly, not on every call."""
     global _last_prune
     if now - _last_prune < _PRUNE_INTERVAL_SEC:
         return
     _last_prune = now
-    try:
-        await db_client.execute(
-            f"DELETE FROM {TABLE} WHERE last_seen < %s",
-            params=(now - RETENTION_SEC,),
-            fetch=False,
-        )
-    except Exception:  # noqa: BLE001 — retention is housekeeping, never a failure path
-        logger.warning("[login-ips] prune failed", exc_info=True)
+    _spawn(_prune(db_client, now - RETENTION_SEC))
 
 
 async def record_login_ip(db_client: Any, user_id: str, ip: str) -> bool:
@@ -127,10 +148,10 @@ async def record_login_ip(db_client: Any, user_id: str, ip: str) -> bool:
             "pair_key",
         )
     except Exception:  # noqa: BLE001 — recording must never break the caller
-        logger.warning(f"[login-ips] record failed user={user_id}", exc_info=True)
+        logger.opt(exception=True).warning(f"[login-ips] record failed user={user_id}")
         return False
     _mark(user_id, ip, now)
-    await _maybe_prune(db_client, now)
+    _maybe_prune(db_client, now)
     return True
 
 
@@ -139,8 +160,16 @@ async def _record_in_background(user_id: str, ip: str) -> None:
     # get_db_client the auth middleware uses is the one that is called.
     from narranexus.platform.utils.db.db_factory import get_db_client
 
-    db_client = await get_db_client()
-    await record_login_ip(db_client, user_id, ip)
+    written = False
+    try:
+        db_client = await get_db_client()
+        written = await record_login_ip(db_client, user_id, ip)
+    finally:
+        if not written:
+            # Release the claim taken in note_authenticated_request so a
+            # transient failure does not blind this pair for the whole
+            # throttle window — the next request retries.
+            _last_recorded.pop((user_id, ip), None)
 
 
 def _log_task_failure(task: asyncio.Task) -> None:
@@ -165,10 +194,32 @@ def note_authenticated_request(user_id: str, ip: str) -> None:
     if last is not None and now - last < RECORD_THROTTLE_SEC:
         return
     _mark(user_id, ip, now)
-    task = asyncio.get_running_loop().create_task(_record_in_background(user_id, ip))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    task.add_done_callback(_log_task_failure)
+    _spawn(_record_in_background(user_id, ip))
+
+
+async def _presence_loop(user_id: str, ip: str, is_alive: Callable[[], bool]) -> None:
+    while True:
+        await asyncio.sleep(RECORD_THROTTLE_SEC)
+        if not is_alive():
+            return
+        note_authenticated_request(user_id, ip)
+
+
+def start_connection_presence(
+    user_id: str, ip: str, is_alive: Callable[[], bool]
+) -> asyncio.Task | None:
+    """Keep (user, ip) fresh for the life of a long connection.
+
+    A WebSocket carries one agent run, and runs may last tens of hours (CLAUDE.md
+    rule #14); noting the pair only at connect would let ``last_seen`` age out of
+    the reader's window mid-run. The task re-notes every ``RECORD_THROTTLE_SEC``
+    while ``is_alive()`` and exits on its own within one interval after the
+    connection closes, so the caller needs no teardown. Covers every WS branch
+    (new run, reconnect, cross-process follow) from one call site.
+    """
+    if not user_id or not is_recordable_ip(ip):
+        return None
+    return _spawn(_presence_loop(user_id, ip, is_alive))
 
 
 __all__ = [
@@ -178,4 +229,5 @@ __all__ = [
     "is_recordable_ip",
     "note_authenticated_request",
     "record_login_ip",
+    "start_connection_presence",
 ]

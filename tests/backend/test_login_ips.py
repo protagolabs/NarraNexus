@@ -99,8 +99,17 @@ async def test_db_failure_is_swallowed(monkeypatch):
         async def execute(self, *a, **k):
             raise RuntimeError("db gone")
 
+    from loguru import logger
+
     _clock(monkeypatch, 1_000)
-    assert await login_ips.record_login_ip(_Boom(), UID, PUBLIC_IP) is False  # no raise
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="WARNING")
+    try:
+        assert await login_ips.record_login_ip(_Boom(), UID, PUBLIC_IP) is False  # no raise
+    finally:
+        logger.remove(sink)
+    # the cause must reach the log (loguru ignores stdlib's exc_info=True)
+    assert any("record failed" in ln and "db gone" in ln for ln in lines)
 
 
 @pytest.mark.asyncio
@@ -113,6 +122,7 @@ async def test_idle_rows_are_pruned_after_retention(db_client, monkeypatch):
     })
     _clock(monkeypatch, now)
     await login_ips.record_login_ip(db_client, UID, PUBLIC_IP)
+    await _drain()                                       # prune runs in the background
     assert await _rows(db_client, "b" * 32) == []        # idle past retention → gone
     assert len(await _rows(db_client)) == 1              # the fresh row stays
 
@@ -131,13 +141,17 @@ async def test_prune_runs_at_most_once_per_interval(db_client, monkeypatch):
     _clock(monkeypatch, 10 * 86_400)
     await login_ips.record_login_ip(db_client, UID, PUBLIC_IP)
     await login_ips.record_login_ip(db_client, UID, OTHER_PUBLIC_IP)
+    await _drain()
     assert len(calls) == 1
 
 
-def test_retention_outlives_the_sentinel_link_window():
-    # The sentinel links accounts seen from an IP in the last 24h; pruning inside
-    # that window would silently blind it. Retention must stay well above it.
+def test_retention_is_a_safe_lower_bound_for_the_reader():
+    # A LOWER-BOUND sentinel on this repo's own constant only. The real
+    # cross-repo check is the reader's: nexus_sentinel's link_window_problem()
+    # refuses (logs an error at boot) any ACCESS_LINK_WINDOW_SEC outside
+    # (RECORD_THROTTLE_SEC, RETENTION_SEC), mirroring these two values.
     assert login_ips.RETENTION_SEC >= 7 * 86_400
+    assert login_ips.RECORD_THROTTLE_SEC <= 600
 
 
 # ─────────────────────── note_authenticated_request ───────────────────────
@@ -258,6 +272,116 @@ async def test_suspended_user_request_is_not_recorded(db_client, monkeypatch, cl
     _wire(monkeypatch, db_client)
     await db_client.insert("users", {"user_id": UID, "user_type": "individual", "status": "banned"})
     resp = await _get(UID, f"{PUBLIC_IP}, 10.0.0.1")
+    assert resp.status_code == 403
+    await _drain()
+    assert await _rows(db_client) == []
+
+
+
+@pytest.mark.asyncio
+async def test_prune_does_not_block_the_caller(db_client, monkeypatch):
+    """The login path awaits record_login_ip; housekeeping must not ride on it."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+    real_execute = db_client.execute
+
+    async def _slow(sql, *a, **k):
+        if "DELETE" in sql:
+            started.set()
+            await release.wait()
+        return await real_execute(sql, *a, **k)
+
+    monkeypatch.setattr(db_client, "execute", _slow)
+    _clock(monkeypatch, 10 * 86_400)
+    await asyncio.wait_for(login_ips.record_login_ip(db_client, UID, PUBLIC_IP), timeout=1)
+    await asyncio.wait_for(started.wait(), timeout=1)   # prune did start, in the background
+    release.set()
+    await _drain()
+
+
+@pytest.mark.asyncio
+async def test_failed_background_write_releases_the_claim(monkeypatch):
+    """A transient DB failure must not blind this (user, ip) for the whole
+    throttle window — the next request retries."""
+    import narranexus.platform.utils.db.db_factory as db_factory
+
+    async def _boom():
+        raise RuntimeError("db blip")
+
+    monkeypatch.setattr(db_factory, "get_db_client", lambda: _boom())
+    _clock(monkeypatch, 1_000)
+    login_ips.note_authenticated_request(UID, PUBLIC_IP)
+    await _drain()
+    assert (UID, PUBLIC_IP) not in login_ips._last_recorded
+    login_ips.note_authenticated_request(UID, PUBLIC_IP)   # retried at once
+    assert len(login_ips._background_tasks) == 1
+    await _drain()
+
+
+# ───────────── connection presence (long-lived WebSocket runs) ─────────────
+
+@pytest.mark.asyncio
+async def test_presence_refreshes_while_alive_and_stops_after(monkeypatch):
+    monkeypatch.setattr(login_ips, "RECORD_THROTTLE_SEC", 0.01)
+    noted = []
+    monkeypatch.setattr(login_ips, "note_authenticated_request", lambda u, ip: noted.append((u, ip)))
+    alive = {"v": True}
+    task = login_ips.start_connection_presence(UID, PUBLIC_IP, lambda: alive["v"])
+    assert task is not None
+    await asyncio.sleep(0.05)
+    assert len(noted) >= 2                         # refreshed during the connection
+    alive["v"] = False
+    await asyncio.wait_for(task, timeout=1)       # exits on its own once closed
+    n = len(noted)
+    await asyncio.sleep(0.03)
+    assert len(noted) == n                         # no refresh after close
+
+
+def test_presence_not_started_for_non_public_ip():
+    assert login_ips.start_connection_presence(UID, "172.18.0.4", lambda: True) is None
+
+
+# ───────────────── the third auth entry: nx-agent service bearer ─────────────────
+
+def _service_bearer_headers(tmp_path, monkeypatch, user_id):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    from narranexus.platform.module_system._mcp_identity import agent_id_headers
+    from narranexus.platform.module_system.identity.tokens import ISSUER_BROKER, sign_identity_token
+
+    priv = ed25519.Ed25519PrivateKey.generate()
+    pub = tmp_path / "identity_ed25519.pub"
+    pub.write_bytes(priv.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    monkeypatch.setenv("NX_IDENTITY_PUBLIC_KEY_FILE", str(pub))
+    priv_pem = priv.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    token = sign_identity_token(user_id, priv_pem, issuer=ISSUER_BROKER)
+    return agent_id_headers("agent_39b2b72b823b", user_id=user_id, identity_token=token)
+
+
+async def _get_service(headers, xff):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_app()), base_url="http://t") as ac:
+        return await ac.get("/api/agents", headers={**headers, "x-forwarded-for": xff})
+
+
+@pytest.mark.asyncio
+async def test_service_bearer_from_a_public_ip_is_recorded(db_client, monkeypatch, cloud, tmp_path):
+    # The 2026-10-28 attacker replayed a sandbox identity token from the internet.
+    # That credential is a user-scoped auth entry too and must feed the linkage.
+    _wire(monkeypatch, db_client)
+    await db_client.insert("users", {"user_id": UID, "user_type": "individual", "status": "active"})
+    resp = await _get_service(_service_bearer_headers(tmp_path, monkeypatch, UID), f"{PUBLIC_IP}, 10.0.0.1")
+    assert resp.status_code == 200
+    await _drain()
+    assert [r["ip"] for r in await _rows(db_client)] == [PUBLIC_IP]
+
+
+@pytest.mark.asyncio
+async def test_suspended_service_bearer_is_not_recorded(db_client, monkeypatch, cloud, tmp_path):
+    _wire(monkeypatch, db_client)
+    await db_client.insert("users", {"user_id": UID, "user_type": "individual", "status": "banned"})
+    resp = await _get_service(_service_bearer_headers(tmp_path, monkeypatch, UID), f"{PUBLIC_IP}, 10.0.0.1")
     assert resp.status_code == 403
     await _drain()
     assert await _rows(db_client) == []

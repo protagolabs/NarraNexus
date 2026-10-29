@@ -325,7 +325,7 @@ def _silence_login_background_work(monkeypatch):
     import backend.integrations.netmind.netmind_provisioner as nm_prov_mod
     import backend.routes.auth as auth_mod
 
-    async def _noop(user_id, **_kw):
+    async def _noop(*_a, **_kw):
         return None
 
     monkeypatch.setattr(prov_mod, "ensure_free_tier_provider", _noop)
@@ -439,3 +439,27 @@ async def test_netmind_login_actually_runs_the_rearm(db_client, monkeypatch, _fr
 
     assert client.post("/api/auth/netmind-login", json={"netmind_token": "t"}).status_code == 200
     assert seen == [_CODE]
+
+
+
+@pytest.mark.asyncio
+async def test_rearm_failure_is_logged_not_swallowed(db_client, monkeypatch, _fresh_login_ip_recorder):
+    """Once awaited, the rearm's except must not erase the signal: emit_host_event
+    deliberately raises UnknownEntry (renamed/unregistered hook) so that "jobs
+    stop re-arming after login" is visible. The login still succeeds."""
+    import backend.host_events as host_events
+    from loguru import logger
+
+    async def _boom(user_id):
+        raise RuntimeError("hook renamed")
+
+    monkeypatch.setattr(host_events, "notify_user_runnability_changed", _boom)
+    _silence_login_background_work(monkeypatch)
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="WARNING")
+    try:
+        client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
+        assert client.post("/api/auth/netmind-login", json={"netmind_token": "t"}).status_code == 200
+    finally:
+        logger.remove(sink)
+    assert any("rearm" in ln and "hook renamed" in ln for ln in lines)

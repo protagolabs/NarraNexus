@@ -222,7 +222,12 @@ async def test_active_user_ws_notes_its_public_ip(
 
     monkeypatch.setattr(cb_mod, "should_skip", _skip)
     noted = []
+    presence = []
     monkeypatch.setattr(ws_mod, "note_authenticated_request", lambda uid, ip: noted.append((uid, ip)))
+    monkeypatch.setattr(
+        ws_mod, "start_connection_presence",
+        lambda uid, ip, is_alive: presence.append((uid, ip, is_alive())),
+    )
 
     client = TestClient(_build_app())
     with client.websocket_connect(
@@ -232,6 +237,9 @@ async def test_active_user_ws_notes_its_public_ip(
         ws.receive_json()
 
     assert noted == [("alice", "93.184.216.34")]
+    # a long run keeps last_seen fresh: presence starts for the same pair, and
+    # its liveness probe reads the live socket
+    assert presence == [("alice", "93.184.216.34", True)]
 
 
 @pytest.mark.asyncio
@@ -242,6 +250,7 @@ async def test_suspended_user_ws_is_not_noted(
     await _seed(wire_db, "bob", status=status)
     noted = []
     monkeypatch.setattr(ws_mod, "note_authenticated_request", lambda uid, ip: noted.append((uid, ip)))
+    monkeypatch.setattr(ws_mod, "start_connection_presence", lambda *a: noted.append(("presence",)))
 
     client = TestClient(_build_app())
     with client.websocket_connect(

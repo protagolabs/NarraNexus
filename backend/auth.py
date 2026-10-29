@@ -28,6 +28,7 @@ from narranexus.kernel.deployment import is_cloud_mode as _kernel_is_cloud_mode
 
 from narranexus.platform.schema import NON_TRANSACTING_USER_STATUSES
 
+from backend.middleware.login_ips import note_authenticated_request
 from backend.auth_errors import (
     ACCOUNT_SUSPENDED,
     GATEWAY_TOKEN_INVALID,
@@ -815,6 +816,13 @@ async def auth_middleware(request: Request, call_next):
         request.state.user_id = identity.user_id
         request.state.role = "user"
         request.state.nx_service_authed = True
+        # Abuse IP<->account linkage, same as the JWT branch: this credential
+        # is exactly what the 2026-10-28 attacker replayed from the internet.
+        # In-cluster executor calls come from docker-internal addresses and are
+        # filtered out by the recorder, so only a public replay lands a row.
+        from backend.routes._client_ip import client_ip
+
+        note_authenticated_request(identity.user_id, client_ip(request))
         from narranexus.platform.agent_framework.api_config import set_current_user_id
 
         set_current_user_id(identity.user_id)
@@ -875,9 +883,9 @@ async def auth_middleware(request: Request, call_next):
     # authenticating from (throttled per (user, ip), written in the background,
     # never blocks or fails the request). A JWT is portable across addresses,
     # so login-time recording alone misses the IP a token is replayed from —
-    # see backend/middleware/login_ips.py. Imported here, not at module top:
-    # backend.routes' package init imports routers that import this module.
-    from backend.middleware.login_ips import note_authenticated_request
+    # see backend/middleware/login_ips.py. client_ip is imported here, not at
+    # module top: backend.routes' package init imports routers that import
+    # this module.
     from backend.routes._client_ip import client_ip
 
     note_authenticated_request(request.state.user_id, client_ip(request))

@@ -112,7 +112,11 @@ async def _schedule_login_rearm(user_id: str) -> None:
 
         await notify_user_runnability_changed(user_id)
     except Exception:  # noqa: BLE001 — never let recovery wiring break login
-        pass
+        # Log, never re-raise: login must not fail on the re-arm, but
+        # emit_host_event deliberately raises UnknownEntry (renamed or
+        # unregistered hook) so "jobs stop re-arming after login" is visible —
+        # a bare `pass` here would erase that signal.
+        logger.opt(exception=True).warning(f"[login] rearm notify failed user={user_id}")
 
 
 @router.post("/login", response_model=LoginResponse)

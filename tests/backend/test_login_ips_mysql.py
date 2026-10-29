@@ -9,6 +9,8 @@ retention DELETE. Enable with NARRANEXUS_MYSQL_TEST_URL; skipped otherwise.
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 import pytest_asyncio
 
@@ -35,6 +37,7 @@ IP = "93.184.216.34"
 async def mysql_client(monkeypatch):
     monkeypatch.setattr(login_ips, "_last_recorded", {})
     monkeypatch.setattr(login_ips, "_last_prune", 0.0)
+    monkeypatch.setattr(login_ips, "_background_tasks", set())
     backend = MySQLBackend(parse_mysql_url(mysql_url()))
     await backend.initialize()
     await auto_migrate(backend)
@@ -74,6 +77,8 @@ async def test_retention_delete_runs_on_mysql(mysql_client, monkeypatch):
     })
     monkeypatch.setattr(login_ips, "wall_clock", lambda: now)
     await login_ips.record_login_ip(mysql_client, UID, IP)
+    # the retention DELETE runs in the background — wait for it
+    await asyncio.gather(*list(login_ips._background_tasks), return_exceptions=True)
     # MySQL returns an empty tuple where SQLite returns [] — compare emptiness
     assert len(await mysql_client.get(login_ips.TABLE, {"user_id": STALE_UID})) == 0
     assert len(await mysql_client.get(login_ips.TABLE, {"user_id": UID})) == 1

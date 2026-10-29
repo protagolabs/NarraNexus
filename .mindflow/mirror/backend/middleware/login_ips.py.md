@@ -38,6 +38,19 @@ stub: false
   （CLAUDE.md 事故教训 #2：fire-and-forget 必须配回调），并持强引用防止被 GC。
 - **节流表是进程内优化**，丢了只是多一次 upsert，不是需要跨进程 seam 的共享状态；有
   `_THROTTLE_MAX_ENTRIES` 上界防泄漏。pair 在调度**前**占位，并发请求只排一次写。
+- **清理在后台跑**：`_maybe_prune` 只调度不等待——登录路径 await `record_login_ip`，
+  不能被一个区间 DELETE 拖慢。时钟在尝试**之前**打戳，持续失败的 DELETE 每小时只试一次。
+- **后台写失败要释放占位**：`note_*` 先占位再调度（并发突发只排一次写），但写没落地时
+  `_record_in_background` 把占位 pop 掉，否则一次 DB 抖动会让该 pair 盲 10 分钟。
+- **长连接 presence**：`start_connection_presence` 给 WebSocket 用——一条 WS 承载一个 run，
+  run 可跑几十小时（铁律 #14），只在建连时记会让 `last_seen` 在 run 中途滑出读方窗口。任务
+  每 `RECORD_THROTTLE_SEC` 重记一次，连接断开后一个周期内自行退出，调用方无需收尾；一个
+  调用点覆盖新 run / 重连 / 跨进程跟随三条分支。
+- **跨仓契约**：`RECORD_THROTTLE_SEC` / `RETENTION_SEC` 被 deploy 仓哨兵
+  `account_linker.WRITER_REFRESH_SEC` / `WRITER_RETENTION_SEC` 镜像，用来在启动时拒绝落在
+  (刷新, 保留) 区间外的 `ACCESS_LINK_WINDOW_SEC`。改一边必须改另一边。
+- **日志带异常用 `logger.opt(exception=True)`**：loguru 不认 stdlib 的 `exc_info=True`
+  （会被当成格式化参数丢掉），写成那样告警里就没有原因了。测试钉住。
 - **`get_db_client` 在调用时解析**（不在模块加载时绑定），与 auth 中间件用同一个工厂，
   测试桩一致生效。
 - 写入字段：`pair_key=f"{user_id}|{ip}"` 对上表的单列唯一冲突目标；不写 `created_at`，

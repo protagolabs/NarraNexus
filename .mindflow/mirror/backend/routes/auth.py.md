@@ -16,6 +16,10 @@ stub: false
   登录从没触发过 `notify_user_runnability_changed`（充值/修好配置后重登，PAUSED_NO_QUOTA
   的 job 不会被唤醒）；本地 `/login` 一直是 await 的。它只调度恢复工作、自吞异常，await
   不拖慢也不打断登录。测试钉住（`test_netmind_login_actually_runs_the_rearm`）。
+  它的 `except` 从裸 `pass` 改为 `logger.opt(exception=True).warning`（review I-6）：补了
+  await 之后这里第一次真正生效，而 `emit_host_event` 故意把 `UnknownEntry`（hook 改名/未
+  注册）上抛，就是为了让"登录后 job 不再被唤醒"可见——裸 `pass` 会把这个信号抹掉。只记日志，
+  绝不 re-raise（登录不能因 re-arm 失败）。
 
 ## 2026-10-28（PR #419 review I-8）— funnel 三个限额改走 `env_limit`
 
