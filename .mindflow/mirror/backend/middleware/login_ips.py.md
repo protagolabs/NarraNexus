@@ -41,10 +41,13 @@ stub: false
 - **清理在后台跑**：`_maybe_prune` 只调度不等待——登录路径 await `record_login_ip`，
   不能被一个区间 DELETE 拖慢。时钟在尝试**之前**打戳，持续失败的 DELETE 每小时只试一次。
 - **后台写失败要释放占位**：`note_*` 先占位再调度（并发突发只排一次写），但写没落地时
-  `_record_in_background` 把占位 pop 掉，否则一次 DB 抖动会让该 pair 盲 10 分钟。
+  `_record_in_background` 把占位 pop 掉，否则一次 DB 抖动会让该 pair 盲 10 分钟。释放是
+  尽力而为：若同一 pair 稍后的写已成功并重新打标，这次 pop 最坏只换来多一次幂等 upsert，
+  数据不会错；别把它当精确的占位计数去扩展。
 - **长连接 presence**：`start_connection_presence` 给 WebSocket 用——一条 WS 承载一个 run，
   run 可跑几十小时（铁律 #14），只在建连时记会让 `last_seen` 在 run 中途滑出读方窗口。任务
-  每 `RECORD_THROTTLE_SEC` 重记一次，连接断开后一个周期内自行退出，调用方无需收尾；一个
+  每 `RECORD_THROTTLE_SEC` 重记一次，连接断开后一个周期内自行退出，调用方无需收尾；但有
+  现成收尾点的调用方（WS handler 的 `finally`）应取消返回的任务，立刻释放连接对象。一个
   调用点覆盖新 run / 重连 / 跨进程跟随三条分支。
 - **跨仓契约**：`RECORD_THROTTLE_SEC` / `RETENTION_SEC` 被 deploy 仓哨兵
   `account_linker.WRITER_REFRESH_SEC` / `WRITER_RETENTION_SEC` 镜像，用来在启动时拒绝落在
