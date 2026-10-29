@@ -473,8 +473,11 @@ _OOM_RETURNCODE_MARKERS: tuple[str, ...] = (
     "exit code -6",
 )
 
-# Exact exception class name raised at the executor transport boundary.
-_EXECUTOR_UNREACHABLE_TYPE = "ExecutorUnreachableError"
+# Exact exception class names raised at the executor transport boundary.
+# ExecutorAuthError (the executor rejected the API token) shares the
+# unreachable reason: same user guidance (resend), same no-fallback handling;
+# the audit row's error_type keeps the two apart for ops.
+_EXECUTOR_UNREACHABLE_TYPES = frozenset({"ExecutorUnreachableError", "ExecutorAuthError"})
 
 
 def classify_executor_infra_failure(
@@ -489,7 +492,7 @@ def classify_executor_infra_failure(
     error is NOT one of these — it is a transient the circuit breaker retries.
     """
     et = (error_type or "").strip()
-    if et == _EXECUTOR_UNREACHABLE_TYPE:
+    if et in _EXECUTOR_UNREACHABLE_TYPES:
         return EXECUTOR_INFRA_REASON_UNREACHABLE
     hay = f"{et}\n{error_message or ''}".lower()
     if not hay.strip():

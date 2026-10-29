@@ -287,7 +287,9 @@ def get_agent_loop_driver(
         executor_token: the per-executor API token from the same broker
             ensure() (sandbox isolation, 2026-10-29). Handed ONLY to the remote
             driver — in-process factories never see it. ``None`` → no auth
-            header, which a pre-token executor accepts.
+            header, which a pre-token executor accepts. The static
+            ``AGENT_EXECUTOR_URL`` fallback has no broker and so no token:
+            it only works against an executor whose env carries none.
         **factory_kwargs: forwarded verbatim to the driver factory
             (e.g. ``working_path``).
 

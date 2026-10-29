@@ -39,3 +39,21 @@ class ExecutorUnreachableError(RuntimeError):
     def __init__(self, message: str, *, target: str | None = None) -> None:
         super().__init__(message)
         self.target = target
+
+
+class ExecutorAuthError(ExecutorUnreachableError):
+    """The executor rejected this call's API token (HTTP 401/403).
+
+    The executor requires the per-container token the broker planted
+    (sandbox isolation, 2026-10-29). A rejection is never the user's fault:
+    it means the orchestrator and that container disagree on the token (a
+    broker read-back failure, a cross-repo contract drift). Subclassing
+    ``ExecutorUnreachableError`` routes it down the SAME platform-failure path
+    — surfaced as ``infra_transient``, audited, never masked by a fabricated
+    helper-LLM reply — instead of the generic ``ClientResponseError`` path,
+    which the fallback would silently paper over on every turn. The audit row
+    keeps the real class name in ``error_type``, so ops can tell it apart from
+    a dropped connection. Its own class name is deliberately NOT in the
+    circuit breaker's transient set either. A resend usually recovers: the
+    broker rolls a container whose token it cannot read back.
+    """

@@ -81,8 +81,41 @@ def test_no_token_in_env_means_no_enforcement():
     assert c.post("/agent-loop").status_code == 200
 
 
-def test_the_real_app_is_wired_with_the_middleware():
-    assert any(m.cls is es.ExecutorTokenMiddleware for m in es.app.user_middleware)
+def test_the_token_middleware_wraps_outermost():
+    # Outermost, so a rejected call never reaches InFlightWorkMiddleware and
+    # never marks the container busy (= unreapable). Starlette applies
+    # user_middleware[0] outermost.
+    assert es.app.user_middleware[0].cls is es.ExecutorTokenMiddleware
+
+
+@pytest.mark.asyncio
+async def test_websocket_without_token_is_refused():
+    reached = []
+
+    async def inner(scope, receive, send):
+        reached.append(scope["type"])
+
+    sent = []
+
+    async def send(msg):
+        sent.append(msg)
+
+    mw = es.ExecutorTokenMiddleware(inner, token="s3cret")
+    await mw({"type": "websocket", "path": "/ws", "headers": []}, None, send)
+    assert reached == []
+    assert sent == [{"type": "websocket.close", "code": 1008}]
+    # lifespan is the only scope that bypasses the check
+    await mw({"type": "lifespan"}, None, send)
+    assert reached == ["lifespan"]
+
+
+def test_token_is_taken_out_of_the_environment(monkeypatch):
+    # Agent subprocesses inherit os.environ; the token must not ride along.
+    monkeypatch.setenv(proto.EXECUTOR_TOKEN_ENV, "planted")
+    assert es._take_executor_token() == "planted"
+    import os
+
+    assert proto.EXECUTOR_TOKEN_ENV not in os.environ
 
 
 def test_token_is_read_from_the_env_the_broker_plants(monkeypatch):
@@ -210,6 +243,38 @@ def test_factory_hands_the_token_to_the_remote_driver_only(monkeypatch):
     assert d._auth_headers == {"Authorization": "Bearer tok"}
 
 
+@pytest.mark.asyncio
+async def test_a_rejected_token_is_a_typed_platform_failure(monkeypatch):
+    # A 401 must not fall through as a generic ClientResponseError, which the
+    # helper-LLM fallback would paper over with a fabricated reply every turn.
+    from narranexus.platform.agent_framework.llm.failure import (
+        EXECUTOR_INFRA_REASON_UNREACHABLE,
+        classify_executor_infra_failure,
+    )
+    from narranexus.platform.agent_framework.loop.executor_errors import (
+        ExecutorAuthError,
+        ExecutorUnreachableError,
+    )
+
+    class _Denied(_Resp):
+        status = 401
+
+        def raise_for_status(self):
+            raise AssertionError("401 must be typed before raise_for_status")
+
+    class _DeniedSession(_Session):
+        def post(self, url, json, timeout=None):
+            return _Denied()
+
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _DeniedSession())
+    d = RemoteAgentLoopDriver(framework="claude_code", working_path="/tmp",
+                              executor_url="http://exec:8020", executor_token="stale")
+    with pytest.raises(ExecutorAuthError) as ei:
+        _ = [e async for e in d.agent_loop(messages=[], mcp_servers={})]
+    assert isinstance(ei.value, ExecutorUnreachableError)
+    assert classify_executor_infra_failure("ExecutorAuthError", "") == EXECUTOR_INFRA_REASON_UNREACHABLE
+
+
 # ------------------------------------------------------------ step 3 wiring
 
 
@@ -220,6 +285,28 @@ def test_step3_takes_url_and_token_from_the_ensure_result():
     ensured = ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False, executor_token="tok")
     assert step3._executor_target(ensured) == ("http://nx-exec-a:8020", "tok")
     assert step3._executor_target(None) == (None, None)
+
+
+def test_step3_builds_the_turn_driver_with_the_token():
+    step3 = importlib.import_module(
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+    ensured = ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False, executor_token="tok")
+    d = step3._build_turn_driver("claude_code", ensured, "/tmp")
+    assert isinstance(d, RemoteAgentLoopDriver)
+    assert d._auth_headers == {"Authorization": "Bearer tok"}
+
+
+def test_step3_body_builds_its_driver_through_the_tested_seam():
+    # The seam above is only worth testing if the turn actually uses it.
+    import inspect
+
+    step3 = importlib.import_module(
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+    body = inspect.getsource(step3.step_3_agent_loop)
+    assert "_build_turn_driver(" in body
+    assert "get_agent_loop_driver(" not in body
 
 
 # ------------------------------------------------------------ office watch proxy
@@ -277,3 +364,57 @@ async def test_office_watch_calls_present_the_token(monkeypatch):
     await owp._file_version_in_executor("a", "agent_x", "doc.docx")
     assert all(s.get("headers") == {"Authorization": "Bearer tok"} for s in sessions)
     assert len(sessions) == 2
+
+
+class _RecordingSession:
+    """Records the headers of the one upstream call, then fails it so the
+    proxy's own error path ends the request (no stream plumbing needed)."""
+
+    def __init__(self, sink, **kw):
+        self._sink = sink
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def close(self):
+        return None
+
+    async def get(self, url, headers=None, **k):
+        self._sink.append(headers or {})
+        raise aiohttp.ClientConnectionError("stop here")
+
+    async def post(self, url, data=None, headers=None, **k):
+        self._sink.append(headers or {})
+        raise aiohttp.ClientConnectionError("stop here")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cloud", [True, False])
+async def test_office_watch_passthrough_presents_the_token(monkeypatch, cloud):
+    from fastapi import HTTPException
+
+    owp = importlib.import_module("backend.routes.office_watch.proxy")
+
+    async def fake_ensure(user_id, **kw):
+        if not cloud:
+            return None
+        return ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False, executor_token="tok")
+
+    monkeypatch.setattr(owp, "ensure_executor", fake_ensure)
+    sink = []
+    monkeypatch.setattr(owp.aiohttp, "ClientSession", lambda **kw: _RecordingSession(sink, **kw))
+
+    with pytest.raises(HTTPException):
+        await owp._proxy_stream("a", 7900, "index.html", "", "/p", {"accept": "text/html"})
+    with pytest.raises(HTTPException):
+        await owp._post_upstream("a", 7900, "api/save", "", b"{}", "application/json")
+
+    assert len(sink) == 2
+    for headers in sink:
+        if cloud:
+            assert headers.get("Authorization") == "Bearer tok"
+        else:
+            assert "Authorization" not in headers

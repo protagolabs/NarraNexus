@@ -6,7 +6,9 @@ last_verified: 2026-10-29
 
 ## 2026-10-29 — `ExecutorTokenMiddleware`：执行器 API 不再 internal-trust
 
-新增最外层原生 ASGI 中间件，env 里有 `NX_EXECUTOR_API_TOKEN`（broker 种下）时，**除 `/health` 外**所有路径都要求 `Authorization: Bearer <token>`，`hmac.compare_digest` 比较原始头字节，不符返回 401。**为什么**：模块 docstring 的「无鉴权可容忍」前提是别的租户够不到 :8020，而那只靠宿主机防火墙——2026-10-29 发现 prod 上它因缺 br_netfilter 失效了一天，10/28 攻击者确实对别人容器的 :8020 做过只读侦察。这是独立于网络的第二层。设计点：`/health` 开放（broker reaper/就绪探针要用，不含 workspace 数据）；env 无 token = 不校验（旧 broker + 新镜像组合不 401，broker 会在下次 ensure 把无 token 容器滚动替换）；挂在 `InFlightWorkMiddleware` 之后添加 = 最外层，被拒请求不计入 in-flight（否则会把容器标成 busy 不可回收）。容器内租户自己能读到 token——那是他自己的地盘，不构成风险。
+新增最外层原生 ASGI 中间件，env 里有 `NX_EXECUTOR_API_TOKEN`（broker 种下）时，**除 `/health` 外**所有路径都要求 `Authorization: Bearer <token>`，`hmac.compare_digest` 比较原始头字节，不符返回 401。**为什么**：模块 docstring 的「无鉴权可容忍」前提是别的租户够不到 :8020，而那只靠宿主机防火墙——2026-10-29 发现 prod 上它因缺 br_netfilter 失效了一天，10/28 攻击者确实对别人容器的 :8020 做过只读侦察。这是独立于网络的第二层。设计点：`/health` 开放（broker reaper/就绪探针要用，不含 workspace 数据）；env 无 token = 不校验（旧 broker + 新镜像组合不 401，broker 会在下次 ensure 把无 token 容器滚动替换）；挂在 `InFlightWorkMiddleware` 之后添加 = 最外层（`user_middleware[0]`），被拒请求不计入 in-flight（否则会把容器标成 busy 不可回收）；只有 `lifespan` 放行，`websocket` 同样校验、不过发 close 1008——以后加 ws 路由默认是关的。
+
+**token 不留在 env（预审 I-2 订正）**：最初以为「容器内租户能读到 token 无所谓」，错——agent 的 CLI / bash 子进程继承 `os.environ`，一句 `printenv`（被 A2A 消息 / 网页内容 prompt injection 诱导）就能把 token 外带，防火墙再失效一次时第二层就形同虚设。现在 `_take_executor_token()` 在模块导入时读出后 `os.environ.pop`，之后起的子进程看不到。**残余**：uvicorn 进程的初始环境在 `/proc/<pid>/environ` 对同 uid 仍可读——这是降低随手泄露，不是根除；要根除需 broker 改用 root-only 文件下发（deploy 仓改动，未做）。
 
 ## 2026-09-03（批 2a.5）— `/agent-loop` 透传 `deferred_tools` 给 driver（所有 driver 都收 `**kwargs`）
 
@@ -213,7 +215,15 @@ control-plane/data-plane split (binding rule #20).
   the only credential it sees is the per-run scoped LLM key, arriving in
   the request body and applied to a ContextVar for the loop's duration.
   So `env` inside the agent shows nothing sensitive, and a compromise of
-  this container yields ~nothing persistent.
+  this container yields ~nothing persistent. (The per-executor API token
+  arrives in the process env from the broker but is popped from
+  `os.environ` at import, so agent subprocesses never inherit it; only the
+  process's initial `/proc/<pid>/environ` still holds it.)
+- **Token-gated API (since 2026-10-29).** Every path but `/health` requires
+  the broker-planted per-executor token (`ExecutorTokenMiddleware`). The
+  endpoints used to be internal-trust, resting on the host firewall alone,
+  which was found silently off on prod. The request body still describes
+  only THIS request, which bounds whatever does hold the token.
 - **No database.** All DB work (pipeline steps 0-2.5) happened in the
   orchestrator; the executor only runs the loop it's handed.
 - **No self-recursion.** The executor container does NOT set

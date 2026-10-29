@@ -4,6 +4,10 @@ last_verified: 2026-10-29
 stub: false
 ---
 
+## 2026-10-29 — `_build_turn_driver(framework, ensured, working_path)`
+
+本回合驱动的唯一构造点：url 与 API token 在这里一起进驱动工厂。**为什么抽出**：预审发现只测 `_executor_target` 抓不住「调用点漏传 token」——删掉那一行生产上每个云端回合 401，测试仍绿。现在 helper 直接用真实工厂测（断言远程驱动带 `Authorization`），另有源码形状测试断言 `step_3_agent_loop` 函数体走 `_build_turn_driver(` 而不直接调 `get_agent_loop_driver(`。同样放在 `@timed` 之外。
+
 ## 2026-10-29 — `_executor_target(ensured)`：url 与 token 同源取
 
 新增纯函数，从同一个 ensure() 结果同时取 (executor URL, executor API token) 交给驱动工厂。**为什么抽出来**：token 是种在**那一个**容器里的，绝不能与 URL 分开取；纯函数可直接测（与 `_dispatch_identity_token` 同一模式）。放在 `_dispatch_identity_token` 之前，**不在** `@timed` 与 `step_3_agent_loop` 之间（`test_step_3_keeps_its_timing_decorator` 守这个形状）。

@@ -69,6 +69,8 @@ class _FakeStreamResp:
     """A response that streams `chunks`, then raises `raise_at_end` from
     iter_any — models the executor container dying mid-run."""
 
+    status = 200  # real responses carry it; the driver reads it for 401/403
+
     def __init__(self, chunks, raise_at_end):
         self._chunks = chunks
         self._raise = raise_at_end

@@ -58,6 +58,7 @@ from narranexus.platform.agent_framework.loop.cancellation_view import (
 )
 from narranexus.platform.agent_framework.loop.driver import framework_capabilities
 from narranexus.platform.agent_framework.loop.executor_errors import (
+    ExecutorAuthError,
     ExecutorUnreachableError,
 )
 
@@ -289,6 +290,18 @@ class RemoteAgentLoopDriver:
                 timeout=timeout, headers=self._auth_headers
             ) as session:
                 async with session.post(self._url, json=body) as resp:
+                    if resp.status in (401, 403):
+                        # The executor refused our API token. Typed, so step 3
+                        # surfaces + audits it instead of letting the helper-LLM
+                        # fallback fabricate a reply over it on every turn.
+                        logger.error(
+                            f"[RemoteAgentLoop] executor rejected the API token "
+                            f"(HTTP {resp.status}) at {self._url}"
+                        )
+                        raise ExecutorAuthError(
+                            f"executor rejected the API token at {self._url}: HTTP {resp.status}",
+                            target=self._url,
+                        )
                     resp.raise_for_status()
                     # A steerable run pumps injections to /steer for the life of
                     # the stream. Started only AFTER the POST is accepted (so a

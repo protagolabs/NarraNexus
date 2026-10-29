@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/executor_errors.py
-last_verified: 2026-07-22
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — 新增 `ExecutorAuthError(ExecutorUnreachableError)`
+
+执行器拒绝本次调用的 API token（401/403）时由 [[remote_driver.py]] 抛出。**为什么是子类**：鉴权失败从来不是用户的错（意味着编排侧与那个容器对 token 不一致：broker 读回失败、跨仓契约漂移），必须走与「不可达」同一条平台故障路径——surface infra_transient、写审计、**不**被 helper-LLM 兜底编造回复盖住；step 3 现有的 `except ExecutorUnreachableError` 直接覆盖它。审计行的 `error_type` 保留真实类名，运维可区分。类名同样不进熔断器的 transient 集合。重发通常能恢复：broker 会滚动替换读不回 token 的容器。
 
 # executor_errors.py — executor 传输边界的类型化异常
 

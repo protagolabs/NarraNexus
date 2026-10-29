@@ -102,6 +102,22 @@ def _executor_target(ensured) -> tuple[str | None, str | None]:
     return ensured.url, ensured.executor_token
 
 
+def _build_turn_driver(framework_name, ensured, working_path):
+    """Construct this turn's agent-loop driver from the broker ensure() result.
+
+    The single place URL and API token reach the driver factory together —
+    dropping the token here would 401 every cloud turn once the executor
+    enforces it, so this seam exists to be tested directly.
+    """
+    executor_url, executor_token = _executor_target(ensured)
+    return get_agent_loop_driver(
+        framework=framework_name,
+        executor_url=executor_url,
+        executor_token=executor_token,
+        working_path=working_path,
+    )
+
+
 def _dispatch_identity_token(ensured, user_id) -> str | None:
     """The identity token to stamp into this turn's MCP headers, or None.
 
@@ -2099,7 +2115,7 @@ async def step_3_agent_loop(
         ensured = await _ensure_executor_for_run(
             ctx.user_id, str(ctx.event.id) if ctx.event else None
         )
-        executor_url, executor_token = _executor_target(ensured)
+        executor_url, _ = _executor_target(ensured)
         if ensured is not None and ensured.cold_started:
             # The user's executor was asleep and is being woken — emit a
             # semantic marker so the frontend can show the "waking up" overlay.
@@ -2142,12 +2158,7 @@ async def step_3_agent_loop(
             )
 
             bind_platform_identity(identity_token)
-        driver = get_agent_loop_driver(
-            framework=framework_name,
-            executor_url=executor_url,
-            executor_token=executor_token,
-            working_path=agent_working_path,
-        )
+        driver = _build_turn_driver(framework_name, ensured, agent_working_path)
         # Clear the "waking up" overlay the instant the (now-awake) executor
         # emits its first event — the COMPLETED that pairs the RUNNING above.
         _warming_active = ensured is not None and ensured.cold_started

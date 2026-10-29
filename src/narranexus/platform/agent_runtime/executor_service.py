@@ -25,10 +25,11 @@ Security shape (why this exists):
   * Every call (except ``/health``) must present the per-executor API token
     the broker planted in this container (``ExecutorTokenMiddleware``,
     2026-10-29) — the endpoints were "internal-trust" until the host firewall
-    that justified it was found silently off on prod. The token is readable
-    from INSIDE this container (the tenant's own territory), so in-container
-    code can still call these endpoints; the next property is what bounds a
-    token-holder to its own resources.
+    that justified it was found silently off on prod. The token is removed
+    from ``os.environ`` at import so agent subprocesses do not inherit it, but
+    the process's initial environment stays readable to the same uid, so
+    in-container code must still be assumed able to call these endpoints; the
+    next property is what bounds a token-holder to its own resources.
   * EVERY field of the body describes only THIS request, which is what
     keeps any caller holding the token from reaching beyond the resources it
     already holds. That property
@@ -290,6 +291,26 @@ def _executor_token_from_env() -> str | None:
     return os.environ.get(EXECUTOR_TOKEN_ENV) or None
 
 
+def _take_executor_token() -> str | None:
+    """Read the API token once and REMOVE it from this process's environment.
+
+    Every agent subprocess (claude/codex CLI, NexusPower bash, whatever the
+    agent runs) inherits ``os.environ``. Left there, a single ``env`` / ``printenv``
+    — e.g. coaxed by a prompt injection arriving through an A2A message or a
+    fetched page — would hand the token to whoever asked, turning this "second,
+    independent layer" into "safe as long as the agent is never tricked". After
+    the pop, children spawned later see nothing.
+
+    Honest limit: the uvicorn process's INITIAL environment stays readable at
+    ``/proc/<pid>/environ`` to the same uid, so this cuts the casual leak path,
+    not every path; a root-only token file from the broker would close that
+    too (a deploy-repo change, not this one).
+    """
+    token = _executor_token_from_env()
+    os.environ.pop(EXECUTOR_TOKEN_ENV, None)
+    return token
+
+
 class ExecutorTokenMiddleware:
     """Reject every call that does not present this executor's API token.
 
@@ -306,6 +327,9 @@ class ExecutorTokenMiddleware:
       means no enforcement, so an old broker + new image pairing keeps working;
       the broker rolls such containers to tokened ones on their next ensure.
     * Constant-time comparison on the raw header bytes.
+    * Only ``lifespan`` scopes bypass the check: an ``http`` or ``websocket``
+      scope without the token is refused, so a websocket route added later is
+      gated by default rather than silently open.
     * Raw ASGI, outermost, so a rejected call never counts as in-flight work
       (which would mark the container busy and unreapable).
     """
@@ -316,10 +340,11 @@ class ExecutorTokenMiddleware:
         self._header = EXECUTOR_TOKEN_HEADER.lower().encode()
 
     async def __call__(self, scope, receive, send) -> None:
+        kind = scope.get("type")
         if (
             self._expected is None
-            or scope.get("type") != "http"
-            or scope.get("path") == "/health"
+            or kind not in ("http", "websocket")
+            or (kind == "http" and scope.get("path") == "/health")
         ):
             await self.app(scope, receive, send)
             return
@@ -331,12 +356,17 @@ class ExecutorTokenMiddleware:
         if hmac.compare_digest(presented, self._expected):
             await self.app(scope, receive, send)
             return
+        if kind == "websocket":
+            # 1008 = policy violation; closing before accept refuses the handshake.
+            await send({"type": "websocket.close", "code": 1008})
+            return
         response = JSONResponse({"error": "executor token required"}, status_code=401)
         await response(scope, receive, send)
 
 
 # Added LAST so it wraps outermost (Starlette applies middleware in reverse).
-app.add_middleware(ExecutorTokenMiddleware, token=_executor_token_from_env())
+# The token is taken out of os.environ here, before any agent subprocess spawns.
+app.add_middleware(ExecutorTokenMiddleware, token=_take_executor_token())
 
 
 @app.get("/health")
