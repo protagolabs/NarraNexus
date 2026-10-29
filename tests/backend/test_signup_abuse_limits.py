@@ -22,13 +22,15 @@ These tests pin the closures:
      neutral 400 BEFORE any bucket is spent or any upstream call is made,
   4. the per-IP numbers are env-configurable with forgiving parsing,
   5. a blocked-domain account created directly at NetMind (the auth API URL
-     is public) still logs in, but gets no free-tier wallet and no
-     onboarding guide agent,
+     is public) is refused at netmind-login — no user row, no free-tier
+     wallet, no NetMind card, no onboarding guide agent — while an ordinary
+     domain gets all of them,
   6. POST /api/auth/netmind-login (unauthenticated, one upstream
      verify_token call per request) has a loose per-IP hour bucket.
 """
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -408,23 +410,24 @@ def test_refund_hands_back_one_granted_hit():
     lim.refund("never-seen")  # no state: a no-op, never an error
 
 
-# ── 5. login-time provisioning (NetMind-direct registration bypass) ────────
+# ── 5. login-time refusal (NetMind-direct registration bypass) ─────────────
 
 _LOGIN_CODE = "b" * 32
 
 
-@pytest.mark.parametrize("email,eligible", [
+@pytest.mark.parametrize("email,allowed", [
     ("bulk@mailinator.com", False),
-    ("bulk@eu.yopmail.com", False),   # subdomain of a listed domain
+    ("bulk@eu.yopmail.com", False),   # subdomain of a listed domain, on the login path
     ("bulk@example.com", True),
 ])
-def test_login_withholds_free_credit_from_blocked_domains(
-    db_client, monkeypatch, email, eligible
+def test_login_refuses_blocked_domains_before_any_provisioning(
+    db_client, monkeypatch, email, allowed
 ):
     """send-code / signup refuse throwaway domains, but NetMind's own signup
-    is public (its auth URL ships in /config.js), and the free wallet and the
-    onboarding guide agent are provisioned at LOGIN. The blocked user still
-    gets in — they just get no free credit."""
+    is public (its auth URL ships in /config.js), so a blocked-domain account
+    can reach netmind-login directly. It is refused there: nothing that
+    login provisions (wallet, own card, guide agent) is ever started."""
+    from backend.auth_errors import ACCOUNT_SUSPENDED, install_auth_error_handler
     import backend.integrations.free_tier.provisioner as free_mod
     import backend.integrations.netmind.netmind_provisioner as nm_mod
     import backend.onboarding.provisioning as ob_pkg
@@ -472,17 +475,25 @@ def test_login_withholds_free_credit_from_blocked_domains(
 
     app = FastAPI()
     app.include_router(auth_mod.router, prefix="/api/auth")
+    install_auth_error_handler(app)  # AuthError -> 403 JSON, as in production
     with TestClient(app) as client:  # keeps the loop alive for the tasks
         resp = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
 
-    assert resp.status_code == 200
-    assert resp.json()["user_id"] == _LOGIN_CODE
-    assert wallet.provision.await_count == (1 if eligible else 0)
-    assert guide == ([_LOGIN_CODE] if eligible else [])
-    # The frontend coachmark must not promise a guide that will never come.
-    assert resp.json()["guide_agent_provisioning"] is eligible
-    # Their OWN NetMind card is theirs to use either way.
-    assert own_card == [_LOGIN_CODE]
+    if allowed:
+        assert resp.status_code == 200
+        assert resp.json()["user_id"] == _LOGIN_CODE
+        assert wallet.provision.await_count == 1
+        assert guide == [_LOGIN_CODE]
+        assert resp.json()["guide_agent_provisioning"] is True
+        assert own_card == [_LOGIN_CODE]
+    else:
+        assert resp.status_code == 403
+        assert resp.json()["code"] == ACCOUNT_SUSPENDED
+        assert wallet.provision.await_count == 0
+        assert guide == []
+        assert own_card == []
+        # Refused before upsert: the REAL db (auth_mod.get_db_client) has no user.
+        assert asyncio.run(db_client.get_one("users", {"user_id": _LOGIN_CODE})) is None
 
 
 # ── 6. netmind-login per-IP bucket ─────────────────────────────────────────

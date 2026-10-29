@@ -207,3 +207,26 @@ def _channel_credential_key_dir(tmp_path_factory):
     credential_codec.use_key_dir(tmp_path_factory.mktemp("channel-keys"))
     yield
     credential_codec.use_key_dir(None)
+
+
+@pytest.fixture(autouse=True)
+def _clear_login_ip_throttles():
+    """backend.middleware.login_ips keeps per-process throttle maps (login IPs
+    and refused-login audit rows). Several modules log the same test user in
+    from the same TestClient address, so a claim left by one test would
+    silently throttle the next test's write — clear them around every test.
+
+    Same shape as ``_clear_health_cache``: only touches the module when it is
+    already imported, so runs that never load backend pay nothing. The module
+    is looked up on every reset (not cached) because tests swap the maps with
+    monkeypatch.setattr."""
+
+    def _reset() -> None:
+        module = sys.modules.get("backend.middleware.login_ips")
+        if module is not None:
+            module._last_recorded.clear()
+            module._last_refused.clear()
+
+    _reset()
+    yield
+    _reset()

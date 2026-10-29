@@ -507,6 +507,14 @@
     ],
     "indexes": [
       [
+        "idx_ban_audit_action_created",
+        [
+          "action",
+          "created_at"
+        ],
+        false
+      ],
+      [
         "idx_ban_audit_user_id",
         [
           "user_id"

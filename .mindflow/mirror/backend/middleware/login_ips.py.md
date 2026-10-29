@@ -5,6 +5,25 @@ stub: false
 ---
 # login_ips.py — 记录每个用户正在用哪些公网 IP 鉴权（滥用 IP↔账号联动的数据源）
 
+## 2026-10-29（二）— 被拒登录的审计也归这里管：`record_refused_login`
+
+netmind-login 拒绝黑名单邮箱域时（见 [[auth.py]]）写 `ban_audit` 的 `login_refused` 行，而**不**写
+`instance_login_ips`（被拒者没有本地账号，进联动表会被哨兵当封禁目标、挤占 fanout）。放在本模块，
+是为了复用已在这里立下的 IP 取证纪律，不在路由里另起一套：
+- 非公网 IP（代理跳数失配时的 nginx 地址、`-`）记成 `ip=-`，**行照写**（账号+域名+时间仍有价值），
+  云端同样告警；
+- 同 (账号, IP) 每 `RECORD_THROTTLE_SEC` 至多一行，独立的进程内节流表 `_last_refused`
+  （与 `_last_recorded` 共用 `_claim` 的有界淘汰；同样只是优化，丢了只多写一行）；
+- 保留期：`_prune` 在删 `instance_login_ips` 闲置行之后，再删 `ban_audit` 里
+  `action='login_refused' AND created_at < now-RETENTION_SEC` 的行。**只按 action 过滤**——
+  suspend / reinstate / warn 的处置历史永不清理。created_at 两种方言都是 UTC
+  （`datetime('now')` / UTC 服务器的 `CURRENT_TIMESTAMP`），按 `'YYYY-MM-DD HH:MM:SS'` 比较。
+  **这是显式决策**：MySQL 的 `CURRENT_TIMESTAMP` 跟随服务器时区（客户端不设 time_zone），prod Aurora
+  2026-10-29 实测 `@@system_time_zone=UTC`、`NOW()-UTC_TIMESTAMP()=0`；若将来换成非 UTC 实例，这条 30 天边界会整体
+  平移该时区偏移（小时级，对保留期清理无害）。不改成写入方自填时间：`ban_audit.created_at` 与处置行共用，不动其语义（铁律 #6）；
+  配套索引 `idx_ban_audit_action_created`。MySQL 双方言用例在 `test_login_ips_mysql.py`。
+- 域名来自上游返回的调用方可控 email，截断到 `MAX_DOMAIN_LEN=253`（DNS 名最长值）。
+
 ## 为什么存在
 
 2026-10-28 事件后要求"封禁时 IP 和账号一起封"。IP 半边已由 deploy 仓哨兵完成（扫描 IP

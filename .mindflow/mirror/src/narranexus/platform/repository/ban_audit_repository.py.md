@@ -1,10 +1,20 @@
 ---
 code_file: src/narranexus/platform/repository/ban_audit_repository.py
-last_verified: 2026-08-19
+last_verified: 2026-10-29
 stub: false
 ---
 
 # ban_audit_repository.py — 账户状态变更的追加式审计写入
+
+## 2026-10-29 — 新增 `ACTION_LOGIN_REFUSED`（不是状态变更）
+
+netmind-login 拒绝黑名单邮箱域时（见 [[auth.py]]）写一条 `login_refused`：本地**没有**账号，
+也就没有状态可变；借这张表是因为它本就是「账号级处置事件、按 user_id 查、追加式、
+best-effort」的落点，且不受 `instance_login_ips` 30 天清理的影响。`user_id` 填 NetMind 的
+`user_system_code`，`evidence_ref` 写 `ip=… domain=…`。本层仍不解释这些字符串；`action`
+是调用方词表的追加值，不改已有行语义。写入方是 `backend/middleware/login_ips.record_refused_login`
+（节流 / IP 过滤 / 保留期都在那边，本层仍是无策略的 best-effort writer）；`login_refused` 行会被那边按
+保留期清理，处置类行不会。
 
 ## 为什么存在
 

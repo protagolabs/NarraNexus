@@ -3,7 +3,8 @@
 @author: Bin Liang
 @date: 2026-10-29
 @description: Record which public client IPs each user is actively authenticating
-from, for the sentinel's abuse IP<->account linkage (instance_login_ips).
+from, for the sentinel's abuse IP<->account linkage, and the refused-login audit
+trail for blocked email domains (instance_login_ips + ban_audit login_refused rows).
 
 The sentinel (deploy repo) auto-bans a scanning client IP at the edge; to ban the
 account behind it too, it reads this table: "which accounts were active from this
@@ -35,20 +36,34 @@ Guards:
   request, and the background task carries a done-callback so its failure is
   logged instead of vanishing.
 
-The throttle map is an in-process OPTIMIZATION only (losing it costs one extra
-upsert), bounded by ``_THROTTLE_MAX_ENTRIES``; it is not shared state that needs
-a cross-process seam.
+Refused logins (``record_refused_login``) — netmind-login refusing a blocked
+email domain — leave a ``ban_audit`` row (action ``login_refused``) instead: no
+local account exists, and this table feeds the sentinel's ban linkage, which
+must only see real accounts. The same three disciplines apply there: the IP is
+only kept when globally routable (else ``-``, row still written), one row per
+(account, ip) per ``RECORD_THROTTLE_SEC``, and ``login_refused`` rows are pruned
+after ``RETENTION_SEC`` together with this table's idle rows. Administrative
+``ban_audit`` history (suspend / reinstate / warn) is never pruned.
+
+The throttle maps are an in-process OPTIMIZATION only (losing one costs one
+extra write), bounded by ``_THROTTLE_MAX_ENTRIES``; they are not shared state
+that needs a cross-process seam.
 """
 from __future__ import annotations
 
 import asyncio
 import ipaddress
+from datetime import datetime, timezone
 from time import time as wall_clock
 from typing import Any, Callable
 
 from loguru import logger
 
 from narranexus.kernel.deployment import is_cloud_mode
+from narranexus.platform.repository.ban_audit_repository import (
+    ACTION_LOGIN_REFUSED,
+    BanAuditRepository,
+)
 
 TABLE = "instance_login_ips"
 # These two values are the contract the reader (deploy repo, nexus_sentinel
@@ -61,8 +76,11 @@ RECORD_THROTTLE_SEC = 600
 RETENTION_SEC = 30 * 86_400
 _PRUNE_INTERVAL_SEC = 3_600
 _THROTTLE_MAX_ENTRIES = 50_000
+#: the refused address's domain is caller-controlled; 253 = longest valid DNS name
+MAX_DOMAIN_LEN = 253
 
 _last_recorded: dict[tuple[str, str], float] = {}
+_last_refused: dict[tuple[str, str], float] = {}
 _last_prune: float = 0.0
 # Strong references: asyncio keeps only weak refs to tasks, so an unreferenced
 # background write could be garbage-collected mid-flight.
@@ -78,14 +96,18 @@ def is_recordable_ip(ip: str) -> bool:
         return False
 
 
-def _mark(user_id: str, ip: str, now: float) -> None:
-    if len(_last_recorded) >= _THROTTLE_MAX_ENTRIES:
+def _claim(store: dict[tuple[str, str], float], key: tuple[str, str], now: float) -> None:
+    if len(store) >= _THROTTLE_MAX_ENTRIES:
         cutoff = now - RECORD_THROTTLE_SEC
-        for key in [k for k, t in _last_recorded.items() if t < cutoff]:
-            del _last_recorded[key]
-        if len(_last_recorded) >= _THROTTLE_MAX_ENTRIES:
-            _last_recorded.clear()
-    _last_recorded[(user_id, ip)] = now
+        for stale in [k for k, t in store.items() if t < cutoff]:
+            del store[stale]
+        if len(store) >= _THROTTLE_MAX_ENTRIES:
+            store.clear()
+    store[key] = now
+
+
+def _mark(user_id: str, ip: str, now: float) -> None:
+    _claim(_last_recorded, (user_id, ip), now)
 
 
 def _spawn(coro) -> asyncio.Task:
@@ -106,6 +128,23 @@ async def _prune(db_client: Any, cutoff: int) -> None:
         )
     except Exception:  # noqa: BLE001 — retention is housekeeping, never a failure path
         logger.opt(exception=True).warning("[login-ips] prune failed")
+    # Refused-login evidence gets the same retention bound. Filtered by action
+    # ONLY: ban_audit also holds the administrative history, which is kept.
+    # Deliberate assumption: created_at is UTC on both dialects —
+    # datetime('now') on SQLite, CURRENT_TIMESTAMP on MySQL, which follows the
+    # server time zone (UTC on our Aurora; the client sets no time_zone). A
+    # non-UTC MySQL server would shift this 30-day boundary by its offset
+    # (hours) — harmless for a retention prune. Compared as
+    # 'YYYY-MM-DD HH:MM:SS'.
+    cutoff_at = datetime.fromtimestamp(cutoff, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        await db_client.execute(
+            f"DELETE FROM {BanAuditRepository.TABLE} WHERE action = %s AND created_at < %s",
+            params=(ACTION_LOGIN_REFUSED, cutoff_at),
+            fetch=False,
+        )
+    except Exception:  # noqa: BLE001 — same: housekeeping
+        logger.opt(exception=True).warning("[login-ips] refused-login prune failed")
 
 
 def _maybe_prune(db_client: Any, now: int) -> None:
@@ -153,6 +192,38 @@ async def record_login_ip(db_client: Any, user_id: str, ip: str) -> bool:
     _mark(user_id, ip, now)
     _maybe_prune(db_client, now)
     return True
+
+
+async def record_refused_login(db_client: Any, user_id: str, ip: str, domain: str) -> None:
+    """Leave a durable trail of a login refused for a blocked email domain.
+
+    ``user_id`` is the NetMind user_system_code (no local account exists). A
+    non-public ``ip`` is recorded as ``-`` — the row is still worth keeping —
+    with the same hop-misconfig warning as the login recorder. At most one row
+    per (account, ip) per ``RECORD_THROTTLE_SEC``; the claim is taken before the
+    write, so a failed write (logged by the repository) costs that window's row,
+    never a duplicate. Never raises.
+    """
+    if not is_recordable_ip(ip):
+        if is_cloud_mode():
+            logger.warning(
+                f"[login-ips] non-public client ip {ip!r} on a refused login — "
+                "proxy-hop count likely out of sync with the edge; ip not recorded"
+            )
+        ip = "-"
+    now = wall_clock()
+    last = _last_refused.get((user_id, ip))
+    if last is not None and now - last < RECORD_THROTTLE_SEC:
+        return
+    _claim(_last_refused, (user_id, ip), now)
+    await BanAuditRepository(db_client).record(
+        user_id,
+        ACTION_LOGIN_REFUSED,
+        reason="blocked email domain",
+        evidence_ref=f"ip={ip} domain={domain[:MAX_DOMAIN_LEN]}",
+        actor="netmind-login",
+    )
+    _maybe_prune(db_client, int(now))
 
 
 async def _record_in_background(user_id: str, ip: str) -> None:
@@ -227,11 +298,13 @@ def start_connection_presence(
 
 
 __all__ = [
+    "MAX_DOMAIN_LEN",
     "RECORD_THROTTLE_SEC",
     "RETENTION_SEC",
     "TABLE",
     "is_recordable_ip",
     "note_authenticated_request",
     "record_login_ip",
+    "record_refused_login",
     "start_connection_presence",
 ]

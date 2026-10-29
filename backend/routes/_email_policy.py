@@ -35,6 +35,7 @@ BLOCKED_EMAIL_DOMAINS_ENV = "NARRANEXUS_BLOCKED_EMAIL_DOMAINS"
 DISPOSABLE_EMAIL_DOMAINS: frozenset[str] = frozenset({
     "10minutemail.com",
     "10minutemail.net",
+    "10timer.com",  # 2026-10-28 incident: attacker signup domain
     "1secmail.com",
     "anonbox.net",
     "armyspy.com",
@@ -114,15 +115,25 @@ def _blocked_domains(raw_env: str) -> frozenset[str]:
     return DISPOSABLE_EMAIL_DOMAINS | env
 
 
+def email_domain(email: str) -> str:
+    """The normalised domain of an address ("" when there is no ``@``).
+
+    The address's own domain, normalised the same way the blocklist match
+    normalises it (for a subdomain hit this is the full domain, e.g.
+    ``eu.yopmail.com``, not the listed parent ``yopmail.com``).
+    """
+    if "@" not in email:
+        return ""
+    return _normalise_domain(email.rsplit("@", 1)[1])
+
+
 def is_blocked_email(email: str) -> bool:
     """True when the address's domain, or any parent domain of it, is blocked.
 
     A string without ``@`` is never blocked here — address validity is the
     request model's job (``EmailStr``), not this policy's.
     """
-    if "@" not in email:
-        return False
-    domain = _normalise_domain(email.rsplit("@", 1)[1])
+    domain = email_domain(email)
     if not domain:
         return False
     blocked = _blocked_domains(os.getenv(BLOCKED_EMAIL_DOMAINS_ENV) or "")
@@ -130,4 +141,9 @@ def is_blocked_email(email: str) -> bool:
     return any(".".join(labels[i:]) in blocked for i in range(len(labels)))
 
 
-__all__ = ["BLOCKED_EMAIL_DOMAINS_ENV", "DISPOSABLE_EMAIL_DOMAINS", "is_blocked_email"]
+__all__ = [
+    "BLOCKED_EMAIL_DOMAINS_ENV",
+    "DISPOSABLE_EMAIL_DOMAINS",
+    "email_domain",
+    "is_blocked_email",
+]
