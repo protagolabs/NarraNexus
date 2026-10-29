@@ -118,8 +118,9 @@ def _blocked_domains(raw_env: str) -> frozenset[str]:
 def email_domain(email: str) -> str:
     """The normalised domain of an address ("" when there is no ``@``).
 
-    The same normalisation the blocklist match uses, so a domain logged next
-    to a refusal is exactly the one that was matched.
+    The address's own domain, normalised the same way the blocklist match
+    normalises it (for a subdomain hit this is the full domain, e.g.
+    ``eu.yopmail.com``, not the listed parent ``yopmail.com``).
     """
     if "@" not in email:
         return ""

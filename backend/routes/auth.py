@@ -34,10 +34,8 @@ from narranexus.platform.analytics.events import (
 )
 from narranexus.platform.repository import (
     AgentRepository,
-    BanAuditRepository,
     UserRepository,
 )
-from narranexus.platform.repository.ban_audit_repository import ACTION_LOGIN_REFUSED
 from narranexus.platform.schema import (
     AGENT_TEXT_MAX_LENGTH,
     NON_TRANSACTING_USER_STATUSES,
@@ -77,7 +75,7 @@ from backend.auth_errors import (
     AuthError,
 )
 from backend.routes._client_ip import client_ip
-from backend.middleware.login_ips import record_login_ip
+from backend.middleware.login_ips import record_login_ip, record_refused_login
 from backend.routes._email_policy import email_domain, is_blocked_email
 from backend.routes._rate_limiter import SlidingWindowRateLimiter, env_limit
 from narranexus.platform.agent_profile import apply_agent_profile_change
@@ -724,22 +722,15 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     db_client = await get_db_client()
     if is_blocked_email(netmind_user.email or ""):
         domain = email_domain(netmind_user.email or "")
-        ip = client_ip(http_request)
         logger.warning(
             f"[login] refused blocked email domain={domain} "
             f"source={request.source or '-'}"
         )
         # Durable trail (incident lesson #5: logs rotate, rows don't): which
-        # NetMind account tried, from where. Keyed by the NetMind
-        # user_system_code — no local user row exists, and none is created.
-        # NOT written to instance_login_ips: that table feeds the sentinel's
-        # IP->account ban linkage, which must only see real local accounts.
-        await BanAuditRepository(db_client).record(
-            netmind_user.user_system_code,
-            ACTION_LOGIN_REFUSED,
-            reason="blocked email domain",
-            evidence_ref=f"ip={ip} domain={domain}",
-            actor="netmind-login",
+        # NetMind account tried, from where — throttled, IP-filtered and
+        # retention-bounded like the login-IP recorder (see login_ips).
+        await record_refused_login(
+            db_client, netmind_user.user_system_code, client_ip(http_request), domain
         )
         raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)
 

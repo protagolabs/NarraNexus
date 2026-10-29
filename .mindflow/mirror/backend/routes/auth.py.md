@@ -30,8 +30,11 @@ stub: false
   语义来源是 NetMind。**不**写 `instance_login_ips`：那张表喂给哨兵的 IP→账号连带封禁，
   只能出现真实本地账号（否则会把不存在的账号当封禁目标、还挤占 fanout 上限）。
   `db_client` 因此提前到拒绝门之前取；`upsert_netmind_user` 仍在门之后（"无 user 行"不变）。
+  写入经 `login_ips.record_refused_login`（review 第二轮 I-1/I-2）：沿用登录 IP 记录器的三条纪律——
+  非公网 IP 记成 `-`（行照写，代理跳数配错时告警）、同 (账号, IP) 每 `RECORD_THROTTLE_SEC` 至多一行
+  （防重放把表刷爆）、`login_refused` 行与 `instance_login_ips` 同一保留期清理；域名截断到 253。
 - 日志里的域名改用 `_email_policy.email_domain`（与黑名单匹配同一套规范化），
-  `x@nimail.cn.` 不会再打成带尾点的域名。
+  `x@nimail.cn.` 不会再打成带尾点的域名；子域命中时记的是地址本身的完整域名（如 `eu.yopmail.com`）。
 - 名单来源不变：`DISPOSABLE_EMAIL_DOMAINS`（已含 `nimail.cn` / `maxxspace.com` /
   `10timer.com` / `cc.cd`）+ `NARRANEXUS_BLOCKED_EMAIL_DOMAINS` env 扩展，整标签匹配（`notnimail.cn`
   不误伤）。测试 `test_account_suspension.py::test_login_refused_for_blocked_email_domain`

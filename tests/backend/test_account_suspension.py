@@ -394,7 +394,8 @@ async def test_login_refused_for_blocked_email_domain(db_client, monkeypatch):
     # NetMind user_system_code, naming the domain (logs rotate, rows don't).
     audit = list(await db_client.get("ban_audit", {"user_id": code}))
     assert [a["action"] for a in audit] == ["login_refused"]
-    assert "domain=nimail.cn" in audit[0]["evidence_ref"]
+    # TestClient's peer is not a public address: neutralised, row still kept.
+    assert audit[0]["evidence_ref"] == "ip=- domain=nimail.cn"
     assert audit[0]["actor"] == "netmind-login"
     # And no fire-and-forget provisioning ran.
     assert seeded == []

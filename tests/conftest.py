@@ -207,3 +207,18 @@ def _channel_credential_key_dir(tmp_path_factory):
     credential_codec.use_key_dir(tmp_path_factory.mktemp("channel-keys"))
     yield
     credential_codec.use_key_dir(None)
+
+
+@pytest.fixture(autouse=True)
+def _clear_login_ip_throttles():
+    """backend.middleware.login_ips keeps per-process throttle maps (login IPs
+    and refused-login audit rows). Several modules log the same test user in
+    from the same TestClient address, so a claim left by one test would
+    silently throttle the next test's write — clear them around every test."""
+    import backend.middleware.login_ips as login_ips
+
+    login_ips._last_recorded.clear()
+    login_ips._last_refused.clear()
+    yield
+    login_ips._last_recorded.clear()
+    login_ips._last_refused.clear()

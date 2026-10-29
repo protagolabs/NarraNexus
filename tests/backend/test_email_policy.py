@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.routes._email_policy import DISPOSABLE_EMAIL_DOMAINS, is_blocked_email
+from backend.routes._email_policy import DISPOSABLE_EMAIL_DOMAINS, email_domain, is_blocked_email
 
 
 @pytest.fixture(autouse=True)
@@ -93,3 +93,13 @@ def test_2026_10_28_incident_domains_are_blocked(domain):
     assert is_blocked_email(f"x@{domain}")
     assert is_blocked_email(f"x@mail.{domain}")
     assert not is_blocked_email(f"x@not{domain}")
+
+
+@pytest.mark.parametrize("email,domain", [
+    ("a@NiMail.CN.", "nimail.cn"),            # case + trailing dot normalised
+    ("a@eu.yopmail.com", "eu.yopmail.com"),   # the address's own domain, not the listed parent
+    ("a@", ""),
+    ("noat", ""),
+])
+def test_email_domain_normalises_like_the_match(email, domain):
+    assert email_domain(email) == domain

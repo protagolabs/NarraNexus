@@ -2,7 +2,7 @@
 @file_name: ban_audit_repository.py
 @author: Bin Liang
 @date: 2026-08-13
-@description: Append-only audit trail for administrative account-state changes.
+@description: Append-only audit trail for account-state changes and refused logins.
 
 One row per action applied to a user's account state (suspend / reinstate /
 warn), plus refused logins (``login_refused``) that never got an account.

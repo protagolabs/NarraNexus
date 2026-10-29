@@ -2124,8 +2124,13 @@ _register(
 )
 
 
-# ban_audit — append-only trail for administrative account-state changes.
-# One row per suspend / reinstate action. `reason` and `evidence_ref` are
+# ban_audit — append-only trail for administrative account-state changes
+# (one row per suspend / reinstate / warn action) plus `login_refused` rows:
+# netmind-login refusing a blocked email domain, keyed by the NetMind
+# user_system_code (no local account), written per attempt by a USER request
+# path — throttled per (account, ip) and pruned after the login-IP retention
+# period by backend/middleware/login_ips.py; admin rows are never pruned.
+# `reason` and `evidence_ref` are
 # OPAQUE free-text supplied by the caller (never an enum) so this table
 # carries no policy vocabulary of its own; `actor` records who made the
 # change. Append-only, queried by user_id.
@@ -2150,6 +2155,9 @@ _register(
         ],
         indexes=[
             Index("idx_ban_audit_user_id", ["user_id"]),
+            # Retention prune (action='login_refused' AND created_at < cutoff)
+            # and "recent refusals" forensics queries.
+            Index("idx_ban_audit_action_created", ["action", "created_at"]),
         ],
     )
 )
