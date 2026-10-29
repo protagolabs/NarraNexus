@@ -1,8 +1,12 @@
 ---
 code_file: plugins/builtin.frameworks.claude_code/src/narranexus_plugins/frameworks_claude_code/sdk.py
-last_verified: 2026-09-10
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — 下文「无鉴权 `/agent-loop`」的前提已变
+
+执行器 API 自 2026-10-29 起要求每执行器 API token（见 executor_service 的 `ExecutorTokenMiddleware`）。但 token 在执行器进程初始环境里对同 uid 仍可读，**容器内代码仍须假定能调到 `/agent-loop`**——所以下文「每轮换 id、`finally` 删 transcript、不可猜句柄」的理由**仍然成立**，只是第一道门从「没有」变成了「token」。下文措辞保留，作为这些措施当初存在的原因；勿据此撤掉每轮换 id。
 
 ## 2026-09-10 — 轮换清理改为"最小集合 + 路径归属守卫"，撤回 rmtree（GitHub #117 预审 C3/I3/I7/I8）
 

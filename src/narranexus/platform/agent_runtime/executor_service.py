@@ -22,8 +22,17 @@ Security shape (why this exists):
   * Because the executor process does NOT set ``AGENT_EXECUTOR_URL``,
     ``get_agent_loop_driver`` here resolves to the LOCAL claude/codex
     driver (no self-recursion).
+  * Every call (except ``/health``) must present the per-executor API token
+    the broker planted in this container (``ExecutorTokenMiddleware``,
+    2026-10-29) — the endpoints were "internal-trust" until the host firewall
+    that justified it was found silently off on prod. The token is removed
+    from ``os.environ`` at import so agent subprocesses do not inherit it, but
+    the process's initial environment stays readable to the same uid, so
+    in-container code must still be assumed able to call these endpoints; the
+    next property is what bounds a token-holder to its own resources.
   * EVERY field of the body describes only THIS request, which is what
-    makes leaving the endpoint unauthenticated tolerable. That property
+    keeps any caller holding the token from reaching beyond the resources it
+    already holds. That property
     held once before and was lost: a ``resume_session_id`` named a CLI
     transcript in a ``CLAUDE_CONFIG_DIR`` shared across tenants, so a
     direct caller with a guessed handle could replay someone else's
@@ -47,6 +56,7 @@ scope for this module, which just runs the loop it is handed.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 from contextlib import asynccontextmanager
@@ -65,6 +75,8 @@ from narranexus.platform.agent_framework.loop.driver import (
     get_agent_loop_driver,
 )
 from narranexus.platform.agent_runtime.executor_protocol import (
+    EXECUTOR_TOKEN_ENV,
+    EXECUTOR_TOKEN_HEADER,
     apply_provider_configs,
 )
 
@@ -107,9 +119,9 @@ class _InboundSteer:
 # its stream ends. A module singleton, not a seam: the executor is one container
 # per user and the run + its /steer ingress are both in THIS process, so there is
 # no cross-process truth to move (unlike the orchestrator's RunRegistry). The
-# run_id is unguessable (the driver mints a secrets token) — that is what keeps
-# /steer, which is unauthenticated like /agent-loop, from letting a direct caller
-# inject into a run whose handle they were never given.
+# run_id is unguessable (the driver mints a secrets token) — beyond the executor
+# API token (which in-container code can read), that is what keeps a direct
+# caller of /steer from injecting into a run whose handle they were never given.
 _STEER_RUNS: dict[str, _InboundSteer] = {}
 
 
@@ -274,6 +286,103 @@ class InFlightWorkMiddleware:
 app.add_middleware(InFlightWorkMiddleware)
 
 
+def _executor_token_from_env() -> str | None:
+    """The API token the broker planted in this container, or None.
+
+    Only meaningful BEFORE ``_take_executor_token`` runs at import — that pops
+    the variable, so any later call returns None. Use ``_EXECUTOR_TOKEN``.
+    """
+    return os.environ.get(EXECUTOR_TOKEN_ENV) or None
+
+
+def _take_executor_token() -> str | None:
+    """Read the API token once and REMOVE it from this process's environment.
+
+    Every agent subprocess (claude/codex CLI, NexusPower bash, whatever the
+    agent runs) inherits ``os.environ``. Left there, a single ``env`` / ``printenv``
+    — e.g. coaxed by a prompt injection arriving through an A2A message or a
+    fetched page — would hand the token to whoever asked, turning this "second,
+    independent layer" into "safe as long as the agent is never tricked". After
+    the pop, children spawned later see nothing.
+
+    Honest limit: the uvicorn process's INITIAL environment stays readable at
+    ``/proc/<pid>/environ`` to the same uid, so this cuts the casual leak path,
+    not every path; a root-only token file from the broker would close that
+    too (a deploy-repo change, not this one).
+    """
+    token = _executor_token_from_env()
+    os.environ.pop(EXECUTOR_TOKEN_ENV, None)
+    return token
+
+
+class ExecutorTokenMiddleware:
+    """Reject every call that does not present this executor's API token.
+
+    The endpoints below were "internal-trust": safe only while no other tenant
+    could reach :8020. That rested on the host firewall alone, which silently
+    did nothing on prod for a day (2026-10-29) — one tenant's sandbox could
+    drive another's ``/agent-loop`` against its workspace. This is the second,
+    independent layer: the broker plants a random token in this container's env
+    and hands it only to the orchestrator.
+
+    * ``/health`` stays open: the broker's reaper and readiness probes call it
+      and it carries no workspace data.
+    * No token in the env (a container from a broker that predates tokens)
+      means no enforcement, so an old broker + new image pairing keeps working;
+      the broker rolls such containers to tokened ones on their next ensure.
+    * Constant-time comparison on the raw header bytes.
+    * Only ``lifespan`` scopes bypass the check: an ``http`` or ``websocket``
+      scope without the token is refused, so a websocket route added later is
+      gated by default rather than silently open.
+    * Raw ASGI, outermost, so a rejected call never counts as in-flight work
+      (which would mark the container busy and unreapable).
+    """
+
+    def __init__(self, app, token: str | None) -> None:
+        self.app = app
+        self._expected = f"Bearer {token}".encode() if token else None
+        self._header = EXECUTOR_TOKEN_HEADER.lower().encode()
+
+    async def __call__(self, scope, receive, send) -> None:
+        kind = scope.get("type")
+        if (
+            self._expected is None
+            or kind not in ("http", "websocket")
+            or (kind == "http" and scope.get("path") == "/health")
+        ):
+            await self.app(scope, receive, send)
+            return
+        presented = b""
+        for name, value in scope.get("headers") or ():
+            if name == self._header:
+                presented = value
+                break
+        if hmac.compare_digest(presented, self._expected):
+            await self.app(scope, receive, send)
+            return
+        if kind == "websocket":
+            # 1008 = policy violation; closing before accept refuses the handshake.
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        response = JSONResponse({"error": "executor token required"}, status_code=401)
+        await response(scope, receive, send)
+
+
+# Taken out of os.environ here, before any agent subprocess spawns.
+_EXECUTOR_TOKEN = _take_executor_token()
+# Whether the second isolation layer is ON for this container. Never silent:
+# logged once at startup and exposed (as a bare bool) on /health, so a broker
+# regression that stops planting tokens shows up instead of quietly serving
+# every caller — the failure shape of the host firewall this layer backs up.
+_TOKEN_ENFORCED = _EXECUTOR_TOKEN is not None
+if _TOKEN_ENFORCED:
+    logger.info("[Executor] API token present: enforcing on every path but /health")
+else:
+    logger.warning("[Executor] no API token in env: this executor serves UNAUTHENTICATED")
+# Added LAST so it wraps outermost (Starlette applies middleware in reverse).
+app.add_middleware(ExecutorTokenMiddleware, token=_EXECUTOR_TOKEN)
+
+
 @app.get("/health")
 async def health() -> dict:
     """Liveness plus "am I working right now?".
@@ -293,6 +402,9 @@ async def health() -> dict:
     return {
         "status": "healthy",
         "busy": bool(_inflight_started),
+        # Bool only — /health is unauthenticated, so nothing about the token
+        # itself (length, prefix) may appear here.
+        "token_enforced": _TOKEN_ENFORCED,
         "inflight_work": len(_inflight_started),
         "inflight_oldest_s": (
             None if oldest is None else round(monotonic() - oldest, 1)
@@ -313,9 +425,9 @@ async def watch_ensure(request: Request) -> JSONResponse:
     port is decided here — the orchestrator never guesses it. Reuses a running
     watch if this file already has one.
 
-    Body: {agent_id, user_id, file}. No auth (internal-trust, same as
-    /agent-loop); the port allowlist + workspace confinement in ensure_watch are
-    the guard.
+    Body: {agent_id, user_id, file}. Token-gated like every non-/health path
+    (ExecutorTokenMiddleware); the port allowlist + workspace confinement in
+    ensure_watch remain the guard against a token-holder's own inputs.
     """
     import asyncio
 
@@ -340,7 +452,7 @@ async def watch_version(request: Request) -> JSONResponse:
 
     The orchestrator's `/office-watch/version` (cloud branch) calls this so the
     frontend's mtime-poll fallback works when the workspace lives in the
-    container. Query: agent_id, user_id, file. No auth (internal-trust).
+    container. Query: agent_id, user_id, file. Token-gated (ExecutorTokenMiddleware).
     """
     from narranexus.platform.utils.office_watch import resolve_watch_file
     from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
@@ -367,9 +479,9 @@ async def watch_passthrough(port: int, path: str, request: Request) -> Response:
     ports. The orchestrator's own /api/office-watch-proxy route forwards to
     here; the browser never reaches this directly.
 
-    No auth (internal-trust, same as /agent-loop — the container holds no
-    secrets), but the port allowlist is still enforced as defense-in-depth so
-    this can't be turned into an SSRF into other in-container ports.
+    Token-gated like /agent-loop (ExecutorTokenMiddleware); the port allowlist
+    is still enforced as defense-in-depth so a token-holder can't turn this
+    into an SSRF into other in-container ports.
     """
     import aiohttp
 
@@ -435,8 +547,8 @@ async def agent_loop(request: Request) -> Response:
       {"event": {...}}            a raw agent-loop event
       {"error": {"type","message"}}  the loop raised
     """
-    # Bound the BODY read, and only the body read. This endpoint is
-    # unauthenticated and reachable from inside this very container — the
+    # Bound the BODY read, and only the body read. This endpoint is reachable
+    # from inside this very container (the API token is readable there) — the
     # agent's own Bash can POST a chunked request and never close it, and
     # request.json() would then wait forever while the middleware above holds
     # the container marked busy, i.e. never reapable. A parse budget, NOT a
@@ -541,13 +653,14 @@ async def steer(request: Request) -> JSONResponse:
     run's inbound queue, which the in-container driver drains at the next step
     boundary — the HTTP twin of a local ``{"steer": …}`` stdin line.
 
-    Unauthenticated like ``/agent-loop``; safe because ``run_id`` is unguessable
-    (the orchestrator mints a ``secrets`` token). An unknown handle → 404 and the
+    Token-gated like ``/agent-loop``; and because in-container code can read
+    that token, it is ALSO safe only because ``run_id`` is unguessable (the
+    orchestrator mints a ``secrets`` token). An unknown handle → 404 and the
     injection is not delivered — the orchestrator sees the failure and the
     un-consumed row is never acked, so it resurfaces as a fresh turn (never
     silently lost, iron rule #16)."""
-    # Same parse budget as /agent-loop (#356): this endpoint is unauthenticated
-    # and reachable from INSIDE the container, so the agent's own Bash could POST
+    # Same parse budget as /agent-loop (#356): this endpoint is reachable from
+    # INSIDE the container (which can read the API token), so the agent's own Bash could POST
     # a chunked request and never close it — request.json() would then hang a task
     # + connection until the container is reaped. A budget on the body read, not a
     # ceiling on anything (the injection itself is instant).

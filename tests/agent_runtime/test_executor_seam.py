@@ -128,6 +128,10 @@ class _FakeContent:
 
 
 class _FakeResp:
+    # A real aiohttp response always carries .status; the driver now reads it
+    # to type a 401/403 (rejected executor API token) before raise_for_status.
+    status = 200
+
     def __init__(self, chunks):
         self._content = _FakeContent(chunks)
 

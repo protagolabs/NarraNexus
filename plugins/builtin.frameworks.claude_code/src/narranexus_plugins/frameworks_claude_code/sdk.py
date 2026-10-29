@@ -1142,7 +1142,8 @@ class ClaudeAgentSDK:
         #
         # A FRESH id per turn (never derived from agent/narrative): the file is
         # deleted in the `finally` below, so nothing durable is left in the
-        # shared CLAUDE_CONFIG_DIR for an unauthenticated /agent-loop caller to
+        # shared CLAUDE_CONFIG_DIR for a direct /agent-loop caller (token-gated
+        # since 2026-10-29, but in-container code may still hold the token) to
         # read with a guessed handle. A derived, guessable id would reopen that
         # hole. T0 measured that the transcript's envelope fields — sessionId
         # included — never reach the request, so varying the id per turn costs no

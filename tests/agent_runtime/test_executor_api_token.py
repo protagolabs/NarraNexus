@@ -1,0 +1,568 @@
+"""
+@file_name: test_executor_api_token.py
+@date: 2026-10-29
+@description: The per-executor API token, end to end on the orchestrator and
+executor sides (sandbox isolation phase 3).
+
+The executor's API (:8020) used to be unauthenticated ("internal-trust"), so
+tenant isolation rested on the host firewall alone — which silently did
+nothing on prod for a day (2026-10-29). The broker now plants a random token in
+each executor's env and returns it on ensure(); every orchestrator call must
+present it and the executor rejects calls without it.
+
+Rollout-safety is part of the contract and pinned here too: the executor only
+enforces when its env carries a token, and callers only send one when the
+broker gave them one — so either repo can deploy first without a 401.
+"""
+from __future__ import annotations
+
+import importlib
+
+import aiohttp
+import httpx
+import pytest
+from starlette.applications import Starlette
+from starlette.responses import PlainTextResponse
+from starlette.routing import Route
+from starlette.testclient import TestClient
+
+from narranexus.platform.agent_framework.loop import broker_client
+from narranexus.platform.agent_framework.loop.broker_client import ExecutorEnsureResult
+from narranexus.platform.agent_framework.loop.remote_driver import RemoteAgentLoopDriver
+from narranexus.platform.agent_runtime import executor_protocol as proto
+from narranexus.platform.agent_runtime import executor_service as es
+
+
+# ------------------------------------------------------------ wire helper
+
+
+def test_auth_headers_present_only_with_a_token():
+    assert proto.executor_auth_headers("tok") == {"Authorization": "Bearer tok"}
+    assert proto.executor_auth_headers(None) == {}
+    assert proto.executor_auth_headers("") == {}
+
+
+# ------------------------------------------------------------ executor side
+
+
+def _app(token):
+    async def ok(request):
+        return PlainTextResponse("ok")
+
+    inner = Starlette(routes=[
+        Route("/health", ok),
+        Route("/agent-loop", ok, methods=["POST"]),
+        Route("/watch/{rest:path}", ok),
+    ])
+    return TestClient(es.ExecutorTokenMiddleware(inner, token=token))
+
+
+def test_executor_rejects_calls_without_the_token():
+    c = _app("s3cret")
+    assert c.post("/agent-loop").status_code == 401
+    assert c.post("/agent-loop", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert c.get("/watch/1/x", headers={"Authorization": "s3cret"}).status_code == 401
+
+
+def test_executor_accepts_the_right_token():
+    c = _app("s3cret")
+    assert c.post("/agent-loop", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    assert c.get("/watch/1/x", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+
+
+def test_health_stays_open_for_the_broker_and_readiness_probes():
+    assert _app("s3cret").get("/health").status_code == 200
+
+
+def test_no_token_in_env_means_no_enforcement():
+    # An executor spawned by a broker that predates tokens has none; it must
+    # keep working for the orchestrator that sends nothing (rollout safety).
+    c = _app(None)
+    assert c.post("/agent-loop").status_code == 200
+
+
+def test_the_token_middleware_wraps_outermost():
+    # Outermost, so a rejected call never reaches InFlightWorkMiddleware and
+    # never marks the container busy (= unreapable). Starlette applies
+    # user_middleware[0] outermost.
+    assert es.app.user_middleware[0].cls is es.ExecutorTokenMiddleware
+
+
+@pytest.mark.asyncio
+async def test_websocket_without_token_is_refused():
+    reached = []
+
+    async def inner(scope, receive, send):
+        reached.append(scope["type"])
+
+    sent = []
+
+    async def send(msg):
+        sent.append(msg)
+
+    mw = es.ExecutorTokenMiddleware(inner, token="s3cret")
+    await mw({"type": "websocket", "path": "/ws", "headers": []}, None, send)
+    assert reached == []
+    assert sent == [{"type": "websocket.close", "code": 1008}]
+    # lifespan is the only scope that bypasses the check
+    await mw({"type": "lifespan"}, None, send)
+    assert reached == ["lifespan"]
+    # and a websocket that DOES present the token gets through
+    await mw({"type": "websocket", "path": "/ws",
+              "headers": [(b"authorization", b"Bearer s3cret")]}, None, send)
+    assert reached == ["lifespan", "websocket"]
+
+
+def test_the_executor_process_takes_the_token_out_of_its_env():
+    # Production wiring, not just the helper: importing the executor module
+    # with the token in the env must leave the env without it AND hand the
+    # token to the middleware. A fresh interpreter, so the import is real.
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import os\n"
+        "from narranexus.platform.agent_runtime import executor_service as es\n"
+        "from narranexus.platform.agent_runtime.executor_protocol import EXECUTOR_TOKEN_ENV\n"
+        "m = es.app.user_middleware[0]\n"
+        "print(EXECUTOR_TOKEN_ENV in os.environ, m.kwargs.get('token'), es._TOKEN_ENFORCED)\n"
+    )
+    env = {**os.environ, proto.EXECUTOR_TOKEN_ENV: "planted-at-spawn"}
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.strip().splitlines()[-1] == "False planted-at-spawn True"
+
+
+def test_token_is_taken_out_of_the_environment(monkeypatch):
+    # Agent subprocesses inherit os.environ; the token must not ride along.
+    monkeypatch.setenv(proto.EXECUTOR_TOKEN_ENV, "planted")
+    assert es._take_executor_token() == "planted"
+    import os
+
+    assert proto.EXECUTOR_TOKEN_ENV not in os.environ
+
+
+def test_token_is_read_from_the_env_the_broker_plants(monkeypatch):
+    monkeypatch.setenv(proto.EXECUTOR_TOKEN_ENV, "from-env")
+    assert es._executor_token_from_env() == "from-env"
+    monkeypatch.delenv(proto.EXECUTOR_TOKEN_ENV)
+    assert es._executor_token_from_env() is None
+
+
+# ------------------------------------------------------------ broker client
+
+
+@pytest.mark.asyncio
+async def test_ensure_result_carries_the_executor_token(monkeypatch):
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+
+    def handler(request):
+        return httpx.Response(200, json={
+            "status": "reused",
+            "executor_url": "http://nx-exec-a:8020",
+            "executor_token": "tok-a",
+        })
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        broker_client.httpx, "AsyncClient",
+        lambda **kw: real(transport=httpx.MockTransport(handler), **kw),
+    )
+    out = await broker_client.ensure_executor("a")
+    assert out.executor_token == "tok-a"
+
+
+@pytest.mark.asyncio
+async def test_old_broker_without_token_yields_none(monkeypatch):
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+
+    def handler(request):
+        return httpx.Response(200, json={"status": "reused", "executor_url": "http://x:8020"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        broker_client.httpx, "AsyncClient",
+        lambda **kw: real(transport=httpx.MockTransport(handler), **kw),
+    )
+    assert (await broker_client.ensure_executor("a")).executor_token is None
+
+
+# ------------------------------------------------------------ remote driver
+
+
+class _Resp:
+    status = 200
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    @property
+    def content(self):
+        return self
+
+    async def iter_any(self):
+        yield b'{"event": {"type": "done"}}\n'
+
+
+class _Session:
+    def __init__(self):
+        self.posts = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    def post(self, url, json, timeout=None):
+        self.posts.append(url)
+        return _Resp()
+
+
+def _capture_session(monkeypatch):
+    seen = {}
+    session = _Session()
+
+    def factory(*a, **kw):
+        seen.update(kw)
+        return session
+
+    monkeypatch.setattr(aiohttp, "ClientSession", factory)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_remote_driver_presents_the_token_on_its_session(monkeypatch):
+    # Session-level, so /agent-loop AND every /steer POST on it carry it.
+    seen = _capture_session(monkeypatch)
+    d = RemoteAgentLoopDriver(
+        framework="claude_code", working_path="/tmp",
+        executor_url="http://exec:8020", executor_token="tok",
+    )
+    _ = [e async for e in d.agent_loop(messages=[], mcp_servers={})]
+    assert seen["headers"] == {"Authorization": "Bearer tok"}
+
+
+@pytest.mark.asyncio
+async def test_remote_driver_sends_no_auth_without_a_token(monkeypatch):
+    seen = _capture_session(monkeypatch)
+    d = RemoteAgentLoopDriver(framework="claude_code", working_path="/tmp", executor_url="http://exec:8020")
+    _ = [e async for e in d.agent_loop(messages=[], mcp_servers={})]
+    assert not seen.get("headers")
+
+
+def test_factory_hands_the_token_to_the_remote_driver_only(monkeypatch):
+    from narranexus.platform.agent_framework.loop.driver import get_agent_loop_driver
+
+    d = get_agent_loop_driver(
+        "claude_code", executor_url="http://exec:8020", executor_token="tok", working_path="/tmp",
+    )
+    assert isinstance(d, RemoteAgentLoopDriver)
+    assert d._auth_headers == {"Authorization": "Bearer tok"}
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_token_is_a_typed_platform_failure(monkeypatch):
+    # A 401 must not fall through as a generic ClientResponseError, which the
+    # helper-LLM fallback would paper over with a fabricated reply every turn.
+    from narranexus.platform.agent_framework.llm.failure import (
+        EXECUTOR_INFRA_REASON_UNREACHABLE,
+        classify_executor_infra_failure,
+    )
+    from narranexus.platform.agent_framework.loop.executor_errors import (
+        ExecutorTokenRejectedError,
+        ExecutorUnreachableError,
+    )
+
+    class _Denied(_Resp):
+        status = 401
+
+        def raise_for_status(self):
+            raise AssertionError("401 must be typed before raise_for_status")
+
+    class _DeniedSession(_Session):
+        def post(self, url, json, timeout=None):
+            return _Denied()
+
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _DeniedSession())
+    d = RemoteAgentLoopDriver(framework="claude_code", working_path="/tmp",
+                              executor_url="http://exec:8020", executor_token="stale")
+    with pytest.raises(ExecutorTokenRejectedError) as ei:
+        _ = [e async for e in d.agent_loop(messages=[], mcp_servers={})]
+    assert isinstance(ei.value, ExecutorUnreachableError)
+    assert ei.value.status == 401
+    # No status code and no "auth" in the text or class name: downstream
+    # classifiers pattern-match those and would misfile it as expired creds.
+    assert "401" not in str(ei.value) and "auth" not in str(ei.value).lower()
+    assert "auth" not in type(ei.value).__name__.lower()
+    assert classify_executor_infra_failure("ExecutorTokenRejectedError", "") == EXECUTOR_INFRA_REASON_UNREACHABLE
+
+
+# ------------------------------------------------------------ step 3 wiring
+
+
+def test_step3_takes_url_and_token_from_the_ensure_result():
+    step3 = importlib.import_module(
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+    ensured = ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False, executor_token="tok")
+    assert step3._executor_target(ensured) == ("http://nx-exec-a:8020", "tok")
+    assert step3._executor_target(None) == (None, None)
+
+
+def test_step3_builds_the_turn_driver_with_the_token():
+    step3 = importlib.import_module(
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+    ensured = ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False, executor_token="tok")
+    d = step3._build_turn_driver("claude_code", ensured, "/tmp")
+    assert isinstance(d, RemoteAgentLoopDriver)
+    assert d._auth_headers == {"Authorization": "Bearer tok"}
+
+
+def test_step3_body_builds_its_driver_through_the_tested_seam():
+    # The seam above is only worth testing if the turn actually uses it.
+    import inspect
+
+    step3 = importlib.import_module(
+        "narranexus.platform.agent_runtime._agent_runtime_steps.step_3_agent_loop"
+    )
+    body = inspect.getsource(step3.step_3_agent_loop)
+    assert "_build_turn_driver(" in body
+    assert "get_agent_loop_driver(" not in body
+
+
+# ------------------------------------------------------------ office watch proxy
+
+
+@pytest.mark.asyncio
+async def test_office_watch_calls_present_the_token(monkeypatch):
+    owp = importlib.import_module("backend.routes.office_watch.proxy")
+
+    async def fake_ensure(user_id, **kw):
+        return ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False, executor_token="tok")
+
+    async def ready(url, **kw):
+        return None
+
+    monkeypatch.setattr(owp, "ensure_executor", fake_ensure)
+    monkeypatch.setattr(owp, "wait_until_ready", ready)
+
+    url, headers = await owp._resolve_upstream("a", 7900, "index.html", "")
+    assert url == "http://nx-exec-a:8020/watch/7900/index.html"
+    assert headers == {"Authorization": "Bearer tok"}
+
+    sessions = []
+
+    class _R:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def json(self):
+            return {"port": 7900, "mtime": 1, "size": 2}
+
+    class _S:
+        def __init__(self, **kw):
+            sessions.append(kw)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def post(self, *a, **k):
+            return _R()
+
+        def get(self, *a, **k):
+            return _R()
+
+    monkeypatch.setattr(owp.aiohttp, "ClientSession", _S)
+    assert await owp._ensure_watch_in_executor("a", "agent_x", "doc.docx") == 7900
+    await owp._file_version_in_executor("a", "agent_x", "doc.docx")
+    assert all(s.get("headers") == {"Authorization": "Bearer tok"} for s in sessions)
+    assert len(sessions) == 2
+
+
+class _RecordingSession:
+    """Records the headers of the one upstream call, then fails it so the
+    proxy's own error path ends the request (no stream plumbing needed)."""
+
+    def __init__(self, sink, **kw):
+        self._sink = sink
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def close(self):
+        return None
+
+    async def get(self, url, headers=None, **k):
+        self._sink.append(headers or {})
+        raise aiohttp.ClientConnectionError("stop here")
+
+    async def post(self, url, data=None, headers=None, **k):
+        self._sink.append(headers or {})
+        raise aiohttp.ClientConnectionError("stop here")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cloud", [True, False])
+async def test_office_watch_passthrough_presents_the_token(monkeypatch, cloud):
+    from fastapi import HTTPException
+
+    owp = importlib.import_module("backend.routes.office_watch.proxy")
+
+    async def fake_ensure(user_id, **kw):
+        if not cloud:
+            return None
+        return ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False, executor_token="tok")
+
+    monkeypatch.setattr(owp, "ensure_executor", fake_ensure)
+    sink = []
+    monkeypatch.setattr(owp.aiohttp, "ClientSession", lambda **kw: _RecordingSession(sink, **kw))
+
+    with pytest.raises(HTTPException):
+        await owp._proxy_stream("a", 7900, "index.html", "", "/p", {"accept": "text/html"})
+    with pytest.raises(HTTPException):
+        await owp._post_upstream("a", 7900, "api/save", "", b"{}", "application/json")
+
+    assert len(sink) == 2
+    for headers in sink:
+        if cloud:
+            assert headers.get("Authorization") == "Bearer tok"
+        else:
+            assert "Authorization" not in headers
+
+
+# ------------------------------------------------------------ never silent / never leaked
+
+
+@pytest.mark.asyncio
+async def test_health_reports_whether_the_token_is_enforced():
+    body = await es.health()
+    # conftest clears the token before the service is imported, so this process
+    # serves unauthenticated and must SAY so; the True side is pinned by the
+    # fresh-interpreter test above. A bare bool: /health is unauthenticated.
+    assert body["token_enforced"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_broker_reply_never_puts_tokens_in_the_error(monkeypatch):
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+
+    def handler(request):
+        return httpx.Response(200, json={"status": "weird", "executor_token": "SECRET-EXEC",
+                                         "identity_token": "SECRET-ID"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(broker_client.httpx, "AsyncClient",
+                        lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    with pytest.raises(RuntimeError) as ei:
+        await broker_client.ensure_executor("a")
+    msg = str(ei.value)
+    assert "SECRET-EXEC" not in msg and "SECRET-ID" not in msg
+    assert "executor_token" in msg  # the shape is still diagnosable
+
+
+@pytest.mark.asyncio
+async def test_missing_executor_token_is_warned_once_per_process(monkeypatch):
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    monkeypatch.setattr(broker_client, "_warned_tokenless", False)
+    warnings = []
+    monkeypatch.setattr(broker_client.logger, "warning", lambda m, *a, **k: warnings.append(m))
+
+    def handler(request):
+        return httpx.Response(200, json={"status": "reused", "executor_url": "http://x:8020"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(broker_client.httpx, "AsyncClient",
+                        lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    await broker_client.ensure_executor("a")
+    await broker_client.ensure_executor("b")
+    assert len([w for w in warnings if "executor_token" in w]) == 1
+
+
+def test_every_executor_transport_error_is_registered_as_infra():
+    # A new class in executor_errors that is NOT in the set falls through to the
+    # helper-LLM fallback, which fabricates a reply over the platform failure.
+    import inspect
+
+    from narranexus.platform.agent_framework.llm import failure
+    from narranexus.platform.agent_framework.loop import executor_errors
+
+    classes = {
+        name for name, obj in inspect.getmembers(executor_errors, inspect.isclass)
+        if issubclass(obj, BaseException) and obj.__module__ == executor_errors.__name__
+    }
+    assert classes == set(executor_errors.EXECUTOR_INFRA_ERROR_NAMES)
+    for name in classes:
+        assert failure.classify_executor_infra_failure(name, "") == failure.EXECUTOR_INFRA_REASON_UNREACHABLE
+
+
+
+@pytest.mark.asyncio
+async def test_every_office_watch_hop_logs_a_rejected_token(monkeypatch):
+    # ensure + version are covered by their own branches; the two passthrough
+    # hops carry the bulk of the traffic and must leave the same trace.
+    owp = importlib.import_module("backend.routes.office_watch.proxy")
+
+    async def fake_ensure(user_id, **kw):
+        return ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False, executor_token="tok")
+
+    monkeypatch.setattr(owp, "ensure_executor", fake_ensure)
+    errors = []
+    monkeypatch.setattr(owp.logger, "error", lambda m, *a, **k: errors.append(m))
+
+    class _Denied:
+        status = 401
+
+        async def read(self):
+            return b"{}"
+
+        @property
+        def headers(self):
+            raise LookupError("stop after the log point")
+
+    class _S:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def close(self):
+            return None
+
+        async def get(self, *a, **k):
+            return _Denied()
+
+        async def post(self, *a, **k):
+            return _Denied()
+
+    monkeypatch.setattr(owp.aiohttp, "ClientSession", _S)
+    with pytest.raises(LookupError):
+        await owp._proxy_stream("a", 7900, "index.html", "", "/p", {})
+    with pytest.raises(LookupError):
+        await owp._post_upstream("a", 7900, "api/save", "", b"{}", "application/json")
+    hops = [m for m in errors if "rejected the platform's API token" in m]
+    assert any("passthrough GET" in m for m in hops)
+    assert any("passthrough POST" in m for m in hops)

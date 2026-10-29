@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-09-03
+last_verified: 2026-10-29
 ---
+
+## 2026-10-29 — 执行器 API token 的 wire 契约（沙箱隔离阶段 3）
+
+新增 `EXECUTOR_TOKEN_ENV = "NX_EXECUTOR_API_TOKEN"`、`EXECUTOR_TOKEN_HEADER = "Authorization"` 与 `executor_auth_headers(token)`。**为什么**：执行器 `:8020` 原本刻意无鉴权（internal-trust），租户隔离只靠宿主机防火墙——而 prod 上那层防火墙因缺 br_netfilter 静默失效了一天，任意租户沙箱可驱动别人的 `/agent-loop`。现在 broker（deploy 仓）给每个执行器 env 种一个随机 token、经 ensure() 下发，编排侧每次调用带 `Bearer <token>`，执行器校验。**两个名字是跨仓契约**：broker 硬编码同一个 env 名，改名必须两仓 lockstep。`executor_auth_headers(None)` 返回空——旧 broker 起的执行器不校验，不发即兼容，任意一仓先上都不会 401。上文 2026-08-24 条目里「`/steer` 与 `/agent-loop` 一样无鉴权」自此不再成立（不可猜 `run_id` 的性质仍保留，作为第二道）。见 [[executor_service.py]] / [[broker_client.py]] / [[remote_driver.py]]。
 
 ## 2026-09-03（批 2a.5）— 请求体新增 `deferred_tools`（默认 `[]`）
 

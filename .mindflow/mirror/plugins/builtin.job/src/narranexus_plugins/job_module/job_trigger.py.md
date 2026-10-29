@@ -1,7 +1,11 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/job_trigger.py
-last_verified: 2026-09-10
+last_verified: 2026-10-29
 ---
+
+## 2026-10-29 — 执行器基础设施故障永不算凭据 / 额度问题
+
+`_is_auth_failure` 与 `_is_no_quota_failure` 在子串判断之前，先看 `error_type == EXECUTOR_INFRA_ERROR_TYPE`（`infra_transient`）→ 直接 False，走 COOLING 退避重试。**为什么**：infra 报错文案末尾带原始异常细节；执行器拒绝平台自己的 API token 会回 401，而 `_AUTH_FAILURE_MARKERS` 里有 `"401"` / `"unauthorized"`——不先看类型，每个云端定时 Job 都会被打成 `PAUSED_NO_QUOTA`(auth) 并给 owner 发「去充值 / 重配 provider」的通知，那是平台故障，owner 什么都改不了。结构化类型优先，与 step 3 `_fallback_skip_decision`「先判 infra」同一原则。真正的 `auth_expired` 与带 401 文本的非 infra 错误照样暂停（`tests/job_module/test_job_executor_infra_not_auth.py` 正反两组钉住）。
 
 ## 2026-09-10（review r3 M1）— 同一次调用内按执行主体 memo
 
