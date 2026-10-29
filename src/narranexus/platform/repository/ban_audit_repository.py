@@ -4,7 +4,8 @@
 @date: 2026-08-13
 @description: Append-only audit trail for administrative account-state changes.
 
-One row per action (suspend / reinstate) applied to a user's account state.
+One row per action applied to a user's account state (suspend / reinstate /
+warn), plus refused logins (``login_refused``) that never got an account.
 Generalised from the ``service_audit`` recorder: a thin best-effort writer over
 one table, keyed by ``user_id``.
 
@@ -26,6 +27,10 @@ from loguru import logger
 ACTION_SUSPEND = "suspend"
 ACTION_REINSTATE = "reinstate"
 ACTION_WARN = "warn"
+# Not a state change: a login refused before any local account existed
+# (blocked email domain). Recorded here so the refusal leaves a durable,
+# queryable trail keyed by the NetMind user_system_code.
+ACTION_LOGIN_REFUSED = "login_refused"
 
 
 class BanAuditRepository:

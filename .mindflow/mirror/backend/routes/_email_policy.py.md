@@ -14,6 +14,8 @@ stub: false
 - **含义变重**：`backend/routes/auth.py` 的 netmind-login 现在对 `is_blocked_email` 为真
   的账号**直接拒绝登录**（不再只是扣免费额度）。所以往名单里加域名 = 该域名的已有账号
   从此登不进来；加之前确认它确实是一次性/滥用域。
+- 新增公开的 `email_domain(email)`：与匹配同一套 `_normalise_domain` 规范化，
+  `is_blocked_email` 改为基于它；登录拒绝门记日志 / 审计时用它取域名，记下的就是实际被匹配的那个。
 
 ## 为什么存在
 

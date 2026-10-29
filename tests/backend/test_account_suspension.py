@@ -137,8 +137,14 @@ def force_cloud_mode(monkeypatch):
     # kernel's WEB_HOST service, normally exposed by importing backend.main.
     # Publish it here so these gate tests do not depend on another test having
     # imported the app first (they failed when this file ran on its own).
+    # The locator is process-global: swap in a copy of its table first so
+    # monkeypatch restores the original afterwards — whether WEB_HOST was
+    # absent or another instance — and nothing leaks into later tests.
     from backend.plugin_sdk_host import install_web_host
+    from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
 
+    services = KERNEL_REGISTRIES.services
+    monkeypatch.setattr(services, "_services", dict(services._services))
     install_web_host()
 
 
@@ -381,8 +387,15 @@ async def test_login_refused_for_blocked_email_domain(db_client, monkeypatch):
     assert "token" not in body
     # Refusal is BEFORE upsert: no user row was created for the blocked domain.
     assert await db_client.get_one("users", {"user_id": code}) is None
-    # ...and no login-IP row either: the refusal sits before the recorder
+    # No login-IP row: that table feeds the sentinel's IP->account ban
+    # linkage, which must only ever see real local accounts.
     assert list(await db_client.get("instance_login_ips", {"user_id": code})) == []
+    # The refusal still leaves a durable trail: one ban_audit row keyed by the
+    # NetMind user_system_code, naming the domain (logs rotate, rows don't).
+    audit = list(await db_client.get("ban_audit", {"user_id": code}))
+    assert [a["action"] for a in audit] == ["login_refused"]
+    assert "domain=nimail.cn" in audit[0]["evidence_ref"]
+    assert audit[0]["actor"] == "netmind-login"
     # And no fire-and-forget provisioning ran.
     assert seeded == []
 

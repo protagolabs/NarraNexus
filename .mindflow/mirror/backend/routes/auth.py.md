@@ -17,8 +17,21 @@ stub: false
   连账号行都不会 upsert。
 - 复用 `ACCOUNT_SUSPENDED` code + opaque 文案，与被封号返回完全一致：探测者无法区分
   "域名被封"还是"账号被封"（与 `_email_policy` / `ban_api_client` 的中性措辞同口径）。
-- `_free_credit_withheld`（line ~574）保留为纵深防御兜底：登录既然已拒黑名单域，它在
-  登录路径实际不会再命中，但仍守着任何未来绕过登录拒绝的路径，不删。
+- **`_free_credit_withheld` 已删**（PR #425 review I-1）：它与拒绝门是同一个函数、同一个
+  入参、同一次请求，走到它时只可能返回 False，不构成独立的一层。随之删掉
+  `_provision_providers` / `_schedule_provider_provisioning` 的 `free_tier` 参数，登录成功
+  一律发钱包 + 自有卡 + 引导 Agent，`guide_agent_provisioning=_guide_agent_feature_on()`。
+  登录拒绝门是黑名单在登录侧的**唯一**执行点，与 signup 的 400 友好拒绝并列。free tier
+  先于 NetMind 卡的**顺序**（防 slot 竞态）不变。
+- **被拒也留 DB 痕迹**（review I-3，事件教训 #5：日志会轮转，行不会）：拒绝前写一条
+  `ban_audit`（`action="login_refused"`、`reason="blocked email domain"`、
+  `evidence_ref="ip=<client_ip> domain=<域名>"`、`actor="netmind-login"`）。`user_id` 用的是
+  NetMind 的 `user_system_code`——本地没有、也不会建 user 行；对真实用户两者取值相同，但这里
+  语义来源是 NetMind。**不**写 `instance_login_ips`：那张表喂给哨兵的 IP→账号连带封禁，
+  只能出现真实本地账号（否则会把不存在的账号当封禁目标、还挤占 fanout 上限）。
+  `db_client` 因此提前到拒绝门之前取；`upsert_netmind_user` 仍在门之后（"无 user 行"不变）。
+- 日志里的域名改用 `_email_policy.email_domain`（与黑名单匹配同一套规范化），
+  `x@nimail.cn.` 不会再打成带尾点的域名。
 - 名单来源不变：`DISPOSABLE_EMAIL_DOMAINS`（已含 `nimail.cn` / `maxxspace.com` /
   `10timer.com` / `cc.cd`）+ `NARRANEXUS_BLOCKED_EMAIL_DOMAINS` env 扩展，整标签匹配（`notnimail.cn`
   不误伤）。测试 `test_account_suspension.py::test_login_refused_for_blocked_email_domain`
@@ -113,7 +126,8 @@ global=120），测试跑的就是线上尺寸。丢弃汇总日志的 60s 节�
   email key、不调上游。因此黑名单可被免费无限枚举——这是有意的（PR #420 review M-1）：
   条目都是公开的知名一次性邮箱域，枚举出来不是情报；挪到 per-IP 桶之后反而让打错域名
   的真实用户白花一次额度。中性文案只是不主动提示，不是防护。
-- **登录期免费额度门（绕过路径的兜底）**：`NETMIND_AUTH_API_URL` 经 `/config.js`
+- **登录期免费额度门（绕过路径的兜底）**——⚠️ 2026-10-29 已被**登录直接拒绝**取代、
+  `_free_credit_withheld` 已删，见顶部 2026-10-29 一节；下文是历史设计：`NETMIND_AUTH_API_URL` 经 `/config.js`
   公开，用户可以直接在 NetMind 注册、完全绕开上面两条路由；而 $10 钱包与引导
   Agent 是在 **netmind_login** 里发的。`_free_credit_withheld(user_id, email)` 对
   NetMind 校验过的 email 做同一个 `is_blocked_email`，命中则 warning 日志（只记域名——
@@ -121,8 +135,9 @@ global=120），测试跑的就是线上尺寸。丢弃汇总日志的 60s 节�
   `_provision_providers(..., free_tier=False)` 跳过钱包（连钱包服务都不调）、不调度
   引导 Agent、响应 `guide_agent_provisioning=False`（coachmark 同门）。用户照常登录，
   自己的 NetMind 卡照常注册。本地 `login` / `create_user` 无 email、无钱包，不受影响。
-- **per-IP 限额是纵深防御，不是闭环**：NetMind 直连注册存在，真正的「不给薅」靠的是
-  登录期免费额度门；per-IP 桶只是抬高经我们路由批量注册 / 轰炸发信的成本。
+- **per-IP 限额是纵深防御，不是闭环**：NetMind 直连注册存在，闭环是 netmind-login 对
+  黑名单域的拒绝门（2026-10-29 起；此前是登录期免费额度门）；per-IP 桶只是抬高经我们路由
+  批量注册 / 轰炸发信的成本。
 - 测试：`tests/backend/test_signup_abuse_limits.py`（含失败不扣建成桶、失败照扣尝试桶并在
   上限处 429、尝试桶拒绝不预占建成桶也不分配 email key、拒收域不扣 IP 桶、
   netmind-login 第 N+1 次 429 且另一 IP 照常、Power login 关闭时 404 不计桶、
