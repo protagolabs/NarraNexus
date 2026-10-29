@@ -16,7 +16,7 @@ Provides endpoints for:
 import os
 import json
 import jwt
-from time import monotonic
+from time import monotonic, time as wall_clock
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
@@ -798,6 +798,30 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         f"source={request.source or '-'}"
     )
     _schedule_login_rearm(user.user_id)
+
+    # Record (user_id, client_ip) for abuse IP<->account linkage (2026-10-28
+    # incident): the sentinel reads this table read-only to tie a scanning IP to
+    # the account(s) behind it, so an IP ban and an account ban go out together.
+    # Placed AFTER every refusal `raise` above, so a refused login records
+    # nothing. Best-effort — a recording failure must never break a login.
+    # `pair_key` matches the table's single-column UNIQUE upsert target, and
+    # `last_seen` is epoch seconds (what the cross-process sentinel compares).
+    try:
+        login_ip = client_ip(http_request)
+        await db_client.upsert(
+            "instance_login_ips",
+            {
+                "user_id": user.user_id,
+                "ip": login_ip,
+                "pair_key": f"{user.user_id}|{login_ip}",
+                "last_seen": int(wall_clock()),
+            },
+            "pair_key",
+        )
+    except Exception:  # noqa: BLE001 — login must never fail on IP recording
+        logger.warning(
+            f"[login] login-ip record failed user={user.user_id}", exc_info=True
+        )
 
     # Provision the user's providers — free tier FIRST, then their own NetMind
     # account. Both are fire-and-forget (login must never block on, or fail

@@ -3355,6 +3355,37 @@ _register(
 )
 
 
+# instance_login_ips — (user_id, client_ip) seen at login, for abuse IP<->account
+# linkage (2026-10-28 incident). The sentinel reads it read-only: given a
+# scanning IP it finds the account(s) that logged in from it recently, and given
+# a banned account it finds that account's recent IPs — so an IP ban and an
+# account ban can be applied together. `pair_key` = f"{user_id}|{ip}" is a
+# single-column UNIQUE used as the upsert conflict target, because the generic
+# AsyncDatabaseClient.upsert() emits a single-column ON CONFLICT (SQLite) and a
+# composite (user_id, ip) target would silently miss there. `last_seen` is epoch
+# SECONDS (BIGINT), not a DATETIME: the reader is a separate process on a
+# possibly different dialect, and an integer epoch sidesteps every timezone /
+# format mismatch in the cross-process window comparison.
+_register(
+    TableDef(
+        name="instance_login_ips",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("ip", "TEXT", "VARCHAR(45)", nullable=False),
+            Column("pair_key", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("last_seen", "INTEGER", "BIGINT", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_login_ips_pair", ["pair_key"], unique=True),
+            Index("idx_login_ips_ip_seen", ["ip", "last_seen"]),
+            Index("idx_login_ips_user_seen", ["user_id", "last_seen"]),
+        ],
+    )
+)
+
+
 # ============================================================================
 # DDL Generation
 # ============================================================================

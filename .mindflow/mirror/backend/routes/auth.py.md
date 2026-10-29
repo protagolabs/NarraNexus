@@ -1,8 +1,25 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — netmind-login 记录客户端 IP（滥用 IP↔账号联动）
+
+登录成功后(在**所有拒绝 `raise` 之后**:suspended / role 读等都过了)把
+`(user.user_id, client_ip(http_request))` upsert 进 `instance_login_ips`。
+用途:2026-10-28 事件后要求「封禁时 IP 和账号一起封」——哨兵据此把一个扫描
+IP 关联到它背后的账号(以及反向:封号时查该账号近期 IP)。要点:
+- **位置**:放在 `_schedule_login_rearm` 之后、provisioning 之前;在 suspended
+  短路 `raise` 的下游,所以**被拒的登录不记 IP**(测试钉住)。
+- **best-effort**:整段 try/except,记录失败只 warning,**绝不让登录失败**
+  (登录是关键路径)。
+- **口径**:IP 取 `client_ip()`(与限流桶、与哨兵在 Caddy log 看到的同一个);
+  `last_seen` 存 epoch 秒(跨进程比较免时区);`pair_key=f"{user_id}|{ip}"`
+  对上 `instance_login_ips` 的单列 UNIQUE upsert 目标。
+- 读方=`nexus_sentinel`(deploy 仓)只读此表:一个扫描 IP 被边缘自动封(已有的
+  `abuse.ip_ban`→host-guard 机制)时,连带封该 IP 近窗口内登录过的账号。本表只提供
+  IP↔账号映射;IP 封禁本身由哨兵 + 宿主防火墙 guard 执行,后端不做 IP 中间件。
 
 ## 2026-10-28（PR #419 review I-8）— funnel 三个限额改走 `env_limit`
 

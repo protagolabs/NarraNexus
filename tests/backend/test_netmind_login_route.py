@@ -302,3 +302,97 @@ async def test_a_failing_free_tier_does_not_block_the_netmind_card(monkeypatch):
 
     await _provision_providers(_CODE, "tok")
     assert ran == [_CODE]
+
+
+# ─────────────────── login-IP recording (abuse IP↔account linkage) ───────────
+# A successful login records (user_id, client_ip) in instance_login_ips so the
+# sentinel can later link a scanning IP to the account(s) behind it and ban both
+# together (2026-10-28 incident response). The IP is the one client_ip() sees
+# behind the Caddy->nginx chain, so an X-Forwarded-For with 2+ hops is needed
+# for the -2nd entry to be the "client".
+
+
+def _patch_provisioners(monkeypatch):
+    """Silence both background provisioners so the login path leaks no network
+    task (the known "pytest won't exit" pit)."""
+    import backend.integrations.free_tier.provisioner as prov_mod
+    import backend.integrations.netmind.netmind_provisioner as nm_prov_mod
+
+    async def _noop(user_id, **_kw):
+        return None
+
+    monkeypatch.setattr(prov_mod, "ensure_free_tier_provider", _noop)
+    monkeypatch.setattr(nm_prov_mod, "ensure_netmind_provider", _noop)
+
+
+@pytest.mark.asyncio
+async def test_netmind_login_records_client_ip(db_client, monkeypatch):
+    _patch_provisioners(monkeypatch)
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
+
+    resp = client.post(
+        "/api/auth/netmind-login",
+        json={"netmind_token": "t"},
+        headers={"x-forwarded-for": "203.0.113.9, 10.0.0.1"},
+    )
+    assert resp.status_code == 200
+
+    rows = await db_client.get("instance_login_ips", {"user_id": _CODE})
+    assert len(rows) == 1
+    assert rows[0]["ip"] == "203.0.113.9"
+    assert rows[0]["last_seen"] > 0
+
+
+@pytest.mark.asyncio
+async def test_netmind_login_ip_upsert_dedups_and_bumps_last_seen(db_client, monkeypatch):
+    _patch_provisioners(monkeypatch)
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
+    hdr = {"x-forwarded-for": "203.0.113.9, 10.0.0.1"}
+
+    first = client.post("/api/auth/netmind-login", json={"netmind_token": "t"}, headers=hdr)
+    assert first.status_code == 200
+    row1 = (await db_client.get("instance_login_ips", {"user_id": _CODE}))[0]
+
+    second = client.post("/api/auth/netmind-login", json={"netmind_token": "t"}, headers=hdr)
+    assert second.status_code == 200
+
+    rows = await db_client.get("instance_login_ips", {"user_id": _CODE})
+    assert len(rows) == 1  # same (user,ip) → one row, not a duplicate
+    assert rows[0]["last_seen"] >= row1["last_seen"]
+
+
+@pytest.mark.asyncio
+async def test_netmind_login_distinct_ips_make_distinct_rows(db_client, monkeypatch):
+    _patch_provisioners(monkeypatch)
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(_OK_USER))
+
+    client.post("/api/auth/netmind-login", json={"netmind_token": "t"},
+                headers={"x-forwarded-for": "203.0.113.9, 10.0.0.1"})
+    client.post("/api/auth/netmind-login", json={"netmind_token": "t"},
+                headers={"x-forwarded-for": "198.51.100.2, 10.0.0.1"})
+
+    rows = await db_client.get("instance_login_ips", {"user_id": _CODE})
+    assert {r["ip"] for r in rows} == {"203.0.113.9", "198.51.100.2"}
+
+
+@pytest.mark.asyncio
+async def test_refused_login_records_no_ip(db_client, monkeypatch):
+    """A login refused AFTER the account is known (suspended) must NOT record an
+    IP — the upsert sits past every refusal `raise`, not before it."""
+    _patch_provisioners(monkeypatch)
+    code = _CODE
+    await db_client.insert(
+        "users", {"user_id": code, "user_type": "individual", "status": "banned"}
+    )
+    user = NetmindUser(user_system_code=code, email="x@y.z", nickname="X")
+    client = _make_app(db_client, monkeypatch, _FakeNetmindClient(user))
+
+    resp = client.post(
+        "/api/auth/netmind-login",
+        json={"netmind_token": "t"},
+        headers={"x-forwarded-for": "203.0.113.9, 10.0.0.1"},
+    )
+    assert resp.status_code == 403
+
+    rows = await db_client.get("instance_login_ips", {"user_id": code})
+    assert rows == []

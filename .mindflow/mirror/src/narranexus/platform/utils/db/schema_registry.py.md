@@ -1,8 +1,23 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-10-08
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — 新表 `instance_login_ips`（滥用 IP↔账号联动）
+
+登录时记 `(user_id, ip, last_seen)`,供 `nexus_sentinel` 只读:给一个扫描 IP
+查近期从它登录的账号、给一个被封账号查它近期的 IP——让 IP 封禁与账号封禁一起
+下发(2026-10-28 事件)。两个有意的设计偏离,别"顺手改回"惯例:
+- **`pair_key = f"{user_id}|{ip}"` 单列 UNIQUE 做 upsert 冲突目标**。通用
+  `AsyncDatabaseClient.upsert()` 发的是单列 `ON CONFLICT`(SQLite),复合
+  `(user_id, ip)` 目标在 SQLite 侧会**静默漏命中**→每次登录插重复行。单列
+  派生键两方言都稳。
+- **`last_seen` 是 epoch 秒(BIGINT),不是 DATETIME**。读方是另一个进程、可能
+  另一种方言,整型 epoch 绕开跨进程窗口比较里所有时区/格式错配。
+写方=`backend/routes/auth.py` netmind-login。读方=`nexus_sentinel`(deploy 仓),
+只读此表把被边缘自动封的扫描 IP 关联到其背后账号并一并封禁;IP 封禁由哨兵 + 宿主
+防火墙 guard 执行,后端不做 IP 中间件(本表只提供映射)。
 
 ## 2026-10-08（PR #410 review）
 
