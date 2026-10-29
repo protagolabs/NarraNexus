@@ -14,6 +14,11 @@ and connects to a validated address — while TLS still verifies the hostname
 """
 from __future__ import annotations
 
+import asyncio
+import asyncio.selector_events
+import socket
+
+import aiohttp
 import httpcore
 import httpx
 import pytest
@@ -85,7 +90,7 @@ class _InnerSpy(httpcore.AsyncNetworkBackend):
 
 def _client(resolver, inner):
     return httpx.AsyncClient(
-        transport=safe_http.public_only_transport(resolver=resolver, inner=inner),
+        transport=safe_http.PublicOnlyTransport(resolver=resolver, inner=inner),
         follow_redirects=False,
     )
 
@@ -190,12 +195,6 @@ async def test_egress_client_is_unrestricted_locally(monkeypatch):
 
 
 # ── aiohttp: the same pin via the connector's resolver ──
-
-import asyncio
-import asyncio.selector_events
-import socket
-
-import aiohttp
 
 
 @pytest.mark.asyncio
@@ -312,7 +311,9 @@ def test_families_are_interleaved_keeping_the_first_preference():
 
 # ── factories refuse kwargs that would bypass the pin ──
 
-@pytest.mark.parametrize("kwarg", ["transport", "proxy", "mounts"])
+@pytest.mark.parametrize(
+    "kwarg", ["transport", "proxy", "mounts", "verify", "cert", "http1", "http2", "limits"]
+)
 def test_egress_client_rejects_pin_bypassing_kwargs(kwarg):
     with pytest.raises(TypeError):
         safe_http.egress_client(**{kwarg: object()})
@@ -321,3 +322,15 @@ def test_egress_client_rejects_pin_bypassing_kwargs(kwarg):
 def test_egress_connector_rejects_a_custom_resolver():
     with pytest.raises(TypeError):
         safe_http.egress_connector(resolver=object())
+
+
+
+@pytest.mark.asyncio
+async def test_unparseable_resolver_answer_is_a_refusal_not_a_bare_value_error():
+    # A misbehaving resolver answer that ipaddress cannot parse must surface as
+    # UnsafeUrlError (what callers catch), never a bare ValueError.
+    inner = _InnerSpy()
+    async with _client(_resolver([["not-an-address"]]), inner) as client:
+        with pytest.raises(UnsafeUrlError):
+            await client.get("http://scoped.example/")
+    assert inner.connects == []

@@ -60,7 +60,13 @@ def _is_public_ip(ip_str: str) -> bool:
     link-local (covers the 169.254.169.254 metadata IP), reserved,
     multicast, unspecified and shared (CGNAT) ranges — for both IPv4 and
     IPv6, including IPv4-mapped IPv6 spellings."""
-    ip = ipaddress.ip_address(ip_str)
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        # Unparseable (a misbehaving / injected resolver answer) is not a
+        # public address. Returning False keeps the refusal an UnsafeUrlError
+        # for callers that catch only that, instead of a bare ValueError.
+        return False
     v4 = ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped else ip
     if isinstance(v4, ipaddress.IPv4Address) and v4 in _SHARED_ADDRESS_SPACE:
         return False

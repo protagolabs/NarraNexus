@@ -1810,6 +1810,7 @@ dependencies = [
     { name = "aiomysql" },
     { name = "aiosqlite" },
     { name = "anthropic" },
+    { name = "anyio" },
     { name = "bcrypt" },
     { name = "boto3" },
     { name = "croniter" },
@@ -1819,6 +1820,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "google-genai" },
+    { name = "httpcore" },
     { name = "httpx", extra = ["socks"] },
     { name = "lark-oapi" },
     { name = "litellm" },
@@ -1898,10 +1900,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.9.0,<4" },
+    { name = "aiohttp", specifier = ">=3.10,<4" },
     { name = "aiomysql", specifier = ">=0.3.2,<1" },
     { name = "aiosqlite", specifier = ">=0.22.1,<1" },
     { name = "anthropic", specifier = ">=0.72.0,<1" },
+    { name = "anyio", specifier = ">=4.0,<5" },
     { name = "bcrypt", specifier = ">=5.0.0,<6" },
     { name = "boto3", specifier = ">=1.34.0,<2" },
     { name = "claude-agent-sdk", marker = "extra == 'plugins'", specifier = "~=0.1.43" },
@@ -1912,6 +1915,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0,<1" },
     { name = "fastmcp", specifier = ">=2.14.1,<3" },
     { name = "google-genai", specifier = ">=1.0.0,<2" },
+    { name = "httpcore", specifier = ">=1.0,<2" },
     { name = "httpx", extras = ["socks"], specifier = ">=0.28.1,<1" },
     { name = "lark-oapi", specifier = ">=1.4.0,<2.0.0" },
     { name = "lark-oapi", marker = "extra == 'channels-lark'", specifier = ">=1.4.0,<2.0.0" },

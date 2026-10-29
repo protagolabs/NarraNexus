@@ -4,14 +4,16 @@ last_verified: 2026-10-29
 stub: false
 ---
 
-## 2026-10-29 — default client is pinned
+## 2026-10-29 — default client is pinned in cloud
 
 The per-hop pre-check in `safe_stream_get` resolves the name separately from
 the dial, so a rebinding domain could pass it and connect inside. The client
-`probe_url` builds itself now uses [[safe_http.py]] `PublicOnlyTransport` (with
-the same injected resolver): the dial re-validates and connects to the checked
-address. Always pinned, not only in cloud — `open_url` already hard-gates in
-every mode. A connect-time refusal is an `UnsafeUrlError` and degrades the
+`probe_url` builds itself now takes [[safe_http.py]] `egress_transport(resolver=…)`:
+in cloud a `PublicOnlyTransport` (the dial re-validates and connects to the
+checked address); locally `None`, i.e. httpx's default transport, which keeps
+honouring `*_PROXY` for a desktop user behind a corporate proxy (PR #427 review
+I2 — pinning unconditionally silently dropped proxy support). The per-hop
+public-address pre-check still runs in every mode. A connect-time refusal is an `UnsafeUrlError` and degrades the
 probe like any SSRF-blocked hop. An injected `client` (tests) is used as-is.
 
 ## 2026-07-22 — redirect walk extracted to safe_http

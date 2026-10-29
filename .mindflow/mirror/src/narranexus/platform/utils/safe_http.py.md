@@ -45,10 +45,18 @@ incident's P0. The fix moves the check INTO the dial:
   `session.get` (not wrapped in `ClientError`), so callers catch it explicitly.
 - `egress_client()` / `egress_connector()` are deployment-aware: pinned in
   cloud, plain locally (desktop/run.sh legitimately reach localhost — same
-  contract as `assert_public_http_url_in_cloud`). They reject
-  `transport` / `proxy` / `mounts` / `resolver` kwargs that would bypass the pin.
-  Sites whose own contract is "always public" (URL artifact fetchers, MCP
-  validate with `enforce_public_url`) use `PublicOnlyTransport` directly.
+  contract as `assert_public_http_url_in_cloud`). `egress_client` rejects
+  `transport` / `proxy` / `mounts` (would bypass the pin) and `verify` /
+  `cert` / `http1` / `http2` / `limits` (httpx applies those only to a
+  transport it builds, so they would work locally and vanish in cloud);
+  `egress_connector` rejects `resolver`. The URL artifact fetchers take
+  `egress_transport(resolver=…)` (cloud pinned, local default transport with
+  `*_PROXY`); MCP validate pins on its caller's `enforce_public_url`.
+- Dependencies used as direct APIs are declared in pyproject (`httpcore`,
+  `anyio`, `aiohttp>=3.10` for `aiohttp.abc.ResolveResult`).
+  `PublicOnlyTransport` skips `super().__init__()` and relies on `_pool`
+  being `httpx.AsyncHTTPTransport`'s only state (httpx 0.28) — re-check it on
+  any httpx upgrade.
 
 Wired into: URL artifact fetchers ([[embed_probe]], [[page_text]]), transcription
 [[openai_multipart]], provider Test probes in [[registry]] (user-sourced cards

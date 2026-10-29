@@ -210,8 +210,9 @@ class PublicOnlyTransport(httpx.AsyncHTTPTransport):
         retries: int = 0,
     ) -> None:
         # Deliberately not super().__init__(): it would build a pool (and load
-        # the CA bundle) only for it to be replaced. The pool is the transport's
-        # only state. trust_env=True for the SSL context only, so SSL_CERT_FILE /
+        # the CA bundle) only for it to be replaced. This relies on ``_pool``
+        # being httpx.AsyncHTTPTransport's ONLY state (true for httpx 0.28) —
+        # re-check this class whenever httpx is upgraded. trust_env=True for the SSL context only, so SSL_CERT_FILE /
         # SSL_CERT_DIR are honoured exactly as by a default client.
         self._pool = httpcore.AsyncConnectionPool(
             ssl_context=httpx.create_ssl_context(verify=verify, trust_env=True),
@@ -223,15 +224,6 @@ class PublicOnlyTransport(httpx.AsyncHTTPTransport):
             retries=retries,
             network_backend=PublicOnlyNetworkBackend(resolver=resolver, inner=inner),
         )
-
-
-def public_only_transport(
-    *,
-    resolver: Optional[Resolver] = None,
-    inner: Optional[httpcore.AsyncNetworkBackend] = None,
-) -> PublicOnlyTransport:
-    """A pinned transport regardless of deployment mode (tests / explicit use)."""
-    return PublicOnlyTransport(resolver=resolver, inner=inner)
 
 
 def egress_transport(**transport_kwargs: Any) -> Optional[httpx.AsyncBaseTransport]:
@@ -270,11 +262,13 @@ def egress_client(**client_kwargs: Any) -> httpx.AsyncClient:
     """An httpx.AsyncClient for server-side requests to user-supplied URLs.
 
     Pinned (connect-time SSRF gate) in cloud, a plain client locally. Accepts
-    the usual AsyncClient kwargs (timeout, headers, follow_redirects, ...);
-    `transport` / `proxy` / `mounts` are rejected because they would replace
-    or bypass the pin.
+    the usual AsyncClient kwargs (timeout, headers, follow_redirects, ...).
+    Rejected: `transport` / `proxy` / `mounts` (would replace or bypass the
+    pin) and `verify` / `cert` / `http1` / `http2` / `limits` — httpx only
+    applies those to a transport it builds itself, so they would take effect
+    locally and be silently dropped in cloud.
     """
-    for forbidden in ("transport", "proxy", "mounts"):
+    for forbidden in ("transport", "proxy", "mounts", "verify", "cert", "http1", "http2", "limits"):
         if forbidden in client_kwargs:
             raise TypeError(f"egress_client does not accept {forbidden!r}")
     transport = egress_transport()
@@ -303,6 +297,7 @@ class PublicOnlyResolver(AbstractResolver):
         addresses = await resolve_public_addresses(host, port, resolver=self._resolver)
         results: list[ResolveResult] = []
         for address in addresses:
+            # resolve_public_addresses already proved every entry parses.
             addr_family = socket.AF_INET6 if ipaddress.ip_address(address).version == 6 else socket.AF_INET
             if family not in (socket.AF_UNSPEC, addr_family):
                 continue

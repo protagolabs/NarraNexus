@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/_mcp_egress.py
-last_verified: 2026-08-11
+last_verified: 2026-10-29
 stub: false
 ---
 
@@ -15,7 +15,7 @@ stub: false
 - **cloud only（铁律 #7）**：local/桌面是单一可信用户、OS user 即边界、本地 agent 本就有 bash，localhost MCP 合法，故 local 直接透传。
 - **fail-CLOSED**：`except Exception`（不只是 `UnsafeUrlError`）——`urlparse('http://[::1')` 抛的是裸 `ValueError`，若只抓 `UnsafeUrlError` 会冒到调用点的兜底 except 被吞、整份**未过滤** spec 原样进 run（安全控制失败方向必须是丢弃，不是放行）。丢弃时只 log server 名 + 异常类名，不带 URL/IP。
 - **落位**：`backend/routes/_mcp_egress.py`（路由私有 helper，与 `_ownership.py` 同类），只有 websocket / skills 两个消费者。
-- **仍是缓解不是消除**：和 validate-time 一样，解析后校验只**缩小** DNS-rebinding 窗口；最终 fetch 会重新解析。彻底封死要连接 pinning 到已核验 IP（后续项）。
+- **仍是缓解不是消除**：解析后校验只**缩小** DNS-rebinding 窗口；最终 fetch 会重新解析。2026-10-29 连接期钉死已在 [[safe_http]] 落地（validate-time 的 [[mcp_repository]] 已接上），但运行期 MCP fetch 发生在 executor 容器里（Claude/Codex CLI、NexusPower `sse_client`），Python 侧没有注入点，钉不上；补偿控制是容器级 IMDS 屏蔽（executor 拿不到实例角色凭据）。
 
 ## 边界
 

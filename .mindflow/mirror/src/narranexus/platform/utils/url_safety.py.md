@@ -20,6 +20,9 @@ stub: false
   STREAM/DGRAM/RAW 各回一条，拨号循环会把同一个 IP 串行拨 3 次（黑洞地址的失败耗时 ×3）。
 - `_is_public_ip` 增拒 RFC 6598 共享地址段 `100.64.0.0/10`（CGNAT；`is_private` 不含它，VPC/VPN 内可能是内网段），
   IPv4-mapped IPv6 写法同样拒。它现在是预检与拨号共用的唯一判据，所以收紧一次两边同时生效。
+- `_is_public_ip` 对解析不了的字符串返回 False（不抛裸 `ValueError`）：resolver 回了怪东西时，拒绝仍以
+  `UnsafeUrlError` 形式出现，只 catch 它的调用方（openai_multipart / mcp_repository）不会漏成 500。
+  字面 IP 分支那个 `try/except ValueError: pass` 是另一回事（刻意的，见其注释），没动。
 
 ## 2026-10-28（二）— 部署感知收口：`assert_public_http_url_in_cloud`
 

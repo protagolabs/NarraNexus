@@ -34,7 +34,7 @@ import httpx
 from loguru import logger
 
 from narranexus.platform.schema.artifact_schema import EmbedVerdict
-from narranexus.platform.utils.safe_http import PublicOnlyTransport, RedirectLimitError, safe_stream_get
+from narranexus.platform.utils.safe_http import RedirectLimitError, egress_transport, safe_stream_get
 from narranexus.platform.utils.url_safety import Resolver, UnsafeUrlError
 
 _PROBE_TIMEOUT_S = 5.0
@@ -123,10 +123,13 @@ async def probe_url(
     """
     owns_client = client is None
     if client is None:
-        # Pinned transport: the per-hop pre-check in safe_stream_get is not
-        # enough on its own — the dial re-resolves (DNS rebinding).
+        # Cloud: pinned transport — the per-hop pre-check in safe_stream_get
+        # is not enough on its own, the dial re-resolves (DNS rebinding).
+        # Local/desktop: None -> httpx's default transport (honours *_PROXY);
+        # a single trusted user, and the per-hop public-address pre-check
+        # still applies in every mode.
         client = httpx.AsyncClient(
-            transport=PublicOnlyTransport(resolver=resolver),
+            transport=egress_transport(resolver=resolver),
             follow_redirects=False,
             timeout=_PROBE_TIMEOUT_S,
         )
