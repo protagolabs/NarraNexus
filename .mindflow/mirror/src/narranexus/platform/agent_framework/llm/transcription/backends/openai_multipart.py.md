@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/transcription/backends/openai_multipart.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
 
@@ -28,8 +28,10 @@ Every credential is gated, not just user-sourced ones: no candidate this backend
 serves legitimately points inside our network (the free-tier card is routed to
 the gateway backend; `settings.openai` is api.openai.com). Local mode skips the
 gate — a self-hosted whisper.cpp on localhost is a valid desktop setup.
-`follow_redirects=False` is now explicit on the client. Not done: IP pinning
-(see the url_safety mirror).
+`follow_redirects=False` is now explicit on the client. Since 2026-10-29 the
+client comes from `safe_http.egress_client` — pinned in cloud, so the dial
+re-validates and connects to the checked address (DNS rebinding closed); a
+connect-time refusal returns None (next candidate), with no retry.
 
 # openai_multipart.py — OpenAI /audio/transcriptions backend
 

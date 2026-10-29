@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.home_assistant/src/narranexus_plugins/home_assistant_module/_home_assistant_impl/ha_client.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
 
@@ -35,8 +35,11 @@ PR#418 review I1：`validate_base_url` 的 cloud 分支改调 `url_safety.assert
   link-local IP）在构造时跑；`validate_base_url` 改成 **async**，云端再走共享
   `assert_public_http_url`（解析后判定，DNS 失败 = 拒），失败统一 `HAError` 固定文案，
   不回显解析出的 IP。
-- 门在 **每次 `_request` 之前**跑，而不只是构造时：客户端活得比一次 DNS 应答久，每次重验
-  缩小（不封死）rebinding 窗口。
+- 门在 **每次 `_request` 之前**跑，而不只是构造时：客户端活得比一次 DNS 应答久。
+  2026-10-29 起云端连接本身也钉死：session 用 [[safe_http]] `egress_connector(ssl=…)`，
+  其 resolver 只返回已校验公网地址，aiohttp 只连这些地址——rebinding 窗口封死。拨号被拒
+  （`UnsafeUrlError`，aiohttp 不包成 `ClientError`）翻成同一个 `HAError(_CLOUD_PUBLIC_ONLY)`。
+  本地分支不钉（局域网 HA 合法在私网）。
 - aiohttp 请求 `allow_redirects=False`；3xx 报 `HAError`（提示填最终 URL），不跟——公网 HA
   302 到内网就是绕门。
 - `aiohttp.ClientError` 的异常文本只进日志，`HAError` 只说 "could not reach Home Assistant"。

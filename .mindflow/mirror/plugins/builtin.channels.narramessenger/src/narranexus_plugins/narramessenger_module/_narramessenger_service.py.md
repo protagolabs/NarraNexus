@@ -1,8 +1,19 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_narramessenger_service.py
 stub: false
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 ---
+
+## 2026-10-29 — bind session pinned in cloud
+
+`do_bind`'s session now uses [[safe_http]] `egress_connector()`: in cloud the
+connector's resolver only returns validated public addresses, so the gate's
+answer and the dial can no longer differ (DNS rebinding). `trust_env` is now
+`not is_cloud_mode()` — a `*_PROXY` would resolve the name itself and bypass
+the pin; desktop keeps system-proxy support. A connect-time `UnsafeUrlError`
+returns the same "not a public NarraMessenger host" message as the pre-check.
+Stored URLs used after bind (matrix homeserver, backend_base_url in the
+trigger / send paths) are NOT re-gated here — separate follow-up.
 
 ## 2026-10-28（二）— `_is_allowed_target` 改调共享包装；3xx 记日志
 

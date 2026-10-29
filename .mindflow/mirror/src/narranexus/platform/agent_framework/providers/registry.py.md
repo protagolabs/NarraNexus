@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/registry.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
 
@@ -75,8 +75,12 @@ helper 调用抛 `LLMConfigNotConfigured`。
   `HTTP <code> from the provider`，响应体前 200 字节进日志；异常只回
   `Connection failed (could not reach the provider)`。`_interpret_test_response` 的
   self-serviceable 分类结果是我们自己的词表，保留。
-- 未做（后续项）：连接 pinning 到已校验 IP——门只**缩小** DNS-rebinding 窗口，httpx 连接时
-  会重新解析。见 [[url_safety]]。
+- 连接 pinning（2026-10-29）：Test 探针经 `_probe_client(pinned)` 取 client——**用户卡**
+  （与门同一判据 `user_supplied`）走 [[safe_http]] `egress_client`，云端拨号时重验地址、
+  连已校验 IP，封死门与连接之间的 DNS-rebinding；**平台卡**保持普通 client（free-tier 卡的
+  base_url 就是 docker 网内的自家网关，钉死会把它拒掉）。拨号时被拒（`UnsafeUrlError`）与
+  预检被拒回同一句 `UNSAFE_BASE_URL_MESSAGE`。测试含「平台卡不钉 / 用户卡钉 / rebinding
+  拨号前即拒、零 socket」三条。
 - 测试：`tests/backend/test_provider_egress_gate.py`（含 netmind_free 内网网关卡照常可测 /
   user 卡同 URL 被拒的对照）。
 

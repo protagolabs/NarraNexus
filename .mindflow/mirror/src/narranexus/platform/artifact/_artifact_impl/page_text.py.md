@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/page_text.py
-last_verified: 2026-07-22
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — default client is pinned
+
+Same change as [[embed_probe.py]]: the self-built client dials through
+[[safe_http.py]] `PublicOnlyTransport`, so a rebinding domain that passes the
+per-hop pre-check is still refused at connect time (→ `None`, best-effort).
 
 ## 2026-07-22 — built on the shared safe_http walk
 

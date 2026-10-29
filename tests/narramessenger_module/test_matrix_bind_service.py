@@ -583,3 +583,36 @@ async def test_post_json_reports_whitelisted_code_only():
 
     out = await svc._post_json(_S(), "https://api.netmind.chat/x", {})
     assert out == {"ok": False, "status": 409, "error": "WRONG_STATE"}
+
+
+@pytest.mark.asyncio
+async def test_cloud_rebinding_bind_link_is_refused_at_connect(stub_db, fake_manager, monkeypatch):
+    # The gate sees a public answer, the session's dial would see the metadata
+    # IP: the pinned connector refuses before any socket opens.
+    import asyncio
+
+    from narranexus.platform.utils import url_safety
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    answers = iter([["104.18.1.1"]])
+
+    async def _rebinding(host, port):
+        return next(answers, ["169.254.169.254"])
+
+    monkeypatch.setattr(url_safety, "_default_resolver", _rebinding)
+    dials = []
+
+    async def _no_connect(self, *args, **kwargs):
+        dials.append(args)
+        raise OSError("test: sockets disabled")
+
+    monkeypatch.setattr(asyncio.BaseEventLoop, "create_connection", _no_connect)
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x", bind_command="https://rebind.example/tok123/setup-guide.md"
+    )
+
+    assert result["success"] is False
+    assert "public NarraMessenger host" in result["error"]
+    assert "169.254" not in result["error"]
+    assert dials == [] and fake_manager.upserts == []

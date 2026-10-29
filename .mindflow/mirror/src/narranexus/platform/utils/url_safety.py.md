@@ -1,8 +1,21 @@
 ---
 code_file: src/narranexus/platform/utils/url_safety.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — 连接 pinning 落地：抽出 `resolve_public_addresses`
+
+10/28 事件跟进 P0-1。下面「后续项：连接 pinning」已做：判定「什么算安全地址」抽成
+`resolve_public_addresses(host, port)`（字面 IP 直判、否则解析且**全部**公网才放行、DNS 失败即拒），
+`assert_public_http_url` 只剩 scheme/host 解析 + 委托它。连接时的门
+[[safe_http]] 的 `PublicOnlyNetworkBackend`（httpx）与 `PublicOnlyResolver`（aiohttp）**调同一个函数**，
+所以预检与拨号的判定永远一致，不会出现两套地址规则。
+
+- 本函数仍只是**预检**：给调用方早拒 + 清晰报错。真正封死 rebinding 的是拨号那一层；
+  用户可控 URL 的请求必须走 `safe_http.egress_client()` / `egress_connector()` /
+  `PublicOnlyTransport`，单靠本模块不够（docstring 已改口，不再声称「post-resolution 即击败 rebinding」）。
+- `host.strip("[]")`：httpcore 把 IPv6 字面量以无方括号形式交给 `connect_tcp`，但 URL 路径传进来时可能带括号，两边统一。
 
 ## 2026-10-28（二）— 部署感知收口：`assert_public_http_url_in_cloud`
 
@@ -19,7 +32,7 @@ PR#418 review I1：「云端才过门」这段判定原先在 4 个 sink（provi
   的惯例。模块因此多依赖一个纯 env 叶子，不再是「只依赖 stdlib」。
 - **不收**：HA 本地分支的 `_assert_not_link_local` 是另一种策略（局域网 HA 合法在私网，
   只拒 link-local），并进来会把桌面版 HA 打挂；HA 仍自己按部署分流，只有 cloud 分支调包装。
-- 后续 IP pinning / 改成显式配置开关，都只改这一个函数。
+- 改成显式配置开关只改这一个函数（IP pinning 已在 2026-10-29 落到 [[safe_http]]）。
 - **触发**：测试只 patch 某个 sink 模块里的 `is_cloud_mode` 符号 → **症状**：sink 走了 cloud
   分支但包装判成 local，内网地址被放行、测试变红 → **根因**：判定已移到本模块；测试要用
   `monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")`（HA 测试已改）。
@@ -39,7 +52,7 @@ Assistant 客户端（每次请求前）、NarraMessenger bind（链接 host + g
 这些接入点**全部仅云端**（沿用 MCP 存前筛的部署分流先例：桌面是单一可信用户，合法指向
 localhost 的 Ollama / LM Studio / 局域网 HA），失败一律 fail closed、对用户不回显解析出的地址。
 
-**后续项（刻意未做）：连接 pinning。** 本门是**解析后**校验，但调用方（httpx / aiohttp /
+**后续项（2026-10-29 已做，见顶部）：连接 pinning。** 本门是**解析后**校验，但调用方（httpx / aiohttp /
 matrix-nio）连接时会**重新解析**主机名——TTL=0 的记录可以在校验与连接之间从公网翻到内网
 （DNS-rebinding TOCTOU）。门只缩小窗口，不封死。彻底封死要把连接钉在本函数返回的已校验
 IP 上（自定义 transport / resolver，同时保留 TLS SNI 与 Host 头为原主机名）。返回值已是
@@ -86,7 +99,8 @@ written once.
   injectable `Resolver` (real DNS by default, mockable in tests).
 - Rejects if ANY resolved address is private / loopback / link-local
   (covers the metadata IP) / reserved / multicast / unspecified — IPv4 and
-  IPv6. Validation is POST-resolution, which is what defeats DNS-rebinding.
+  IPv6. Validation is POST-resolution — a pre-check only; the connect-time
+  pin in `safe_http` is what defeats DNS rebinding.
 - Resolution failure / empty resolution is a HARD reject, never a pass.
 
 ## Trust boundary gotcha

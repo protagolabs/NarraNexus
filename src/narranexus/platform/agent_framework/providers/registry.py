@@ -25,7 +25,7 @@ import secrets
 import string
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
@@ -44,9 +44,13 @@ from narranexus.platform.agent_framework.providers.framework_binding import (
 from narranexus.platform.agent_framework.providers.model_catalog import get_default_models
 from narranexus.platform.utils import deployment_mode
 from narranexus.platform.utils.url_safety import (
+    UnsafeUrlError,
     assert_public_http_url_in_cloud,
     is_obviously_non_public_url,
 )
+
+if TYPE_CHECKING:
+    import httpx
 
 
 # Shown to the user whenever a user-supplied base_url fails the egress gate.
@@ -727,7 +731,8 @@ class ProviderRegistry:
         # carry fixed base_urls we wrote ourselves — the free-tier ones are
         # internal by design. Same criterion as the read-path screen.
         gate_source = provider.source if stored_source is None else stored_source
-        if not is_platform_provider_source(gate_source):
+        user_supplied = not is_platform_provider_source(gate_source)
+        if user_supplied:
             try:
                 await assert_user_base_url_allowed(provider.base_url)
             except Exception as e:  # noqa: BLE001 — any decision failure fails closed
@@ -738,18 +743,39 @@ class ProviderRegistry:
 
         try:
             if provider.protocol == ProviderProtocol.OPENAI:
-                return await self._test_openai_provider(provider)
+                return await self._test_openai_provider(provider, pinned=user_supplied)
             elif provider.protocol == ProviderProtocol.ANTHROPIC:
-                return await self._test_anthropic_provider(provider)
+                return await self._test_anthropic_provider(provider, pinned=user_supplied)
             else:
                 return False, f"Unknown protocol: {provider.protocol}"
+        except UnsafeUrlError as e:
+            logger.warning(f"[provider-test] refused user base_url at connect time: {e}")
+            return False, UNSAFE_BASE_URL_MESSAGE
         except Exception as e:
             # Exception text can carry internal addresses / upstream detail —
             # log it, show the user a generic verdict.
             logger.warning(f"[provider-test] connection failed: {type(e).__name__}: {e}")
             return False, "Connection failed (could not reach the provider)"
 
-    async def _test_openai_provider(self, provider: ProviderConfig) -> tuple[bool, str]:
+    @staticmethod
+    def _probe_client(pinned: bool) -> httpx.AsyncClient:
+        """HTTP client for a provider Test probe.
+
+        `pinned` (user-supplied base_url): the egress client, which in cloud
+        re-validates the address at connect time — the gate above resolved the
+        name separately, and a short-TTL record could flip in between (DNS
+        rebinding). Platform cards keep a plain client: their fixed base_urls
+        are internal by design (our own gateway).
+        """
+        import httpx
+
+        from narranexus.platform.utils.safe_http import egress_client
+
+        if pinned:
+            return egress_client(timeout=15.0, follow_redirects=False)
+        return httpx.AsyncClient(timeout=15.0, follow_redirects=False)
+
+    async def _test_openai_provider(self, provider: ProviderConfig, *, pinned: bool) -> tuple[bool, str]:
         """Test an OpenAI-protocol provider.
 
         Strategy:
@@ -757,7 +783,6 @@ class ProviderRegistry:
         - Non-official (proxy): POST /chat/completions with the provider's first
           configured model and max_tokens=1 (minimal real request)
         """
-        import httpx
         from narranexus.platform.agent_framework.providers.model_catalog import is_official_provider
 
         base_url = provider.base_url or "https://api.openai.com/v1"
@@ -765,7 +790,7 @@ class ProviderRegistry:
 
         if is_official_provider("openai", provider.base_url):
             # Official: GET /models — no token cost
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            async with self._probe_client(pinned) as client:
                 resp = await client.get(f"{base_url}/models", headers=headers)
             if resp.status_code == 200:
                 return True, "Connected successfully"
@@ -781,12 +806,12 @@ class ProviderRegistry:
             headers["Content-Type"] = "application/json"
             payload = {"model": test_model, "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}
 
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            async with self._probe_client(pinned) as client:
                 resp = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
 
             return self._interpret_test_response(resp)
 
-    async def _test_anthropic_provider(self, provider: ProviderConfig) -> tuple[bool, str]:
+    async def _test_anthropic_provider(self, provider: ProviderConfig, *, pinned: bool) -> tuple[bool, str]:
         """Test an Anthropic-protocol provider.
 
         Strategy:
@@ -794,7 +819,6 @@ class ProviderRegistry:
         - Non-official (proxy): POST /v1/messages with the provider's first
           configured model and max_tokens=1 (minimal real request)
         """
-        import httpx
         from narranexus.platform.agent_framework.providers.model_catalog import is_official_provider
 
         base_url = provider.base_url or "https://api.anthropic.com"
@@ -806,7 +830,7 @@ class ProviderRegistry:
 
         if is_official_provider("anthropic", provider.base_url):
             # Official: GET /models — no token cost
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            async with self._probe_client(pinned) as client:
                 resp = await client.get(f"{base_url}/v1/models", headers=headers)
             if resp.status_code == 200:
                 return True, "Connected successfully"
@@ -822,7 +846,7 @@ class ProviderRegistry:
             headers["Content-Type"] = "application/json"
             payload = {"model": test_model, "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}
 
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+            async with self._probe_client(pinned) as client:
                 resp = await client.post(f"{base_url}/v1/messages", json=payload, headers=headers)
 
             return self._interpret_test_response(resp)

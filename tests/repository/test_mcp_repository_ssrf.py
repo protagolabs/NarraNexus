@@ -209,3 +209,31 @@ async def test_validate_exception_does_not_echo_detail(monkeypatch, exc_kind):
     assert ok is False
     assert UPSTREAM_SECRET not in error
     assert "172.20" not in error
+
+
+@pytest.mark.asyncio
+async def test_validate_refuses_rebinding_at_connect_when_enforced(monkeypatch):
+    # The pre-check sees a public answer, the dial would see the metadata IP:
+    # the pinned transport refuses before any socket opens.
+    import httpcore
+
+    answers = iter([["93.184.216.34"]])
+
+    async def _rebinding(host, port):
+        return next(answers, ["169.254.169.254"])
+
+    dials = []
+
+    async def _spy(self, host, port, timeout=None, local_address=None, socket_options=None):
+        dials.append((host, port))
+        raise httpcore.ConnectError("test: sockets disabled")
+
+    monkeypatch.setattr(httpcore.AnyIOBackend, "connect_tcp", _spy)
+
+    ok, err = await validate_mcp_sse_connection(
+        "https://rebind.example/sse", resolver=_rebinding, enforce_public_url=True
+    )
+
+    assert ok is False
+    assert "public" in err and "169.254" not in err
+    assert dials == []

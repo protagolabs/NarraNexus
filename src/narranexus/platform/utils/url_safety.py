@@ -128,13 +128,15 @@ async def assert_public_http_url(
 ) -> List[str]:
     """Validate `url` is a safe public HTTP(S) target, or raise UnsafeUrlError.
 
-    Resolves the host and rejects if ANY resolved address is non-public
-    (this is what defeats DNS-rebinding — validation happens post-resolution,
-    on the actual addresses a client would connect to). A literal-IP host is
-    checked directly without resolving.
+    Resolves the host and rejects if ANY resolved address is non-public. A
+    literal-IP host is checked directly without resolving.
 
-    Returns the list of validated public IPs (useful for connection pinning
-    by a future caller). Raises UnsafeUrlError on any failure.
+    This is a PRE-check: an HTTP client that resolves the name again when it
+    connects can be handed a different answer (short-TTL rebinding). Requests
+    to user-supplied URLs must also go through `safe_http.egress_client` /
+    `PublicOnlyTransport`, which re-validate at connect time and dial the
+    validated address. Returns the validated public IPs; raises
+    UnsafeUrlError on any failure.
     """
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
@@ -143,6 +145,25 @@ async def assert_public_http_url(
     if not host:
         raise UnsafeUrlError("URL has no host")
 
+    default_port = 443 if parsed.scheme == "https" else 80
+    return await resolve_public_addresses(host, parsed.port or default_port, resolver=resolver)
+
+
+async def resolve_public_addresses(
+    host: str,
+    port: int,
+    *,
+    resolver: Optional[Resolver] = None,
+) -> List[str]:
+    """Resolve `host` and return its addresses only if EVERY one is public.
+
+    The shared core of the URL pre-check above and the connect-time gate in
+    `safe_http.PublicOnlyNetworkBackend` — one implementation of "what counts
+    as a safe address", so the two can never disagree. A literal-IP host is
+    checked directly without resolving. Raises UnsafeUrlError on any failure
+    (DNS errors included: an unresolvable host is a refusal, never a pass).
+    """
+    host = host.strip("[]")
     # Literal IP host — validate directly, no DNS. The public-ness check lives
     # in the `else` (runs only when ip_address did NOT raise), NOT inside the
     # try: UnsafeUrlError subclasses ValueError, so a `raise` inside the try
@@ -157,10 +178,9 @@ async def assert_public_http_url(
             raise UnsafeUrlError(f"host {host!r} is not a public address")
         return [host]
 
-    default_port = 443 if parsed.scheme == "https" else 80
     resolve = resolver or _default_resolver
     try:
-        addresses = await resolve(host, parsed.port or default_port)
+        addresses = await resolve(host, port)
     except UnsafeUrlError:
         raise
     except Exception as e:  # noqa: BLE001 — DNS failure is a hard reject, not a pass
