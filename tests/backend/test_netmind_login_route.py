@@ -441,7 +441,6 @@ async def test_netmind_login_actually_runs_the_rearm(db_client, monkeypatch, _fr
     assert seen == [_CODE]
 
 
-
 @pytest.mark.asyncio
 async def test_rearm_failure_is_logged_not_swallowed(db_client, monkeypatch, _fresh_login_ip_recorder):
     """Once awaited, the rearm's except must not erase the signal: emit_host_event

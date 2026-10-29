@@ -168,7 +168,9 @@ async def _record_in_background(user_id: str, ip: str) -> None:
         if not written:
             # Release the claim taken in note_authenticated_request so a
             # transient failure does not blind this pair for the whole
-            # throttle window — the next request retries.
+            # throttle window — the next request retries. Best-effort: if a
+            # later write for the same pair already succeeded and re-marked it,
+            # this pop costs one extra (idempotent) upsert — never wrong data.
             _last_recorded.pop((user_id, ip), None)
 
 
@@ -214,8 +216,10 @@ def start_connection_presence(
     rule #14); noting the pair only at connect would let ``last_seen`` age out of
     the reader's window mid-run. The task re-notes every ``RECORD_THROTTLE_SEC``
     while ``is_alive()`` and exits on its own within one interval after the
-    connection closes, so the caller needs no teardown. Covers every WS branch
-    (new run, reconnect, cross-process follow) from one call site.
+    connection closes, so a caller needs no teardown — but a caller that HAS a
+    teardown point should cancel the returned task there, which releases the
+    closed connection at once. Covers every WS branch (new run, reconnect,
+    cross-process follow) from one call site.
     """
     if not user_id or not is_recordable_ip(ip):
         return None

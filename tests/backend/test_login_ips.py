@@ -277,7 +277,6 @@ async def test_suspended_user_request_is_not_recorded(db_client, monkeypatch, cl
     assert await _rows(db_client) == []
 
 
-
 @pytest.mark.asyncio
 async def test_prune_does_not_block_the_caller(db_client, monkeypatch):
     """The login path awaits record_login_ip; housekeeping must not ride on it."""
