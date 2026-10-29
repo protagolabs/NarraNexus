@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/driver/resolver.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — helper 配置按卡 source 标 `user_endpoint`
+
+构建出的 cfg 若属于进程内 SDK 的 helper（`_HELPER_SDK_CONFIG_KEYS = helper_llm / helper_anthropic`）
+且卡 source 不是平台 source（`is_platform_provider_source`，与 Test 探针 / 读取筛同一判据，
+未知或缺失 source 按用户处理），就 `dataclasses.replace(cfg, user_endpoint=True)`。
+CLI helper 与 agent 配置跑在子进程 / executor，Python 侧钉不住，不打标。平台卡
+（free-tier 网关、系统池）不打标——它们的 base_url 本就是内网，钉死会把它们拒掉。
+测试：`tests/agent_framework/test_helper_egress_pinning.py`。
 
 ## 2026-10-28（PR #418 review I2）— 运行配置构建前的出网筛
 

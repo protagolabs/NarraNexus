@@ -39,3 +39,44 @@ class ExecutorUnreachableError(RuntimeError):
     def __init__(self, message: str, *, target: str | None = None) -> None:
         super().__init__(message)
         self.target = target
+
+
+class ExecutorTokenRejectedError(ExecutorUnreachableError):
+    """The executor rejected this call's API token (HTTP 401/403).
+
+    The executor requires the per-container token the broker planted
+    (sandbox isolation, 2026-10-29). A rejection is never the user's fault: it
+    means the orchestrator and that container disagree on the token (a broker
+    read-back failure, a cross-repo contract drift).
+
+    How it is routed: step 3 classifies a fatal by CLASS NAME
+    (``type(e).__name__``) against ``EXECUTOR_INFRA_ERROR_NAMES`` at the bottom
+    of this module — that set membership is what makes it surface as
+    ``infra_transient``, get audited, and skip the fabricating helper-LLM
+    fallback. Subclassing ``ExecutorUnreachableError`` only matters to callers
+    that ``except`` that type; step 3 is not one.
+
+    Named and worded to stay clear of auth-substring classifiers: the class
+    name has no "auth" and the message carries no status code (it is on
+    ``.status``), because code that pattern-matches "auth" / "401" in error
+    text (job pause logic, the circuit breaker's credential check) would
+    otherwise misfile a platform failure as the owner's expired credentials.
+    A resend usually recovers: the broker rolls a container whose token it
+    cannot read back.
+    """
+
+    def __init__(self, message: str, *, target: str | None = None, status: int | None = None) -> None:
+        super().__init__(message, target=target)
+        self.status = status
+
+
+# The class names step 3 classifies as executor infrastructure failures
+# (``failure.classify_executor_infra_failure`` matches ``type(e).__name__``
+# against this set — names, not isinstance, because error_type crosses process
+# boundaries as a string). Lives HERE, next to the classes, so adding an
+# executor transport error and registering it are one edit in one file: a
+# class missing from this set silently falls through to the helper-LLM
+# fallback, which fabricates a reply over the platform failure.
+EXECUTOR_INFRA_ERROR_NAMES: frozenset[str] = frozenset(
+    cls.__name__ for cls in (ExecutorUnreachableError, ExecutorTokenRejectedError)
+)

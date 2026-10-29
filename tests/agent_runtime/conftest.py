@@ -22,7 +22,20 @@ takes another, and a test going red for reasons unrelated to what it tests.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
+
+# The executor service binds its API token at IMPORT time, and the tests below
+# drive `executor_service.app` directly. A developer who exported the token
+# while debugging an executor would otherwise see every such test fail with a
+# 401 unrelated to what it tests. Cleared before any test module imports the
+# service (executor_protocol does not import it); the token tests pass it to a
+# subprocess explicitly. The constant, not a literal: a rename must not turn
+# this into a silent no-op.
+from narranexus.platform.agent_runtime.executor_protocol import EXECUTOR_TOKEN_ENV
+
+os.environ.pop(EXECUTOR_TOKEN_ENV, None)
 
 import narranexus.platform.agent_runtime.agent_runtime as agent_runtime_module
 from narranexus.platform.agent_runtime.agent_runtime import AgentRuntime

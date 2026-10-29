@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/office_watch/proxy.py
-last_verified: 2026-08-20
+last_verified: 2026-10-29
 stub: false
 ---
+### 2026-10-29（管线审查 M-1）
+
+**四跳都留痕**：`_log_if_token_rejected(status, user_id, hop)` 在 `/watch/ensure`、`/watch/version`、透传 GET（`_proxy_stream`，拿到 resp 后、进生成器之前打一次——SSE 不会逐 chunk 刷）、透传 POST（`_post_upstream` return 前）都调用：执行器拒绝平台 API token 是平台故障，透传 GET 承载 iframe 文档、静态资源与 SSE，是主干流量，不能只有 ensure 那一条日志。
+**状态码行为（按实际写）**：ensure / version 两跳把非 200 转成本服务自己的结果（None / 404），**不**向浏览器透出 401；两条透传跳**原样转发**上游状态码（未改写成 502）。这不会把用户登出：`/api/public/office-watch-proxy/...` 只作为 `OfficeWatchViewer` 的 iframe `src` 使用，不经过 app 的 api client。`_resolve_upstream` 返回标注为 `tuple[str, dict[str, str]]`。
+
+## 2026-10-29 — 到执行器的每一跳都带 API token
+
+`_resolve_upstream` 改为返回 `(url, headers)`：云端 headers = `executor_auth_headers(ensured.executor_token)`，本地为空。透传 GET（`_proxy_stream`）与 POST（`_post_upstream`）把它合并进请求头（auth 放最后，确保覆盖）；`_ensure_watch_in_executor` / `_file_version_in_executor` 的 session 也挂上。**为什么**：执行器开始对 `/watch/*` 校验 token（沙箱隔离阶段 3），漏任何一跳 = 云端 Office 预览 401。浏览器转发头仍是不含 Authorization 的白名单，用户 JWT 不会被送进执行器，也不会与 token 冲突。
 
 ## 2026-08-13 — 生命周期健壮化(idle 自杀恢复 / 重启双 watch / SSE 逐出)
 

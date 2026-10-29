@@ -995,7 +995,7 @@ async def websocket_agent_run(websocket: WebSocket):
             # new-run, reconnect and cross-process-follow branches alike).
             ws_ip = client_ip(websocket)
             note_authenticated_request(token_user_id, ws_ip)
-            start_connection_presence(
+            presence_task = start_connection_presence(
                 token_user_id,
                 ws_ip,
                 lambda: websocket.application_state == WebSocketState.CONNECTED
@@ -1332,6 +1332,12 @@ async def websocket_agent_run(websocket: WebSocket):
             pass
 
     finally:
+        # The presence task would exit on its own one throttle period after
+        # the socket closes; cancelling it here (every exit path passes this
+        # finally) frees the closed connection at once. Only assigned inside
+        # the cloud auth block — hence the locals() guard, like the two below.
+        if "presence_task" in locals() and presence_task is not None:
+            presence_task.cancel()
         # A half-open probe this handler won but never handed to a
         # BackgroundRun (setup threw between the claim and the run) is handed
         # back by its token — else every entry point is refused until the

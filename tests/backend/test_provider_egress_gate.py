@@ -504,3 +504,68 @@ async def test_platform_system_pool_row_on_internal_gateway_still_tests(cloud, f
 
     assert ok is True, msg
     assert fake_http.requests == [("POST", f"{_INTERNAL_GATEWAY}/chat/completions")]
+
+
+# ── connect-time pinning (DNS rebinding) ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cloud_user_probe_dials_through_the_pinned_transport(cloud, fake_http):
+    from narranexus.platform.utils.safe_http import PublicOnlyTransport
+
+    ok, msg = await _probe(UserProviderService(FakeDB()), "https://proxy.example.com/v1")
+
+    assert ok is True, msg
+    assert fake_http.clients and all(
+        isinstance(c.get("transport"), PublicOnlyTransport) for c in fake_http.clients
+    )
+
+
+@pytest.mark.asyncio
+async def test_platform_card_on_internal_gateway_is_not_pinned(cloud, fake_http):
+    # The free-tier card's base_url is OUR gateway on the docker network; a
+    # pinned client would refuse it. Platform sources keep a plain client.
+    db = FakeDB()
+    await db.insert("user_providers", _row("p_free", "netmind_free", "http://llm-gateway:4000/v1"))
+
+    ok, msg = await UserProviderService(db).test_provider("u1", "p_free")
+
+    assert ok is True, msg
+    assert fake_http.clients and all("transport" not in c for c in fake_http.clients)
+
+
+@pytest.mark.asyncio
+async def test_cloud_rebinding_base_url_is_refused_at_connect(cloud, monkeypatch):
+    # Real httpx (no fake): the gate sees a public answer, the dial would see
+    # the metadata IP. The pinned transport refuses before a socket opens and
+    # the user gets the same generic message as a pre-check refusal.
+    import httpcore
+
+    answers = iter([["93.184.216.34"]])
+
+    async def _rebinding(host, port):
+        return next(answers, ["169.254.169.254"])
+
+    monkeypatch.setattr(url_safety, "_default_resolver", _rebinding)
+    dials = []
+
+    async def _spy(self, host, port, timeout=None, local_address=None, socket_options=None):
+        dials.append((host, port))
+        raise httpcore.ConnectError("test: sockets disabled")
+
+    monkeypatch.setattr(httpcore.AnyIOBackend, "connect_tcp", _spy)
+
+    ok, msg = await _probe(UserProviderService(FakeDB()), "https://rebind.example/v1")
+
+    assert ok is False
+    assert "public" in msg.lower() and "169.254" not in msg
+    assert dials == []
+
+
+@pytest.mark.asyncio
+async def test_local_user_probe_is_not_pinned(local, fake_http):
+    # Desktop users point at localhost (Ollama / LM Studio): no pinned transport.
+    ok, msg = await _probe(UserProviderService(FakeDB()), "http://localhost:11434/v1")
+
+    assert ok is True, msg
+    assert fake_http.clients and all("transport" not in c for c in fake_http.clients)

@@ -5,6 +5,25 @@ stub: false
 ---
 # login_ips.py — 记录每个用户正在用哪些公网 IP 鉴权（滥用 IP↔账号联动的数据源）
 
+## 2026-10-29（二）— 被拒登录的审计也归这里管：`record_refused_login`
+
+netmind-login 拒绝黑名单邮箱域时（见 [[auth.py]]）写 `ban_audit` 的 `login_refused` 行，而**不**写
+`instance_login_ips`（被拒者没有本地账号，进联动表会被哨兵当封禁目标、挤占 fanout）。放在本模块，
+是为了复用已在这里立下的 IP 取证纪律，不在路由里另起一套：
+- 非公网 IP（代理跳数失配时的 nginx 地址、`-`）记成 `ip=-`，**行照写**（账号+域名+时间仍有价值），
+  云端同样告警；
+- 同 (账号, IP) 每 `RECORD_THROTTLE_SEC` 至多一行，独立的进程内节流表 `_last_refused`
+  （与 `_last_recorded` 共用 `_claim` 的有界淘汰；同样只是优化，丢了只多写一行）；
+- 保留期：`_prune` 在删 `instance_login_ips` 闲置行之后，再删 `ban_audit` 里
+  `action='login_refused' AND created_at < now-RETENTION_SEC` 的行。**只按 action 过滤**——
+  suspend / reinstate / warn 的处置历史永不清理。created_at 两种方言都是 UTC
+  （`datetime('now')` / UTC 服务器的 `CURRENT_TIMESTAMP`），按 `'YYYY-MM-DD HH:MM:SS'` 比较。
+  **这是显式决策**：MySQL 的 `CURRENT_TIMESTAMP` 跟随服务器时区（客户端不设 time_zone），prod Aurora
+  2026-10-29 实测 `@@system_time_zone=UTC`、`NOW()-UTC_TIMESTAMP()=0`；若将来换成非 UTC 实例，这条 30 天边界会整体
+  平移该时区偏移（小时级，对保留期清理无害）。不改成写入方自填时间：`ban_audit.created_at` 与处置行共用，不动其语义（铁律 #6）；
+  配套索引 `idx_ban_audit_action_created`。MySQL 双方言用例在 `test_login_ips_mysql.py`。
+- 域名来自上游返回的调用方可控 email，截断到 `MAX_DOMAIN_LEN=253`（DNS 名最长值）。
+
 ## 为什么存在
 
 2026-10-28 事件后要求"封禁时 IP 和账号一起封"。IP 半边已由 deploy 仓哨兵完成（扫描 IP
@@ -41,10 +60,13 @@ stub: false
 - **清理在后台跑**：`_maybe_prune` 只调度不等待——登录路径 await `record_login_ip`，
   不能被一个区间 DELETE 拖慢。时钟在尝试**之前**打戳，持续失败的 DELETE 每小时只试一次。
 - **后台写失败要释放占位**：`note_*` 先占位再调度（并发突发只排一次写），但写没落地时
-  `_record_in_background` 把占位 pop 掉，否则一次 DB 抖动会让该 pair 盲 10 分钟。
+  `_record_in_background` 把占位 pop 掉，否则一次 DB 抖动会让该 pair 盲 10 分钟。释放是
+  尽力而为：若同一 pair 稍后的写已成功并重新打标，这次 pop 最坏只换来多一次幂等 upsert，
+  数据不会错；别把它当精确的占位计数去扩展。
 - **长连接 presence**：`start_connection_presence` 给 WebSocket 用——一条 WS 承载一个 run，
   run 可跑几十小时（铁律 #14），只在建连时记会让 `last_seen` 在 run 中途滑出读方窗口。任务
-  每 `RECORD_THROTTLE_SEC` 重记一次，连接断开后一个周期内自行退出，调用方无需收尾；一个
+  每 `RECORD_THROTTLE_SEC` 重记一次，连接断开后一个周期内自行退出，调用方无需收尾；但有
+  现成收尾点的调用方（WS handler 的 `finally`）应取消返回的任务，立刻释放连接对象。一个
   调用点覆盖新 run / 重连 / 跨进程跟随三条分支。
 - **跨仓契约**：`RECORD_THROTTLE_SEC` / `RETENTION_SEC` 被 deploy 仓哨兵
   `account_linker.WRITER_REFRESH_SEC` / `WRITER_RETENTION_SEC` 镜像，用来在启动时拒绝落在

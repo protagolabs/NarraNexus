@@ -1,10 +1,22 @@
 ---
 code_file: backend/routes/_email_policy.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
 
 # _email_policy.py — 自助注册拒收的邮箱域名
+
+## 2026-10-29 — 补 `10timer.com`；名单现在也决定"能不能登录"
+
+- 2026-10-28 攻击者用过的三个一次性域名 `nimail.cn` / `maxxspace.com` / `10timer.com`
+  现在都在 `DISPOSABLE_EMAIL_DOMAINS` 里（前两个早已在，`10timer.com` 本次补上，事件后续
+  计划 P1-2）。`test_2026_10_28_incident_domains_are_blocked` 钉住三者及整标签匹配。
+- **含义变重**：`backend/routes/auth.py` 的 netmind-login 现在对 `is_blocked_email` 为真
+  的账号**直接拒绝登录**（不再只是扣免费额度）。所以往名单里加域名 = 该域名的已有账号
+  从此登不进来；加之前确认它确实是一次性/滥用域。
+- 新增公开的 `email_domain(email)`：与匹配同一套 `_normalise_domain` 规范化，
+  `is_blocked_email` 改为基于它；登录拒绝门记日志 / 审计时用它取域名。注意它返回的是**地址本身**的
+  域名（子域命中时是 `eu.yopmail.com`，不是名单里的父域 `yopmail.com`）——取证要的正是全域名。
 
 ## 为什么存在
 

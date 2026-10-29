@@ -260,3 +260,38 @@ async def test_suspended_user_ws_is_not_noted(
         ws.receive_json()
 
     assert noted == []
+
+
+@pytest.mark.asyncio
+async def test_presence_task_is_cancelled_when_the_handler_exits(
+    force_cloud_mode, clear_state_cache, wire_db, monkeypatch
+):
+    """The handler's single finally runs on every exit path; cancelling the
+    presence task there frees the closed socket at once instead of after one
+    more throttle period of sleep."""
+    await _seed(wire_db, "alice", status="active")
+
+    import narranexus.platform.agent_framework.loop.circuit_breaker as cb_mod
+
+    async def _skip(_agent_id, db=None):
+        return cb_mod.GateVerdict(skip=True, reason="cooling")
+
+    monkeypatch.setattr(cb_mod, "should_skip", _skip)
+    monkeypatch.setattr(ws_mod, "note_authenticated_request", lambda uid, ip: None)
+
+    class _Task:
+        cancelled = False
+
+        def cancel(self):
+            _Task.cancelled = True
+
+    monkeypatch.setattr(ws_mod, "start_connection_presence", lambda *a: _Task())
+
+    client = TestClient(_build_app())
+    with client.websocket_connect(
+        "/ws/agent/run", headers={"x-forwarded-for": "93.184.216.34, 10.0.0.1"}
+    ) as ws:
+        ws.send_json(_first_message("alice"))
+        ws.receive_json()
+
+    assert _Task.cancelled is True

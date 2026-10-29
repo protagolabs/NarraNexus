@@ -345,3 +345,34 @@ async def test_local_mode_keeps_localhost_whisper(tmp_path, monkeypatch):
     )
 
     assert out == "local text"
+
+
+@pytest.mark.asyncio
+async def test_cloud_rebinding_base_url_is_refused_at_connect(tmp_path, monkeypatch):
+    # The pre-check sees a public answer, the dial would see the metadata IP:
+    # the pinned client must refuse before any socket opens.
+    import httpcore
+    from narranexus.platform.utils import url_safety
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    answers = iter([["93.184.216.34"]])
+
+    async def _rebinding(host, port):
+        return next(answers, ["169.254.169.254"])
+
+    monkeypatch.setattr(url_safety, "_default_resolver", _rebinding)
+    dials: list[tuple] = []
+
+    async def _spy(self, host, port, timeout=None, local_address=None, socket_options=None):
+        dials.append((host, port))
+        raise httpcore.ConnectError("test: sockets disabled")
+
+    monkeypatch.setattr(httpcore.AnyIOBackend, "connect_tcp", _spy)
+
+    out = await OpenAIMultipartBackend().transcribe(
+        str(_make_audio(tmp_path)), _make_cred("https://rebind.example/v1"),
+        file_id="f", agent_id="a", user_id="u",
+    )
+
+    assert out is None
+    assert dials == []

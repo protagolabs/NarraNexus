@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/agent_framework/adapters/openai_agents.py
-last_verified: 2026-09-10
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — `build_helper_openai_client`：helper AsyncOpenAI 的唯一构建点
+
+`llm_function` / `llm_stream` 以前各自拼 `AsyncOpenAI(api_key, base_url)`，skill 的需求抽取路由还有第三份。
+现在三处都调本函数。`config.user_endpoint` 时（用户卡，见 [[resolver]]）传
+`http_client=egress_sdk_http_client(DefaultAsyncHttpxClient)`：云端钉死出网 + 不跟重定向，
+SDK 自带的超时默认值保留（连接上限不保留：传入 transport 后 httpx 直接用它的连接池，即 PublicOnlyTransport 的 100/20；本来就是每次调用新建 client）；本地或平台卡返回 None，走 SDK 默认。拨号被拒时
+SDK 把 `UnsafeUrlError` 包成 `APIConnectionError("Connection error.")`，与其它连接失败同路径，不泄地址。
 
 ## 2026-09-09 — `json_schema` 档发送 OpenAI strict 兼容 schema（`build_strict_json_schema`）
 

@@ -463,3 +463,34 @@ def test_local_mode_lan_name_resolving_private_still_allowed(monkeypatch):
 
     monkeypatch.setattr(socket, "getaddrinfo", _resolve)
     assert _validate("http://homeassistant.local:8123") == "http://homeassistant.local:8123"
+
+
+def test_cloud_rebinding_host_is_refused_at_connect(monkeypatch):
+    # The per-request gate sees a public answer; the connect would see the
+    # metadata IP. The pinned connector must refuse before a socket opens,
+    # and the user still gets the generic cloud message.
+    from narranexus.platform.utils import url_safety
+    import narranexus_plugins.home_assistant_module._home_assistant_impl.ha_client as hc
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    answers = iter([["93.184.216.34"]])
+
+    async def _rebinding(host, port):
+        return next(answers, ["169.254.169.254"])
+
+    monkeypatch.setattr(url_safety, "_default_resolver", _rebinding)
+    dials = []
+
+    async def _no_connect(self, sock, address):
+        dials.append(address)
+        raise OSError("test: sockets disabled")
+
+    # aiohttp dials through aiohappyeyeballs -> loop.sock_connect.
+    import asyncio.selector_events
+
+    monkeypatch.setattr(asyncio.selector_events.BaseSelectorEventLoop, "sock_connect", _no_connect)
+
+    with pytest.raises(HAError) as exc:
+        asyncio.run(HAClient("https://rebind.example", "tok").ping())
+    assert str(exc.value) == hc._CLOUD_PUBLIC_ONLY
+    assert dials == []

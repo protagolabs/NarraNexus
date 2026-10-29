@@ -36,6 +36,7 @@ UID = "a" * 32
 def _fresh_recorder_state(monkeypatch):
     """The throttle map / prune clock are module state; isolate every test."""
     monkeypatch.setattr(login_ips, "_last_recorded", {})
+    monkeypatch.setattr(login_ips, "_last_refused", {})
     monkeypatch.setattr(login_ips, "_last_prune", 0.0)
     monkeypatch.setattr(login_ips, "_background_tasks", set())
 
@@ -142,7 +143,9 @@ async def test_prune_runs_at_most_once_per_interval(db_client, monkeypatch):
     await login_ips.record_login_ip(db_client, UID, PUBLIC_IP)
     await login_ips.record_login_ip(db_client, UID, OTHER_PUBLIC_IP)
     await _drain()
-    assert len(calls) == 1
+    # one prune run = one DELETE per retained table, not one per call
+    assert len([c for c in calls if login_ips.TABLE in c]) == 1
+    assert len(calls) == 2
 
 
 def test_retention_is_a_safe_lower_bound_for_the_reader():
@@ -277,7 +280,6 @@ async def test_suspended_user_request_is_not_recorded(db_client, monkeypatch, cl
     assert await _rows(db_client) == []
 
 
-
 @pytest.mark.asyncio
 async def test_prune_does_not_block_the_caller(db_client, monkeypatch):
     """The login path awaits record_login_ip; housekeeping must not ride on it."""
@@ -385,3 +387,72 @@ async def test_suspended_service_bearer_is_not_recorded(db_client, monkeypatch, 
     assert resp.status_code == 403
     await _drain()
     assert await _rows(db_client) == []
+
+
+# ───────────── refused logins (ban_audit "login_refused" trail) ─────────────
+
+REFUSED = "c" * 32
+
+
+async def _refusals(db_client, user_id=REFUSED):
+    return await db_client.get("ban_audit", {"user_id": user_id, "action": "login_refused"})
+
+
+@pytest.mark.asyncio
+async def test_refused_login_writes_one_audit_row(db_client, monkeypatch):
+    _clock(monkeypatch, 1_000)
+    await login_ips.record_refused_login(db_client, REFUSED, PUBLIC_IP, "nimail.cn")
+    rows = await _refusals(db_client)
+    assert len(rows) == 1
+    assert rows[0]["evidence_ref"] == f"ip={PUBLIC_IP} domain=nimail.cn"
+    assert rows[0]["actor"] == "netmind-login"
+    assert rows[0]["reason"] == "blocked email domain"
+
+
+@pytest.mark.asyncio
+async def test_refused_login_is_throttled_per_account_and_ip(db_client, monkeypatch):
+    # A replayed blocked-domain token must not turn the audit table into an
+    # attacker-driven firehose: one row per (account, ip) per throttle window.
+    _clock(monkeypatch, 1_000)
+    await login_ips.record_refused_login(db_client, REFUSED, PUBLIC_IP, "nimail.cn")
+    await login_ips.record_refused_login(db_client, REFUSED, PUBLIC_IP, "nimail.cn")
+    assert len(await _refusals(db_client)) == 1
+    await login_ips.record_refused_login(db_client, REFUSED, OTHER_PUBLIC_IP, "nimail.cn")
+    assert len(await _refusals(db_client)) == 2
+    _clock(monkeypatch, 1_000 + login_ips.RECORD_THROTTLE_SEC + 1)
+    await login_ips.record_refused_login(db_client, REFUSED, PUBLIC_IP, "nimail.cn")
+    assert len(await _refusals(db_client)) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ip", ["172.18.0.5", "127.0.0.1", "-"])
+async def test_refused_login_neutralises_a_non_public_ip(db_client, monkeypatch, ip):
+    # A proxy-hop misconfig would otherwise record nginx's address as evidence.
+    # The row is still written: the account + domain + time are worth keeping.
+    _clock(monkeypatch, 1_000)
+    await login_ips.record_refused_login(db_client, REFUSED, ip, "nimail.cn")
+    rows = await _refusals(db_client)
+    assert [r["evidence_ref"] for r in rows] == ["ip=- domain=nimail.cn"]
+
+
+@pytest.mark.asyncio
+async def test_refused_login_bounds_the_caller_controlled_domain(db_client, monkeypatch):
+    _clock(monkeypatch, 1_000)
+    await login_ips.record_refused_login(db_client, REFUSED, PUBLIC_IP, "a" * 5_000)
+    evidence = (await _refusals(db_client))[0]["evidence_ref"]
+    domain = evidence.split("domain=", 1)[1]
+    assert len(domain) == login_ips.MAX_DOMAIN_LEN
+
+
+@pytest.mark.asyncio
+async def test_old_refusals_are_pruned_but_admin_history_is_kept(db_client, monkeypatch):
+    now = 100 * 86_400
+    old = "1970-01-02 00:00:00"   # far older than now - RETENTION_SEC
+    await db_client.insert("ban_audit", {"user_id": "old", "action": "login_refused", "created_at": old})
+    await db_client.insert("ban_audit", {"user_id": "old", "action": "suspend", "created_at": old})
+    _clock(monkeypatch, now)
+    await login_ips.record_refused_login(db_client, REFUSED, PUBLIC_IP, "nimail.cn")
+    await _drain()
+    old_rows = await db_client.get("ban_audit", {"user_id": "old"})
+    assert [r["action"] for r in old_rows] == ["suspend"]   # admin history is never pruned
+    assert len(await _refusals(db_client)) == 1              # the fresh refusal stays

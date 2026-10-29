@@ -47,11 +47,41 @@ class ExecutorEnsureResult:
     user (blueprint P1) — fresh per ensure(), so warm reuse still gets a
     fresh one. None when the broker predates the field or has no signing key
     configured; the dispatch path then simply does not stamp.
+
+    ``executor_token`` is the API token the broker planted in THIS user's
+    executor (sandbox isolation, 2026-10-29); every call to the executor must
+    present it (``executor_protocol.executor_auth_headers``). None when the
+    broker predates the field or the container predates tokens — that executor
+    enforces nothing, so callers send nothing.
     """
 
     url: str
     cold_started: bool
     identity_token: Optional[str] = None
+    executor_token: Optional[str] = None
+
+
+_warned_tokenless = False
+
+
+def _warn_tokenless_once(user_id: str, status: Optional[str]) -> None:
+    """Make "the executor API token is not in play" visible, once per process.
+
+    No token from the broker means this user's executor checks nothing and we
+    send nothing: the second isolation layer is OFF for it. That is expected
+    during a rollout (an old broker, or a pre-token container whose roll was
+    deferred under a live run) but must never be silent — the host firewall
+    this layer backs up failed silently for a day once. Once per process, not
+    per turn, so a long rollout does not flood the log.
+    """
+    global _warned_tokenless
+    if _warned_tokenless:
+        return
+    _warned_tokenless = True
+    logger.warning(
+        f"[broker] ensure() returned no executor_token (user={user_id} status={status}): "
+        f"executor API auth is NOT active for such executors (further occurrences not logged)"
+    )
 
 
 def broker_url() -> Optional[str]:
@@ -142,11 +172,19 @@ async def ensure_executor(
             f"live on it. It rolls at the next ensure with no live run."
         )
     if not executor_url:
-        raise RuntimeError(f"broker returned no executor_url for user {user_id!r}: {data}")
+        # Shape only: the response carries identity_token and executor_token,
+        # which must never reach an exception message or a log line.
+        raise RuntimeError(
+            f"broker returned no executor_url for user {user_id!r}: "
+            f"keys={sorted(data)} status={status!r}"
+        )
+    if not data.get("executor_token"):
+        _warn_tokenless_once(user_id, status)
     return ExecutorEnsureResult(
         url=executor_url,
         cold_started=(status == "started"),
         identity_token=data.get("identity_token") or None,
+        executor_token=data.get("executor_token") or None,
     )
 
 

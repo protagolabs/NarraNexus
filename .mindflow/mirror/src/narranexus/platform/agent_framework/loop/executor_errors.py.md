@@ -1,10 +1,20 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/executor_errors.py
-last_verified: 2026-07-22
+last_verified: 2026-10-29
 stub: false
 ---
 
-# executor_errors.py — executor 传输边界的类型化异常
+### 2026-10-29（管线审查 I-3）— 名单与类放在一起
+
+新增 `EXECUTOR_INFRA_ERROR_NAMES`（由本文件里的类名生成），[[failure.py]] 直接 import 它。此前「哪些类名算执行器基础设施故障」在两个文件里靠人同步，漏改的后果是**静默**：新类不被认作 infra → 走 helper-LLM 兜底编造回复。现在加类与登记是同一文件同一屏，测试 `test_every_executor_transport_error_is_registered_as_infra` 内省本模块所有异常类、断言全部在名单里。跨进程契约仍是字符串类名，所以不改成 issubclass。本模块零 import，`loop/__init__` 无再导出，不会形成循环。
+
+## 2026-10-29 — 新增 `ExecutorTokenRejectedError(ExecutorUnreachableError)`
+
+执行器拒绝本次调用的 API token（401/403）时由 [[remote_driver.py]] 抛出；鉴权失败从来不是用户的错（意味着编排侧与那个容器对 token 不一致：broker 读回失败、跨仓契约漂移）。
+
+**路由靠类名集合，不靠继承**（预审 I-B 订正）：step 3 取 `type(e).__name__` 与 [[failure.py]] 的 `_EXECUTOR_UNREACHABLE_TYPES` 精确比较——是集合成员身份让它 surface 为 `infra_transient`、写审计、不被 helper-LLM 兜底盖住。step 3 **没有** `except ExecutorUnreachableError`，继承只对按类型 except 的调用方有意义。所以以后在这里加新错误类，**必须同时进那个集合**，否则会掉进兜底被编造回复掩盖。
+
+**命名和文案避开 auth 子串**（预审 I-A）：最初叫 `ExecutorAuthError`、文案带 `HTTP 401`——Job 的 `_is_auth_failure` 按 `"401"` 等子串判凭据失效、熔断器的凭据检查看 `"auth" in et`，会把平台故障误判成 owner 凭据过期（Job 被暂停 + 让用户改 provider）。现在类名不含 auth、文案不含状态码，状态码放 `.status`；Job 侧另做了根因修复（infra 类型优先，见 job_trigger）。审计行 `error_type` 保留真实类名，运维可区分。重发通常能恢复：broker 会滚动替换读不回 token 的容器。
 
 ## 为什么存在（2026-07-22）
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "narranexus"
-version = "1.21.12"
+version = "1.21.13"
 description = "NarraNexus engine: kernel + platform + backend host (plugins, contracts and the SDK are workspace packages)"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -102,6 +102,11 @@ dependencies = [
     # extension (and logs a one-time warning — see mime_sniff._warn_libmagic_missing_once).
     "python-magic>=0.4.27,<1",
     "httpx[socks]>=0.28.1,<1",
+    # Used as direct APIs by utils/safe_http.py (connect-time SSRF pinning):
+    # httpcore's AsyncNetworkBackend contract and anyio's fail_after. Both
+    # arrive through httpx anyway; declared so an upgrade sees them.
+    "httpcore>=1.0,<2",
+    "anyio>=4.0,<5",
     "bcrypt>=5.0.0,<6",
     # Fernet encryption for skill env_config secrets (skill marketplace).
     "cryptography>=42.0.0,<47",
@@ -119,7 +124,8 @@ dependencies = [
     # libolm and its native-C build burden. If encryption ever gets
     # turned on server-side, switch to `matrix-nio[e2e]`.
     "matrix-nio>=0.25.0,<1",
-    "aiohttp>=3.9.0,<4",
+    # >=3.10: aiohttp.abc.ResolveResult (utils/safe_http.PublicOnlyResolver).
+    "aiohttp>=3.10,<4",
     "ddgs>=9.0.0,<10",
     "websockets>=15.0.1,<16",
     "tiktoken>=0.13.0,<1",

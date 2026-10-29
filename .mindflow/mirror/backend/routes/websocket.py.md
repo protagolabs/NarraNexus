@@ -13,7 +13,9 @@ WS 不走 HTTP auth 中间件（`/ws/*` 被豁免），而它是产品主运行�
 封这个 IP 时连带封账号。节流 + 后台写，绝不让连接失败。同时起
 `start_connection_presence`：一条 WS 承载一个 run、可跑几十小时，presence 任务在连接存活期间
 每 10 分钟刷新一次 `last_seen`，socket 关闭后自行退出（存活判定读 application_state 与
-client_state 都为 CONNECTED）。记录器语义见它自己的 mirror。
+client_state 都为 CONNECTED）。handler 唯一的 `finally`（每条退出路径都经过）会取消这个任务，
+立刻释放已关闭的连接对象，而不是让它再睡满一个节流周期；任务只在云模式鉴权块里赋值，
+所以和同一个 `finally` 里另两处一样用 `in locals()` 守卫。记录器语义见它自己的 mirror。
 
 ## 2026-10-28（PR #419 review I-3 / I-4）— 可见性闸的 local 语义与归属地
 

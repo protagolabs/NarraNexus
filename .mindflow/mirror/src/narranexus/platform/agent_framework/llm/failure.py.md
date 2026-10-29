@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/failure.py
-last_verified: 2026-09-23
+last_verified: 2026-10-29
 stub: false
 ---
+
+### 2026-10-29（管线审查 I-3）
+
+`_EXECUTOR_UNREACHABLE_TYPES` 改为直接引用 `executor_errors.EXECUTOR_INFRA_ERROR_NAMES`（单一事实源，见 [[executor_errors.py]]），注释里单数的「typed ExecutorUnreachableError」同步为复数措辞。
+
+## 2026-10-29 — `ExecutorTokenRejectedError` 归入 `executor_unreachable`
+
+`_EXECUTOR_UNREACHABLE_TYPE`（单值）改为 `_EXECUTOR_UNREACHABLE_TYPES` 集合，加入 `ExecutorTokenRejectedError`（执行器拒绝 API token，见 [[executor_errors.py]]）。**故意不新开 reason**：对用户的指引相同（平台侧问题、重发），处理路径相同（不兜底、写审计），新开 reason 要牵动前端类型 + 10 份 locale + 审计 schema，却不给用户任何不同的可操作信息；运维靠审计行 `error_type` 区分两者。
 
 ## 2026-09-23：凭据服务暂时不可用不是凭据失效
 

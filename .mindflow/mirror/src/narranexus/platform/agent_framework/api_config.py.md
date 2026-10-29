@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/agent_framework/api_config.py
-last_verified: 2026-09-10
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — `OpenAIConfig` / `AnthropicHelperConfig` 加 `user_endpoint`
+
+helper 槽位的 SDK 客户端在 backend / workers 进程内跑（backend 是唯一还能访问 IMDS 的容器）。
+原先用 SDK 默认 transport：**跟随重定向**、连接时重新解析，而已存用户卡的 base_url 在读取路径
+只过无 DNS 的筛。`user_endpoint=True`（由 [[resolver]] 按卡 source 打标）告诉客户端构建方：
+云端给 SDK 挂钉死 + 不跟重定向的 http_client（见 [[safe_http]] `egress_sdk_http_client`）。
+默认 False = 平台卡 / 本地 / `.env` 路径，行为不变。字段随 `executor_protocol` 序列化；
+旧 executor 不认识会按既有「丢未知字段 + warning」处理（滚动部署窗口）。
 
 ## 2026-09-09 — 订阅账号并行工具上限注入（`SUBSCRIPTION_AUTH_TYPES` 从 provider_schema import）
 

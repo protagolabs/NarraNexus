@@ -41,6 +41,27 @@ from narranexus.platform.agent_framework.api_config import (
 )
 from narranexus.platform.settings import settings
 
+# Per-executor API token (sandbox isolation, 2026-10-29). The executor's API
+# used to be unauthenticated ("internal-trust"), leaving tenant isolation to the
+# host firewall alone — which silently did nothing on prod for a day. The
+# broker (deploy repo) plants a fresh random token in each executor's env under
+# EXECUTOR_TOKEN_ENV and returns it on ensure(); the orchestrator presents it on
+# every call and the executor rejects calls without it. Both names are part of
+# the cross-repo wire contract — the broker hard-codes the same env name.
+EXECUTOR_TOKEN_ENV = "NX_EXECUTOR_API_TOKEN"
+EXECUTOR_TOKEN_HEADER = "Authorization"
+
+
+def executor_auth_headers(token: Optional[str]) -> dict[str, str]:
+    """Headers that authenticate one orchestrator→executor call.
+
+    Empty when there is no token — an executor from a broker that predates
+    tokens enforces nothing, so sending nothing keeps that pairing working
+    (either repo can deploy first).
+    """
+    return {EXECUTOR_TOKEN_HEADER: f"Bearer {token}"} if token else {}
+
+
 # Maps the snapshot keys to their dataclass types for reconstruction.
 _CONFIG_TYPES = {
     "claude": ClaudeConfig,
@@ -142,8 +163,8 @@ def build_agent_loop_request(
     ``run_id`` (optional) makes the run STEERABLE: it is the correlation
     handle a later ``POST /steer`` uses to reach THIS run's inbound queue in
     the executor. It MUST be unguessable (the caller mints a
-    ``secrets.token_hex``), because ``/steer`` is unauthenticated like
-    ``/agent-loop``: an unguessable handle is what keeps a direct caller from
+    ``secrets.token_hex``): ``/steer`` is gated by the executor API token, but
+    in-container code can read that token, so an unguessable handle is what keeps a caller from
     injecting a message into another tenant's live turn — the same "the body
     names only a resource the caller already holds" property the module
     docstring guards. ``None`` (the default) = a non-steerable run, byte-for-

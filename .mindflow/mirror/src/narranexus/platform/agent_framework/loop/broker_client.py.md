@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/broker_client.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-10-29
 ---
+
+### 2026-10-29（管线审查 I-1 / I-2）
+
+- **broker 响应永不进报错文案**：缺 `executor_url` 时的 RuntimeError 只带 `keys=` 与 `status=`，不再 f-string 整个响应——它含 `identity_token` 与 `executor_token`，后者正是第二道隔离的秘密。
+- **拿不到 executor_token 不再静默**：`_warn_tokenless_once` 每进程只 warning 一次（不按回合刷屏）。没 token = 该执行器不校验、我们也不发，第二道防线对它是关的；滚动期属正常，但不能无声。
+
+## 2026-10-29 — `ExecutorEnsureResult.executor_token`
+
+ensure() 响应新增 `executor_token`（broker 种在该用户执行器 env 里的 API token），解析为可选字段；旧 broker / 无 token 容器 → `None`，调用方不发鉴权头，旧执行器也不校验。**每回合 ensure 都重新拿**，调用方不缓存，所以容器重建（token 轮换）后不会出现拿旧 token 401。与 `identity_token` 同一条通道。见 [[executor_protocol.py]]。
 
 ## 2026-08-24 — `stop_executor` 返回"到底停了没有"
 

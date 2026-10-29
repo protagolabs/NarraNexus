@@ -1,6 +1,6 @@
 {
   "name": "@narranexus/ui-kit",
-  "version": "1.21.12",
+  "version": "1.21.13",
   "description": "NarraNexus embeddable React components: ChatWidget and the chat transport.",
   "license": "Apache-2.0",
   "type": "module",

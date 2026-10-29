@@ -432,6 +432,10 @@ NULL = 这一层没跑。短路的决策跳过 judge，那里存 0 会把"仲裁
 ## 2026-08-13 — ban_audit 新表（账户状态变更审计）
 
 注册 `ban_audit`：账户状态变更的追加式审计表，一次 suspend / reinstate 一行。
+（2026-10-29 起另有 `login_refused` 行：netmind-login 拒绝黑名单邮箱域时按尝试追加，由**用户请求**驱动，
+`user_id` 填 NetMind `user_system_code`、本地无账号；按 (账号, IP) 节流、按登录 IP 保留期清理，写入与清理
+都在 `backend/middleware/login_ips.py`。新增索引 `idx_ban_audit_action_created(action, created_at)` 供清理与
+"近期拒绝"取证查询，additive，`auto_migrate()` 增量补建。）
 列：`id`(BIGINT UNSIGNED 自增主键)、`user_id`(VARCHAR(64) NOT NULL)、
 `action`(VARCHAR(32) NOT NULL)、`reason`(MEDIUMTEXT)、`evidence_ref`(MEDIUMTEXT)、
 `actor`(VARCHAR(128))、`prev_status`(VARCHAR(32))、`created_at`(DATETIME(6)

@@ -1,8 +1,12 @@
 ---
 code_file: plugins/builtin.frameworks.claude_code/src/narranexus_plugins/frameworks_claude_code/transcript.py
-last_verified: 2026-07-29
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — 下文「`/agent-loop` 刻意无鉴权」不再是现状
+
+执行器 API 自 2026-10-29 起 token-gated（`ExecutorTokenMiddleware`）。token 对容器内同 uid 代码仍可能可读，所以「磁盘上不留 transcript、句柄不可猜」仍是必要的第二道；下文保留，说明 `executor_resume_hmac_secret` 与删除逻辑当初为什么存在，不要据此删掉。
 
 ## 2026-07-29 (四次) — code review 修复:本模块接管整个生命周期
 
