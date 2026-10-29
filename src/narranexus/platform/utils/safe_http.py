@@ -38,7 +38,7 @@ import ipaddress
 import socket
 import time
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Iterable, Optional, cast
+from typing import Any, AsyncIterator, Callable, Iterable, Optional, cast
 from urllib.parse import urljoin
 
 import aiohttp
@@ -245,6 +245,25 @@ def egress_transport(**transport_kwargs: Any) -> Optional[httpx.AsyncBaseTranspo
     if not deployment_mode.is_cloud_mode():
         return None
     return PublicOnlyTransport(**transport_kwargs)
+
+
+def egress_sdk_http_client(
+    factory: Callable[..., httpx.AsyncClient],
+) -> Optional[httpx.AsyncClient]:
+    """``http_client`` for an LLM SDK (openai / anthropic) whose base_url the user supplied.
+
+    Cloud: ``factory(transport=PublicOnlyTransport(), follow_redirects=False)``
+    — pass the SDK's own ``DefaultAsyncHttpxClient`` as `factory` so its
+    timeout default is kept (its connection-limit default is not: httpx uses
+    the passed transport's pool as-is, i.e. PublicOnlyTransport's limits). The
+    SDK default follows redirects, which would let a public endpoint 302 into
+    the network.
+    Local/desktop: None — keep the SDK default (a single trusted user).
+    """
+    transport = egress_transport()
+    if transport is None:
+        return None
+    return factory(transport=transport, follow_redirects=False)
 
 
 def egress_client(**client_kwargs: Any) -> httpx.AsyncClient:

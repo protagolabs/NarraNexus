@@ -27,7 +27,10 @@ incident's P0. The fix moves the check INTO the dial:
   keeping the resolver's first preference, and each attempt gets
   `remaining / addresses_left` of the budget — the stand-in for the
   happy-eyeballs fallback the stock backend did, so a black-holed first
-  address (dead IPv6) cannot consume the whole timeout.
+  address (dead IPv6) cannot consume the whole timeout. Trade-off: with N
+  addresses the first gets 1/N of the budget, so a live-but-slow first address
+  can fall through to the next one where stock happy-eyeballs would have
+  raced it.
 - `PublicOnlyTransport` builds an `AsyncHTTPTransport`'s pool around that
   backend (without calling `super().__init__`, which would build and discard a
   pool + CA bundle per instance). Its SSL context keeps `trust_env=True`, so
@@ -53,8 +56,17 @@ only — platform cards point at our internal gateway by design), MCP validate i
 [[mcp_repository]], [[ha_client]], NarraMessenger bind in
 [[_narramessenger_service]].
 
-Not covered here (no Python seam, or a different problem): helper-LLM SDK
-clients that follow redirects and only DNS-free-screen stored base_urls; stored
+`egress_sdk_http_client(factory)` covers the helper-LLM SDK clients
+(openai / anthropic): pass the SDK's own `DefaultAsyncHttpxClient` so its
+timeout default survives (its connection limits do not — httpx uses the passed
+transport's pool, i.e. PublicOnlyTransport's 100/20; a client is built per
+call anyway); in cloud it returns that client with the
+pinned transport and `follow_redirects=False` (the SDK default follows
+redirects — a public endpoint could 302 into the network), locally None.
+Only configs the resolver marked `user_endpoint` use it (platform cards point
+at our internal gateway).
+
+Not covered here (no Python seam, or a different problem): stored
 NarraMessenger/matrix URLs used without re-check after bind; executor-side
 CLI/MCP connections and in-app Chromium — those need network-level egress
 filtering.

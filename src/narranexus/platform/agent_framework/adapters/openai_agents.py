@@ -20,16 +20,17 @@ from loguru import logger
 
 from narranexus.contracts.llm_client import resolve_helper_model
 from pydantic import BaseModel, TypeAdapter
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
 from narranexus.platform.agent_framework.llm._prompt_probe import emit as _probe_emit
-from narranexus.platform.agent_framework.api_config import openai_config
+from narranexus.platform.agent_framework.api_config import OpenAIConfig, openai_config
 from narranexus.platform.utils.cost_tracker import (
     get_cost_context,
     record_cost,
     warn_missing_usage,
 )
 from narranexus.platform.utils.logging import timed
+from narranexus.platform.utils.safe_http import egress_sdk_http_client
 
 
 # Per-async-task scratchpad so an outer `with timed(...) as t` can read
@@ -41,6 +42,24 @@ from narranexus.platform.utils.logging import timed
 _last_llm_call_info: ContextVar[Optional[dict]] = ContextVar(
     "_last_llm_call_info", default=None
 )
+
+
+def build_helper_openai_client(config: OpenAIConfig) -> AsyncOpenAI:
+    """The AsyncOpenAI client for a helper-slot config — the one place it is built.
+
+    A user-supplied base_url (``config.user_endpoint``) gets, in cloud, an
+    http_client that pins egress to validated public addresses and does not
+    follow redirects (safe_http.egress_sdk_http_client); everything else keeps
+    the SDK default transport.
+    """
+    client_kwargs: dict = {"api_key": config.api_key}
+    if config.base_url:
+        client_kwargs["base_url"] = config.base_url
+    if config.user_endpoint:
+        http_client = egress_sdk_http_client(DefaultAsyncHttpxClient)
+        if http_client is not None:
+            client_kwargs["http_client"] = http_client
+    return AsyncOpenAI(**client_kwargs)
 
 
 def get_last_llm_call_info() -> Optional[dict]:
@@ -403,11 +422,8 @@ class OpenAIAgentsSDK:
             f"input_chars={len(instructions) + len(user_input)} "
             f"output_type={output_type.__name__ if output_type else 'None'}"
         )
-        client_kwargs: dict = {"api_key": openai_config.api_key}
-        if openai_config.base_url:
-            client_kwargs["base_url"] = openai_config.base_url
         with timed("llm.helper.client_build", slow_threshold_ms=500):
-            openai_client = AsyncOpenAI(**client_kwargs)
+            openai_client = build_helper_openai_client(openai_config)
 
         logger.debug(
             f"[HelperLLM] Calling: model={model_name}, "
@@ -505,10 +521,7 @@ class OpenAIAgentsSDK:
         from narranexus.platform.agent_framework.providers.model_catalog import get_max_output_tokens
         max_tokens = get_max_output_tokens(model_name)
 
-        client_kwargs: dict = {"api_key": openai_config.api_key}
-        if openai_config.base_url:
-            client_kwargs["base_url"] = openai_config.base_url
-        openai_client = AsyncOpenAI(**client_kwargs)
+        openai_client = build_helper_openai_client(openai_config)
 
         messages = [
             {"role": "system", "content": instructions},

@@ -316,6 +316,12 @@ class OpenAIConfig:
     # Platform-origin binding token (see ClaudeConfig.identity_token). Present so
     # the helper slot can also carry it once its transport emits the header.
     identity_token: str = ""
+    # True when base_url came from a USER-sourced provider card (set by the
+    # runtime resolver). In cloud the SDK client then pins egress to validated
+    # public addresses and does not follow redirects — see
+    # safe_http.egress_sdk_http_client. Platform cards (our gateway, the system
+    # pool) leave it False: their base_urls are internal by design.
+    user_endpoint: bool = False
 
 
 @dataclass(frozen=True)
@@ -333,6 +339,12 @@ class AnthropicHelperConfig:
     base_url: str = ""           # Empty = official https://api.anthropic.com
     model: str = "claude-haiku-4-5"
     auth_type: str = "api_key"   # "api_key" | "bearer_token"
+    # True when base_url came from a USER-sourced provider card (set by the
+    # runtime resolver). In cloud the SDK client then pins egress to validated
+    # public addresses and does not follow redirects — see
+    # safe_http.egress_sdk_http_client. Platform cards (our gateway, the system
+    # pool) leave it False: their base_urls are internal by design.
+    user_endpoint: bool = False
 
 
 @dataclass(frozen=True)

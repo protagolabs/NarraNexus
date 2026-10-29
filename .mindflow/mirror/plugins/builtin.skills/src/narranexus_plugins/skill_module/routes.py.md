@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — 需求抽取改用 `build_helper_openai_client`
+
+`_extract_requirements_via_llm` 不再自己 `AsyncOpenAI(...)`，改调
+[[openai_agents]] 的 `build_helper_openai_client(openai_config)`：用户卡的 base_url 在云端随之
+钉死出网、不跟重定向（这条后台任务跑在 backend 容器里）。
 
 ## 2026-10-28 — 500 不再回显异常原文
 

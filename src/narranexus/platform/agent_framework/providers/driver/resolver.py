@@ -56,6 +56,7 @@ from narranexus.platform.agent_framework.providers.model_identity import (
     config_override_wins,
 )
 from narranexus.platform.agent_framework.providers.registry import (
+    is_platform_provider_source,
     is_stored_user_base_url_blocked,
 )
 from narranexus.platform.agent_framework.providers.driver.base import (
@@ -77,6 +78,11 @@ if TYPE_CHECKING:
 # agent framework and the card's protocol), so this is just the set of
 # required slot names to iterate.
 _REQUIRED_SLOTS = ("agent", "helper_llm")
+
+# cfgs keys whose config drives an in-process SDK client (OpenAIConfig /
+# AnthropicHelperConfig) — the ones that carry ``user_endpoint``. The CLI
+# helper and the agent configs run in a subprocess / the executor instead.
+_HELPER_SDK_CONFIG_KEYS = ("helper_llm", "helper_anthropic")
 
 
 def _agent_framework_from_slot(slot: dict | None) -> str:
@@ -379,6 +385,13 @@ async def resolve_user_runtime_llm_configs(
                 thinking=thinking,
                 reasoning_effort=reasoning_effort,
             )
+
+        # Helper configs run in-process (backend / workers) through an SDK we
+        # can pin; mark the ones whose base_url the USER supplied so the client
+        # builders pin egress in cloud. Same source criterion as every other
+        # egress decision (Test probe, read-path screen).
+        if cfgs_key in _HELPER_SDK_CONFIG_KEYS and not is_platform_provider_source(card.source):
+            cfg = dataclasses.replace(cfg, user_endpoint=True)  # type: ignore[arg-type]
 
         cfgs[cfgs_key] = cfg
 

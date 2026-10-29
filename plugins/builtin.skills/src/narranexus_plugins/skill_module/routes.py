@@ -53,7 +53,7 @@ async def _extract_requirements_via_llm(
     This is more reliable than regex patterns or expecting the study agent to follow
     a specific output format. A small model reads the SKILL.md and returns structured JSON.
     """
-    from openai import AsyncOpenAI
+    from narranexus.platform.agent_framework.adapters.openai_agents import build_helper_openai_client
     from narranexus.platform.agent_framework.api_config import openai_config
 
     skill_md_path = Path(skill_path) / "SKILL.md"
@@ -84,10 +84,7 @@ async def _extract_requirements_via_llm(
     )
 
     try:
-        client_kwargs: dict = {"api_key": openai_config.api_key}
-        if openai_config.base_url:
-            client_kwargs["base_url"] = openai_config.base_url
-        client = AsyncOpenAI(**client_kwargs)
+        client = build_helper_openai_client(openai_config)
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             max_tokens=256,

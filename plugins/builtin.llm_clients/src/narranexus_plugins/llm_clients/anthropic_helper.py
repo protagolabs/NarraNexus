@@ -25,7 +25,7 @@ from loguru import logger
 
 from narranexus.contracts.llm_client import resolve_helper_model
 from pydantic import BaseModel, TypeAdapter
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 
 from narranexus.platform.agent_framework.api_config import anthropic_helper_config
 from narranexus.platform.agent_framework.anthropic_usage import (
@@ -39,6 +39,7 @@ from narranexus.platform.agent_framework.adapters.openai_agents import (
     json_repair_note,
 )
 from narranexus.platform.settings import settings
+from narranexus.platform.utils.safe_http import egress_sdk_http_client
 from narranexus.platform.utils.cost_tracker import (
     get_cost_context,
     record_cost,
@@ -100,7 +101,9 @@ class AnthropicHelperSDK:
 
         auth_type "bearer_token" (e.g. NetMind's anthropic row) sends
         ``Authorization: Bearer`` via the SDK's auth_token param;
-        everything else uses the standard x-api-key header.
+        everything else uses the standard x-api-key header. A user-supplied
+        base_url (``user_endpoint``) gets, in cloud, a pinned no-redirect
+        http_client (safe_http.egress_sdk_http_client).
         """
         kwargs: dict = {}
         if anthropic_helper_config.auth_type == "bearer_token":
@@ -109,6 +112,10 @@ class AnthropicHelperSDK:
             kwargs["api_key"] = anthropic_helper_config.api_key
         if anthropic_helper_config.base_url:
             kwargs["base_url"] = anthropic_helper_config.base_url
+        if anthropic_helper_config.user_endpoint:
+            http_client = egress_sdk_http_client(DefaultAsyncHttpxClient)
+            if http_client is not None:
+                kwargs["http_client"] = http_client
         return AsyncAnthropic(**kwargs)
 
     @staticmethod
