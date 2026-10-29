@@ -3,7 +3,8 @@
 @author: Bin Liang
 @date: 2026-10-29
 @description: Record which public client IPs each user is actively authenticating
-from, for the sentinel's abuse IP<->account linkage (instance_login_ips).
+from, for the sentinel's abuse IP<->account linkage, and the refused-login audit
+trail for blocked email domains (instance_login_ips + ban_audit login_refused rows).
 
 The sentinel (deploy repo) auto-bans a scanning client IP at the edge; to ban the
 account behind it too, it reads this table: "which accounts were active from this
@@ -129,8 +130,12 @@ async def _prune(db_client: Any, cutoff: int) -> None:
         logger.opt(exception=True).warning("[login-ips] prune failed")
     # Refused-login evidence gets the same retention bound. Filtered by action
     # ONLY: ban_audit also holds the administrative history, which is kept.
-    # created_at is UTC on both dialects (datetime('now') / CURRENT_TIMESTAMP
-    # on a UTC server), compared as a 'YYYY-MM-DD HH:MM:SS' value.
+    # Deliberate assumption: created_at is UTC on both dialects —
+    # datetime('now') on SQLite, CURRENT_TIMESTAMP on MySQL, which follows the
+    # server time zone (UTC on our Aurora; the client sets no time_zone). A
+    # non-UTC MySQL server would shift this 30-day boundary by its offset
+    # (hours) — harmless for a retention prune. Compared as
+    # 'YYYY-MM-DD HH:MM:SS'.
     cutoff_at = datetime.fromtimestamp(cutoff, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     try:
         await db_client.execute(
@@ -293,11 +298,13 @@ def start_connection_presence(
 
 
 __all__ = [
+    "MAX_DOMAIN_LEN",
     "RECORD_THROTTLE_SEC",
     "RETENTION_SEC",
     "TABLE",
     "is_recordable_ip",
     "note_authenticated_request",
     "record_login_ip",
+    "record_refused_login",
     "start_connection_presence",
 ]

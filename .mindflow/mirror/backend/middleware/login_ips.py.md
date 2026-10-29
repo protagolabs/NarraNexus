@@ -17,7 +17,10 @@ netmind-login 拒绝黑名单邮箱域时（见 [[auth.py]]）写 `ban_audit` �
 - 保留期：`_prune` 在删 `instance_login_ips` 闲置行之后，再删 `ban_audit` 里
   `action='login_refused' AND created_at < now-RETENTION_SEC` 的行。**只按 action 过滤**——
   suspend / reinstate / warn 的处置历史永不清理。created_at 两种方言都是 UTC
-  （`datetime('now')` / UTC 服务器的 `CURRENT_TIMESTAMP`），按 `'YYYY-MM-DD HH:MM:SS'` 比较；
+  （`datetime('now')` / UTC 服务器的 `CURRENT_TIMESTAMP`），按 `'YYYY-MM-DD HH:MM:SS'` 比较。
+  **这是显式决策**：MySQL 的 `CURRENT_TIMESTAMP` 跟随服务器时区（客户端不设 time_zone），prod Aurora
+  2026-10-29 实测 `@@system_time_zone=UTC`、`NOW()-UTC_TIMESTAMP()=0`；若将来换成非 UTC 实例，这条 30 天边界会整体
+  平移该时区偏移（小时级，对保留期清理无害）。不改成写入方自填时间：`ban_audit.created_at` 与处置行共用，不动其语义（铁律 #6）；
   配套索引 `idx_ban_audit_action_created`。MySQL 双方言用例在 `test_login_ips_mysql.py`。
 - 域名来自上游返回的调用方可控 email，截断到 `MAX_DOMAIN_LEN=253`（DNS 名最长值）。
 
