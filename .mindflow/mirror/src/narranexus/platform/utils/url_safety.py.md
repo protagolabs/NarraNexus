@@ -16,6 +16,10 @@ stub: false
   用户可控 URL 的请求必须走 `safe_http.egress_client()` / `egress_connector()` /
   `PublicOnlyTransport`，单靠本模块不够（docstring 已改口，不再声称「post-resolution 即击败 rebinding」）。
 - `host.strip("[]")`：httpcore 把 IPv6 字面量以无方括号形式交给 `connect_tcp`，但 URL 路径传进来时可能带括号，两边统一。
+- 地址**保序去重**，`_default_resolver` 只取 `SOCK_STREAM`：不限 socket 类型时 getaddrinfo 每个地址按
+  STREAM/DGRAM/RAW 各回一条，拨号循环会把同一个 IP 串行拨 3 次（黑洞地址的失败耗时 ×3）。
+- `_is_public_ip` 增拒 RFC 6598 共享地址段 `100.64.0.0/10`（CGNAT；`is_private` 不含它，VPC/VPN 内可能是内网段），
+  IPv4-mapped IPv6 写法同样拒。它现在是预检与拨号共用的唯一判据，所以收紧一次两边同时生效。
 
 ## 2026-10-28（二）— 部署感知收口：`assert_public_http_url_in_cloud`
 

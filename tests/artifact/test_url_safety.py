@@ -241,3 +241,14 @@ async def test_in_cloud_wrapper_returns_the_validated_addresses_in_cloud(monkeyp
 async def test_in_cloud_wrapper_returns_none_locally_meaning_allowed(monkeypatch):
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
     assert await assert_public_http_url_in_cloud("http://localhost:11434/v1") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("addr", ["100.64.0.1", "100.127.255.254", "::ffff:100.64.0.1"])
+async def test_shared_address_space_is_not_public(addr):
+    # RFC 6598 (carrier-grade NAT) — is_private does not cover it.
+    async def resolve(host, port):
+        return [addr]
+
+    with pytest.raises(UnsafeUrlError):
+        await assert_public_http_url("http://cgnat.example/", resolver=resolve)

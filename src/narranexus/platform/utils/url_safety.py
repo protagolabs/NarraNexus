@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import socket
 from typing import Awaitable, Callable, List, Optional
 from urllib.parse import urlparse
 
@@ -48,11 +49,21 @@ class UnsafeUrlError(ValueError):
     """Raised when a URL is not a safe public HTTP(S) target."""
 
 
+# RFC 6598 shared address space (carrier-grade NAT). Python's is_private does
+# not cover it, yet it is never a public destination — and inside a VPC/VPN it
+# can be an internal range.
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+
+
 def _is_public_ip(ip_str: str) -> bool:
     """True only for globally-routable addresses. Rejects private, loopback,
     link-local (covers the 169.254.169.254 metadata IP), reserved,
-    multicast, and unspecified ranges — for both IPv4 and IPv6."""
+    multicast, unspecified and shared (CGNAT) ranges — for both IPv4 and
+    IPv6, including IPv4-mapped IPv6 spellings."""
     ip = ipaddress.ip_address(ip_str)
+    v4 = ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped else ip
+    if isinstance(v4, ipaddress.IPv4Address) and v4 in _SHARED_ADDRESS_SPACE:
+        return False
     return not (
         ip.is_private
         or ip.is_loopback
@@ -115,7 +126,9 @@ def is_obviously_non_public_url(url: object) -> bool:
 
 async def _default_resolver(host: str, port: int) -> List[str]:
     loop = asyncio.get_event_loop()
-    infos = await loop.getaddrinfo(host, port, proto=0)
+    # SOCK_STREAM: without a socket type getaddrinfo returns every address once
+    # per type (STREAM/DGRAM/RAW), and a connect loop would dial each 3 times.
+    infos = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     # sockaddr is info[4]; its first element is the address string (typed
     # str|int by the stubs because ports are ints — coerce to str).
     return [str(info[4][0]) for info in infos]
@@ -186,6 +199,9 @@ async def resolve_public_addresses(
     except Exception as e:  # noqa: BLE001 — DNS failure is a hard reject, not a pass
         raise UnsafeUrlError(f"could not resolve host {host!r}: {e}") from e
 
+    # Order-preserving de-duplication: an injected resolver may still repeat an
+    # address, and every entry here becomes a separate dial attempt.
+    addresses = list(dict.fromkeys(addresses))
     if not addresses:
         raise UnsafeUrlError(f"host {host!r} resolved to no addresses")
     for addr in addresses:

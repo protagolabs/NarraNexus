@@ -36,11 +36,13 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import time
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Iterable, Optional, cast
 from urllib.parse import urljoin
 
 import aiohttp
+import anyio
 import httpcore
 import httpx
 from aiohttp.abc import AbstractResolver, ResolveResult
@@ -99,6 +101,22 @@ async def safe_stream_get(
     raise RedirectLimitError(f"exceeded {max_redirects} redirects for {url}")
 
 
+def _interleave_families(addresses: list[str]) -> list[str]:
+    """Alternate address families (first family first), RFC 8305 style.
+
+    Keeps the resolver's preference for the first address, then alternates
+    IPv6/IPv4 so one unreachable family does not have to be exhausted before
+    the other is tried.
+    """
+    v6 = [a for a in addresses if ":" in a]
+    v4 = [a for a in addresses if ":" not in a]
+    first, second = (v6, v4) if addresses and ":" in addresses[0] else (v4, v6)
+    out: list[str] = []
+    for i in range(max(len(first), len(second))):
+        out.extend(group[i] for group in (first, second) if i < len(group))
+    return out
+
+
 class PublicOnlyNetworkBackend(httpcore.AsyncNetworkBackend):
     """httpcore network backend that only ever opens sockets to public addresses.
 
@@ -127,21 +145,39 @@ class PublicOnlyNetworkBackend(httpcore.AsyncNetworkBackend):
         local_address: Optional[str] = None,
         socket_options: Optional[Iterable[Any]] = None,
     ) -> httpcore.AsyncNetworkStream:
-        addresses = await resolve_public_addresses(host, port, resolver=self._resolver)
+        # One connect-timeout budget covers resolution AND every dial, as it did
+        # inside httpcore's own backend: a resolver an attacker controls must
+        # not hang the request past its timeout.
+        deadline = None if timeout is None else time.monotonic() + timeout
+        try:
+            with anyio.fail_after(timeout):
+                addresses = await resolve_public_addresses(host, port, resolver=self._resolver)
+        except TimeoutError as e:
+            raise httpcore.ConnectTimeout(f"resolving {host!r} timed out") from e
+        addresses = _interleave_families(addresses)
         last_error: Optional[Exception] = None
-        for address in addresses:
+        for index, address in enumerate(addresses):
+            attempt_timeout = None
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                # Split what is left across the addresses still to try, so a
+                # black-holed first address (e.g. dead IPv6) cannot eat the whole
+                # budget — the replacement for the happy-eyeballs fallback the
+                # stock backend did when it resolved the name itself.
+                attempt_timeout = remaining / (len(addresses) - index)
             try:
                 return await self._inner.connect_tcp(
                     address,
                     port,
-                    timeout=timeout,
+                    timeout=attempt_timeout,
                     local_address=local_address,
                     socket_options=socket_options,
                 )
             except (httpcore.ConnectError, httpcore.ConnectTimeout) as e:
-                last_error = e  # try the next validated address, like getaddrinfo order
-        assert last_error is not None  # addresses is never empty
-        raise last_error
+                last_error = e  # try the next validated address
+        raise last_error or httpcore.ConnectTimeout(f"connecting to {host!r} timed out")
 
     async def connect_unix_socket(
         self,
@@ -173,9 +209,12 @@ class PublicOnlyTransport(httpx.AsyncHTTPTransport):
         limits: httpx.Limits = httpx.Limits(max_connections=100, max_keepalive_connections=20),
         retries: int = 0,
     ) -> None:
-        super().__init__(verify=verify, http2=http2, limits=limits, retries=retries, trust_env=False)
+        # Deliberately not super().__init__(): it would build a pool (and load
+        # the CA bundle) only for it to be replaced. The pool is the transport's
+        # only state. trust_env=True for the SSL context only, so SSL_CERT_FILE /
+        # SSL_CERT_DIR are honoured exactly as by a default client.
         self._pool = httpcore.AsyncConnectionPool(
-            ssl_context=httpx.create_ssl_context(verify=verify, trust_env=False),
+            ssl_context=httpx.create_ssl_context(verify=verify, trust_env=True),
             max_connections=limits.max_connections,
             max_keepalive_connections=limits.max_keepalive_connections,
             keepalive_expiry=limits.keepalive_expiry,

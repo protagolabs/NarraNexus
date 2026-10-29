@@ -20,7 +20,18 @@ incident's P0. The fix moves the check INTO the dial:
   certificate verification and the Host header still use the hostname,
   because httpcore takes those from the request origin, not from the address
   the socket went to. Unix sockets are refused.
-- `PublicOnlyTransport` swaps that backend into an `AsyncHTTPTransport`'s pool.
+- One connect-timeout budget covers resolution and every dial (the stock
+  backend resolved inside its own timeout; an attacker-run DNS server must not
+  hang a request past it — resolution timing out raises `ConnectTimeout`).
+  Addresses are de-duplicated (in [[url_safety]]), interleaved IPv6/IPv4
+  keeping the resolver's first preference, and each attempt gets
+  `remaining / addresses_left` of the budget — the stand-in for the
+  happy-eyeballs fallback the stock backend did, so a black-holed first
+  address (dead IPv6) cannot consume the whole timeout.
+- `PublicOnlyTransport` builds an `AsyncHTTPTransport`'s pool around that
+  backend (without calling `super().__init__`, which would build and discard a
+  pool + CA bundle per instance). Its SSL context keeps `trust_env=True`, so
+  `SSL_CERT_FILE` / `SSL_CERT_DIR` behave exactly as for a default client.
   No proxy support on purpose: through a proxy the PROXY resolves the name and
   the pin is gone (httpx already ignores `*_PROXY` env once a transport is
   passed).
@@ -47,6 +58,10 @@ clients that follow redirects and only DNS-free-screen stored base_urls; stored
 NarraMessenger/matrix URLs used without re-check after bind; executor-side
 CLI/MCP connections and in-app Chromium — those need network-level egress
 filtering.
+
+aiohttp tests probe `loop.sock_connect` (aiohttp dials through
+aiohappyeyeballs before `create_connection(sock=...)`, so a `create_connection`
+spy would never see the dial).
 
 Tests: `tests/utils/test_public_only_transport.py` (the incident's acceptance
 case — first answer public, second answer metadata → refused, nothing dialled;

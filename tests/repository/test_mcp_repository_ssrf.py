@@ -237,3 +237,34 @@ async def test_validate_refuses_rebinding_at_connect_when_enforced(monkeypatch):
     assert ok is False
     assert "public" in err and "169.254" not in err
     assert dials == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enforce", [True, False])
+async def test_validate_pins_the_transport_only_when_enforced(monkeypatch, enforce):
+    # Local/desktop (enforce_public_url=False) legitimately validates a
+    # localhost MCP server, so the client must not be pinned there.
+    import httpx
+
+    from narranexus.platform.utils.safe_http import PublicOnlyTransport
+
+    built = []
+
+    class _Client:
+        def __init__(self, *a, **k):
+            built.append(k)
+
+        async def __aenter__(self):
+            raise httpx.ConnectError("test: stop after construction")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    await validate_mcp_sse_connection(
+        "https://mcp.example.com/sse", resolver=_public_resolver, enforce_public_url=enforce
+    )
+
+    assert len(built) == 1
+    assert isinstance(built[0].get("transport"), PublicOnlyTransport) is enforce

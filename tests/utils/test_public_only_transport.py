@@ -191,6 +191,8 @@ async def test_egress_client_is_unrestricted_locally(monkeypatch):
 
 # ── aiohttp: the same pin via the connector's resolver ──
 
+import asyncio
+import asyncio.selector_events
 import socket
 
 import aiohttp
@@ -225,12 +227,13 @@ async def test_aiohttp_session_with_pinned_connector_never_dials_internal(monkey
     monkeypatch.setattr(url_safety, "_default_resolver", _resolver([[METADATA]]))
     loop_dials = []
 
-    async def no_connect(*args, **kwargs):  # pragma: no cover — must not run
-        loop_dials.append(args)
+    async def no_connect(self, sock, address):  # pragma: no cover — must not run
+        loop_dials.append(address)
         raise OSError("test: sockets disabled")
 
+    # aiohttp dials through aiohappyeyeballs -> loop.sock_connect.
+    monkeypatch.setattr(asyncio.selector_events.BaseSelectorEventLoop, "sock_connect", no_connect)
     async with aiohttp.ClientSession(connector=safe_http.egress_connector()) as session:
-        monkeypatch.setattr(session.connector._loop, "create_connection", no_connect)
         with pytest.raises(UnsafeUrlError):  # not a DNS ClientError: the pin refused it
             await session.get("http://rebind.example/")
     assert loop_dials == []
@@ -244,3 +247,77 @@ async def test_egress_connector_is_default_locally(monkeypatch):
         assert not isinstance(connector._resolver, safe_http.PublicOnlyResolver)
     finally:
         await connector.close()
+
+
+
+# ── dial loop: dedupe, fallback, one timeout budget, family interleave ──
+
+class _FlakyInner(_InnerSpy):
+    """Fails the addresses in `dead` (ConnectTimeout), records each timeout."""
+
+    def __init__(self, dead):
+        super().__init__()
+        self.dead = set(dead)
+        self.timeouts = []
+
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        self.connects.append((host, port))
+        self.timeouts.append(timeout)
+        if host in self.dead:
+            raise httpcore.ConnectTimeout("test: black-holed")
+        return _Stream(self.record)
+
+
+@pytest.mark.asyncio
+async def test_repeated_addresses_are_dialled_once():
+    inner = _FlakyInner(dead={PUBLIC})
+    async with _client(_resolver([[PUBLIC, PUBLIC, PUBLIC]]), inner) as client:
+        with pytest.raises(httpx.ConnectTimeout):
+            await client.get("http://service.example/")
+    assert inner.connects == [(PUBLIC, 80)]
+
+
+@pytest.mark.asyncio
+async def test_falls_back_to_the_next_address_within_one_timeout_budget():
+    second = "93.184.216.35"
+    inner = _FlakyInner(dead={PUBLIC})
+    async with _client(_resolver([[PUBLIC, second]]), inner) as client:
+        resp = await client.get("http://service.example/", timeout=httpx.Timeout(4.0))
+    assert resp.status_code == 200
+    assert inner.connects == [(PUBLIC, 80), (second, 80)]
+    # The dead first address got its share of the budget, not all of it (the
+    # fake fails instantly, so the second attempt gets ~all that remains).
+    assert inner.timeouts[0] <= 2.0 + 1e-6
+    assert inner.timeouts[1] <= 4.0 + 1e-6
+
+
+@pytest.mark.asyncio
+async def test_slow_resolution_is_bounded_by_the_connect_timeout():
+    async def hang(host, port):
+        await asyncio.sleep(30)
+
+    inner = _InnerSpy()
+    async with _client(hang, inner) as client:
+        with pytest.raises(httpx.ConnectTimeout):
+            await client.get("http://slow-dns.example/", timeout=httpx.Timeout(0.05))
+    assert inner.connects == []
+
+
+def test_families_are_interleaved_keeping_the_first_preference():
+    v6a, v6b = "2606:2800:220:1::1", "2606:2800:220:1::2"
+    v4a, v4b = "93.184.216.34", "93.184.216.35"
+    assert safe_http._interleave_families([v6a, v6b, v4a, v4b]) == [v6a, v4a, v6b, v4b]
+    assert safe_http._interleave_families([v4a, v6a, v4b]) == [v4a, v6a, v4b]
+
+
+# ── factories refuse kwargs that would bypass the pin ──
+
+@pytest.mark.parametrize("kwarg", ["transport", "proxy", "mounts"])
+def test_egress_client_rejects_pin_bypassing_kwargs(kwarg):
+    with pytest.raises(TypeError):
+        safe_http.egress_client(**{kwarg: object()})
+
+
+def test_egress_connector_rejects_a_custom_resolver():
+    with pytest.raises(TypeError):
+        safe_http.egress_connector(resolver=object())

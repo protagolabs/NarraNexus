@@ -560,3 +560,12 @@ async def test_cloud_rebinding_base_url_is_refused_at_connect(cloud, monkeypatch
     assert ok is False
     assert "public" in msg.lower() and "169.254" not in msg
     assert dials == []
+
+
+@pytest.mark.asyncio
+async def test_local_user_probe_is_not_pinned(local, fake_http):
+    # Desktop users point at localhost (Ollama / LM Studio): no pinned transport.
+    ok, msg = await _probe(UserProviderService(FakeDB()), "http://localhost:11434/v1")
+
+    assert ok is True, msg
+    assert fake_http.clients and all("transport" not in c for c in fake_http.clients)

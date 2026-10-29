@@ -602,11 +602,14 @@ async def test_cloud_rebinding_bind_link_is_refused_at_connect(stub_db, fake_man
     monkeypatch.setattr(url_safety, "_default_resolver", _rebinding)
     dials = []
 
-    async def _no_connect(self, *args, **kwargs):
-        dials.append(args)
+    async def _no_connect(self, sock, address):
+        dials.append(address)
         raise OSError("test: sockets disabled")
 
-    monkeypatch.setattr(asyncio.BaseEventLoop, "create_connection", _no_connect)
+    # aiohttp dials through aiohappyeyeballs -> loop.sock_connect.
+    import asyncio.selector_events
+
+    monkeypatch.setattr(asyncio.selector_events.BaseSelectorEventLoop, "sock_connect", _no_connect)
 
     result = await svc.do_bind(
         stub_db, agent_id="agent_x", bind_command="https://rebind.example/tok123/setup-guide.md"
