@@ -41,19 +41,31 @@ class ExecutorUnreachableError(RuntimeError):
         self.target = target
 
 
-class ExecutorAuthError(ExecutorUnreachableError):
+class ExecutorTokenRejectedError(ExecutorUnreachableError):
     """The executor rejected this call's API token (HTTP 401/403).
 
     The executor requires the per-container token the broker planted
-    (sandbox isolation, 2026-10-29). A rejection is never the user's fault:
-    it means the orchestrator and that container disagree on the token (a
-    broker read-back failure, a cross-repo contract drift). Subclassing
-    ``ExecutorUnreachableError`` routes it down the SAME platform-failure path
-    — surfaced as ``infra_transient``, audited, never masked by a fabricated
-    helper-LLM reply — instead of the generic ``ClientResponseError`` path,
-    which the fallback would silently paper over on every turn. The audit row
-    keeps the real class name in ``error_type``, so ops can tell it apart from
-    a dropped connection. Its own class name is deliberately NOT in the
-    circuit breaker's transient set either. A resend usually recovers: the
-    broker rolls a container whose token it cannot read back.
+    (sandbox isolation, 2026-10-29). A rejection is never the user's fault: it
+    means the orchestrator and that container disagree on the token (a broker
+    read-back failure, a cross-repo contract drift).
+
+    How it is routed: step 3 classifies a fatal by CLASS NAME
+    (``type(e).__name__``) against ``failure._EXECUTOR_UNREACHABLE_TYPES`` —
+    that set membership is what makes it surface as ``infra_transient``, get
+    audited, and skip the fabricating helper-LLM fallback. Subclassing
+    ``ExecutorUnreachableError`` only matters to callers that ``except`` that
+    type; step 3 is not one, so a new error class here must ALSO be added to
+    that set or it falls through to the fallback.
+
+    Named and worded to stay clear of auth-substring classifiers: the class
+    name has no "auth" and the message carries no status code (it is on
+    ``.status``), because code that pattern-matches "auth" / "401" in error
+    text (job pause logic, the circuit breaker's credential check) would
+    otherwise misfile a platform failure as the owner's expired credentials.
+    A resend usually recovers: the broker rolls a container whose token it
+    cannot read back.
     """
+
+    def __init__(self, message: str, *, target: str | None = None, status: int | None = None) -> None:
+        super().__init__(message, target=target)
+        self.status = status

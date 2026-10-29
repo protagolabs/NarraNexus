@@ -107,6 +107,31 @@ async def test_websocket_without_token_is_refused():
     # lifespan is the only scope that bypasses the check
     await mw({"type": "lifespan"}, None, send)
     assert reached == ["lifespan"]
+    # and a websocket that DOES present the token gets through
+    await mw({"type": "websocket", "path": "/ws",
+              "headers": [(b"authorization", b"Bearer s3cret")]}, None, send)
+    assert reached == ["lifespan", "websocket"]
+
+
+def test_the_executor_process_takes_the_token_out_of_its_env():
+    # Production wiring, not just the helper: importing the executor module
+    # with the token in the env must leave the env without it AND hand the
+    # token to the middleware. A fresh interpreter, so the import is real.
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import os\n"
+        "from narranexus.platform.agent_runtime import executor_service as es\n"
+        "from narranexus.platform.agent_runtime.executor_protocol import EXECUTOR_TOKEN_ENV\n"
+        "m = es.app.user_middleware[0]\n"
+        "print(EXECUTOR_TOKEN_ENV in os.environ, m.kwargs.get('token'))\n"
+    )
+    env = {**os.environ, proto.EXECUTOR_TOKEN_ENV: "planted-at-spawn"}
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.strip().splitlines()[-1] == "False planted-at-spawn"
 
 
 def test_token_is_taken_out_of_the_environment(monkeypatch):
@@ -252,7 +277,7 @@ async def test_a_rejected_token_is_a_typed_platform_failure(monkeypatch):
         classify_executor_infra_failure,
     )
     from narranexus.platform.agent_framework.loop.executor_errors import (
-        ExecutorAuthError,
+        ExecutorTokenRejectedError,
         ExecutorUnreachableError,
     )
 
@@ -269,10 +294,15 @@ async def test_a_rejected_token_is_a_typed_platform_failure(monkeypatch):
     monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _DeniedSession())
     d = RemoteAgentLoopDriver(framework="claude_code", working_path="/tmp",
                               executor_url="http://exec:8020", executor_token="stale")
-    with pytest.raises(ExecutorAuthError) as ei:
+    with pytest.raises(ExecutorTokenRejectedError) as ei:
         _ = [e async for e in d.agent_loop(messages=[], mcp_servers={})]
     assert isinstance(ei.value, ExecutorUnreachableError)
-    assert classify_executor_infra_failure("ExecutorAuthError", "") == EXECUTOR_INFRA_REASON_UNREACHABLE
+    assert ei.value.status == 401
+    # No status code and no "auth" in the text or class name: downstream
+    # classifiers pattern-match those and would misfile it as expired creds.
+    assert "401" not in str(ei.value) and "auth" not in str(ei.value).lower()
+    assert "auth" not in type(ei.value).__name__.lower()
+    assert classify_executor_infra_failure("ExecutorTokenRejectedError", "") == EXECUTOR_INFRA_REASON_UNREACHABLE
 
 
 # ------------------------------------------------------------ step 3 wiring

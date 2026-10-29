@@ -76,7 +76,10 @@ from narranexus.platform.schema.job_schema import (
     TriggerConfig,
 )
 from narranexus.platform.schema.hook_schema import WorkingSource
-from narranexus.platform.schema.runtime_message import AUTH_EXPIRED_ERROR_TYPE
+from narranexus.platform.schema.runtime_message import (
+    AUTH_EXPIRED_ERROR_TYPE,
+    EXECUTOR_INFRA_ERROR_TYPE,
+)
 from narranexus.platform.schema.entity_schema import NON_TRANSACTING_USER_STATUSES
 from narranexus.platform.agent_runtime.client import get_agent_runtime_client
 
@@ -177,6 +180,11 @@ def _is_no_quota_failure(result: Dict[str, Any]) -> bool:
     if result.get("success", True):
         return False
     et = result.get("error_type")
+    if et == EXECUTOR_INFRA_ERROR_TYPE:
+        # A platform-side executor failure (OOM, unreachable, token rejected)
+        # is never the owner's quota problem; its message carries raw detail
+        # that substring markers below would misread. Structured type first.
+        return False
     if et and et in _NO_QUOTA_ERROR_TYPES:
         return True
     if classify_self_serviceable(et, result.get("error")) is not None:
@@ -217,6 +225,14 @@ def _is_auth_failure(result: Dict[str, Any]) -> bool:
     if result.get("success", True):
         return False
     et = result.get("error_type")
+    if et == EXECUTOR_INFRA_ERROR_TYPE:
+        # Platform-side executor failure: the owner cannot fix it by
+        # re-authenticating, so it must back off and retry (COOLING), not pause
+        # with a "reconfigure your provider" notice. Checked before the
+        # "401"/"unauthorized" substring markers, which the infra message's raw
+        # detail can contain (an executor rejecting the platform's own API
+        # token answers 401 — pre-review 2026-10-29).
+        return False
     if et and et in _AUTH_FAILURE_ERROR_TYPES:
         return True
     msg = (result.get("error") or "").lower()

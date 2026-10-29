@@ -58,7 +58,7 @@ from narranexus.platform.agent_framework.loop.cancellation_view import (
 )
 from narranexus.platform.agent_framework.loop.driver import framework_capabilities
 from narranexus.platform.agent_framework.loop.executor_errors import (
-    ExecutorAuthError,
+    ExecutorTokenRejectedError,
     ExecutorUnreachableError,
 )
 
@@ -298,9 +298,10 @@ class RemoteAgentLoopDriver:
                             f"[RemoteAgentLoop] executor rejected the API token "
                             f"(HTTP {resp.status}) at {self._url}"
                         )
-                        raise ExecutorAuthError(
-                            f"executor rejected the API token at {self._url}: HTTP {resp.status}",
+                        raise ExecutorTokenRejectedError(
+                            f"executor rejected the platform's API token at {self._url}",
                             target=self._url,
+                            status=resp.status,
                         )
                     resp.raise_for_status()
                     # A steerable run pumps injections to /steer for the life of

@@ -474,10 +474,10 @@ _OOM_RETURNCODE_MARKERS: tuple[str, ...] = (
 )
 
 # Exact exception class names raised at the executor transport boundary.
-# ExecutorAuthError (the executor rejected the API token) shares the
+# ExecutorTokenRejectedError (the executor rejected the API token) shares the
 # unreachable reason: same user guidance (resend), same no-fallback handling;
 # the audit row's error_type keeps the two apart for ops.
-_EXECUTOR_UNREACHABLE_TYPES = frozenset({"ExecutorUnreachableError", "ExecutorAuthError"})
+_EXECUTOR_UNREACHABLE_TYPES = frozenset({"ExecutorUnreachableError", "ExecutorTokenRejectedError"})
 
 
 def classify_executor_infra_failure(

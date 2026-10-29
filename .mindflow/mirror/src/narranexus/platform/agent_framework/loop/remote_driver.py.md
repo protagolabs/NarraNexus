@@ -4,11 +4,11 @@ stub: false
 last_verified: 2026-10-29
 ---
 
-## 2026-10-29 — 执行器 API token 挂在 session 上；401/403 → `ExecutorAuthError`
+## 2026-10-29 — 执行器 API token 挂在 session 上；401/403 → `ExecutorTokenRejectedError`
 
 `__init__` 新增 `executor_token`，转成 `self._auth_headers` 设在 `aiohttp.ClientSession(headers=...)` 上。**放 session 级而不是每个 post**：`/agent-loop` 长流和 steer pump 的每个 `/steer` POST 共用这一个 session，一处设置两条路径都带上，也不改动 post 调用签名（现有测试的 fake session 不收 headers kwarg）。无 token 时为空 dict，对旧执行器零影响。
 
-**401/403 类型化（预审 I-1）**：`raise_for_status` 之前先判 401/403，打 error 日志并抛 `ExecutorAuthError`（`ExecutorUnreachableError` 子类）。否则它是普通 `ClientResponseError`，step 3 会走 helper-LLM 兜底——token 一旦失配，每个回合都被编造的回复盖住、不写审计、不告警。现在与连接断开走同一条「平台故障」路径：surface infra_transient、写 executor_audit（`error_type` 保留真实类名）、不兜底。其余 4xx/5xx 不动。
+**401/403 类型化（预审 I-1）**：`raise_for_status` 之前先判 401/403，打 error 日志并抛 `ExecutorTokenRejectedError`（`ExecutorUnreachableError` 子类）。否则它是普通 `ClientResponseError`，step 3 会走 helper-LLM 兜底——token 一旦失配，每个回合都被编造的回复盖住、不写审计、不告警。现在与连接断开走同一条「平台故障」路径：surface infra_transient、写 executor_audit（`error_type` 保留真实类名）、不兜底。其余 4xx/5xx 不动。
 
 ## 2026-09-03（批 2a.5）— 转发 `deferred_tools`
 
