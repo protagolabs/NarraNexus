@@ -208,6 +208,22 @@ def _unregister_sse_stream(sid: int) -> None:
     _active_streams.pop(sid, None)
 
 
+def _log_if_token_rejected(status: int, user_id: str, hop: str) -> None:
+    """Make an executor refusing the platform's API token visible to ops.
+
+    Called on all four executor hops (ensure, version, GET passthrough, POST
+    passthrough). A rejection is a platform fault (token drift between the
+    broker and a container), so it must leave a trace on every hop — the
+    passthrough GET carries the iframe document, its assets and the SSE stream,
+    and is the bulk of the traffic.
+    """
+    if status in (401, 403):
+        logger.error(
+            f"office-watch: executor rejected the platform's API token "
+            f"(HTTP {status}) on {hop} for user {user_id}"
+        )
+
+
 async def _resolve_upstream(user_id: str, port: int, path: str, query: str) -> tuple[str, dict[str, str]]:
     """Build the upstream URL for the watch server, per run mode, plus the
     headers that authenticate the hop.
@@ -252,11 +268,7 @@ async def _ensure_watch_in_executor(user_id: str, agent_id: str, rel: str) -> in
             timeout=timeout, headers=executor_auth_headers(ensured.executor_token)
         ) as session:
             async with session.post(f"{ensured.url.rstrip('/')}/watch/ensure", json=body) as r:
-                if r.status in (401, 403):
-                    # The executor refused the platform's API token: a platform
-                    # fault, never the browser's session (no 401 to the client,
-                    # the frontend would log the user out). Loud for ops.
-                    logger.error(f"office-watch: executor rejected the API token (HTTP {r.status}) for user {user_id}")
+                _log_if_token_rejected(r.status, user_id, "watch/ensure")
                 if r.status != 200:
                     return None
                 data = await r.json()
@@ -434,11 +446,7 @@ async def _file_version_in_executor(user_id: str, agent_id: str, rel: str) -> di
             timeout=timeout, headers=executor_auth_headers(ensured.executor_token)
         ) as session:
             async with session.get(f"{ensured.url.rstrip('/')}/watch/version?{q}") as r:
-                if r.status in (401, 403):
-                    # The executor refused the platform's API token: a platform
-                    # fault, never the browser's session (no 401 to the client,
-                    # the frontend would log the user out). Loud for ops.
-                    logger.error(f"office-watch: executor rejected the API token (HTTP {r.status}) for user {user_id}")
+                _log_if_token_rejected(r.status, user_id, "watch/version")
                 if r.status != 200:
                     raise HTTPException(status_code=404, detail="file not found")
                 return await r.json()
@@ -487,6 +495,7 @@ async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: 
         await session.close()
         logger.warning(f"office-watch proxy upstream failed ({upstream}): {e}")
         raise HTTPException(status_code=502, detail="watch server unavailable")
+    _log_if_token_rejected(resp.status, user_id, "watch passthrough GET")
 
     media_type = resp.headers.get("Content-Type", "application/octet-stream")
     if "text/html" in media_type.lower():
@@ -543,6 +552,7 @@ async def _post_upstream(
                 upstream, data=body, headers={"Content-Type": content_type, **auth}
             )
             payload = await resp.read()
+            _log_if_token_rejected(resp.status, user_id, "watch passthrough POST")
             return resp.status, resp.headers.get("Content-Type", "application/json"), payload
         except aiohttp.ClientError as e:
             logger.warning(f"office-watch POST upstream failed ({upstream}): {e}")

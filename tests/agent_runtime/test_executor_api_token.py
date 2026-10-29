@@ -456,9 +456,10 @@ async def test_office_watch_passthrough_presents_the_token(monkeypatch, cloud):
 @pytest.mark.asyncio
 async def test_health_reports_whether_the_token_is_enforced():
     body = await es.health()
-    # A bare bool: /health is unauthenticated, nothing about the token itself.
-    assert body["token_enforced"] is es._TOKEN_ENFORCED
-    assert isinstance(body["token_enforced"], bool)
+    # conftest clears the token before the service is imported, so this process
+    # serves unauthenticated and must SAY so; the True side is pinned by the
+    # fresh-interpreter test above. A bare bool: /health is unauthenticated.
+    assert body["token_enforced"] is False
 
 
 @pytest.mark.asyncio
@@ -512,3 +513,56 @@ def test_every_executor_transport_error_is_registered_as_infra():
     assert classes == set(executor_errors.EXECUTOR_INFRA_ERROR_NAMES)
     for name in classes:
         assert failure.classify_executor_infra_failure(name, "") == failure.EXECUTOR_INFRA_REASON_UNREACHABLE
+
+
+
+@pytest.mark.asyncio
+async def test_every_office_watch_hop_logs_a_rejected_token(monkeypatch):
+    # ensure + version are covered by their own branches; the two passthrough
+    # hops carry the bulk of the traffic and must leave the same trace.
+    owp = importlib.import_module("backend.routes.office_watch.proxy")
+
+    async def fake_ensure(user_id, **kw):
+        return ExecutorEnsureResult(url="http://nx-exec-a:8020", cold_started=False, executor_token="tok")
+
+    monkeypatch.setattr(owp, "ensure_executor", fake_ensure)
+    errors = []
+    monkeypatch.setattr(owp.logger, "error", lambda m, *a, **k: errors.append(m))
+
+    class _Denied:
+        status = 401
+
+        async def read(self):
+            return b"{}"
+
+        @property
+        def headers(self):
+            raise LookupError("stop after the log point")
+
+    class _S:
+        def __init__(self, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def close(self):
+            return None
+
+        async def get(self, *a, **k):
+            return _Denied()
+
+        async def post(self, *a, **k):
+            return _Denied()
+
+    monkeypatch.setattr(owp.aiohttp, "ClientSession", _S)
+    with pytest.raises(LookupError):
+        await owp._proxy_stream("a", 7900, "index.html", "", "/p", {})
+    with pytest.raises(LookupError):
+        await owp._post_upstream("a", 7900, "api/save", "", b"{}", "application/json")
+    hops = [m for m in errors if "rejected the platform's API token" in m]
+    assert any("passthrough GET" in m for m in hops)
+    assert any("passthrough POST" in m for m in hops)

@@ -3,10 +3,10 @@ code_file: backend/routes/office_watch/proxy.py
 last_verified: 2026-10-29
 stub: false
 ---
-
 ### 2026-10-29（管线审查 M-1）
 
-`/watch/ensure`、`/watch/version` 收到 401/403 时打 `logger.error`（带 user_id）：执行器拒绝了平台的 API token，是平台故障。**不**把 401 透传给浏览器——前端会据此走登出，而这不是用户会话过期。`_resolve_upstream` 返回标注收紧为 `tuple[str, dict[str, str]]`。
+**四跳都留痕**：`_log_if_token_rejected(status, user_id, hop)` 在 `/watch/ensure`、`/watch/version`、透传 GET（`_proxy_stream`，拿到 resp 后、进生成器之前打一次——SSE 不会逐 chunk 刷）、透传 POST（`_post_upstream` return 前）都调用：执行器拒绝平台 API token 是平台故障，透传 GET 承载 iframe 文档、静态资源与 SSE，是主干流量，不能只有 ensure 那一条日志。
+**状态码行为（按实际写）**：ensure / version 两跳把非 200 转成本服务自己的结果（None / 404），**不**向浏览器透出 401；两条透传跳**原样转发**上游状态码（未改写成 502）。这不会把用户登出：`/api/public/office-watch-proxy/...` 只作为 `OfficeWatchViewer` 的 iframe `src` 使用，不经过 app 的 api client。`_resolve_upstream` 返回标注为 `tuple[str, dict[str, str]]`。
 
 ## 2026-10-29 — 到执行器的每一跳都带 API token
 
