@@ -35,6 +35,7 @@ BLOCKED_EMAIL_DOMAINS_ENV = "NARRANEXUS_BLOCKED_EMAIL_DOMAINS"
 DISPOSABLE_EMAIL_DOMAINS: frozenset[str] = frozenset({
     "10minutemail.com",
     "10minutemail.net",
+    "10timer.com",  # 2026-10-28 incident: attacker signup domain
     "1secmail.com",
     "anonbox.net",
     "armyspy.com",

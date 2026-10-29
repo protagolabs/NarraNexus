@@ -84,3 +84,12 @@ def test_unchanged_env_reuses_the_merged_set(monkeypatch):
     assert not is_blocked_email("c@example.com")
     info = _email_policy._blocked_domains.cache_info()
     assert (info.misses, info.hits) == (1, 2)
+
+
+@pytest.mark.parametrize("domain", ["nimail.cn", "maxxspace.com", "10timer.com"])
+def test_2026_10_28_incident_domains_are_blocked(domain):
+    # The three throwaway domains the 2026-10-28 attacker registered on
+    # (incident follow-up P1-2). Whole-label match: a look-alike is not blocked.
+    assert is_blocked_email(f"x@{domain}")
+    assert is_blocked_email(f"x@mail.{domain}")
+    assert not is_blocked_email(f"x@not{domain}")

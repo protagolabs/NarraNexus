@@ -133,6 +133,13 @@ async def test_ban_audit_record_never_raises(db_client):
 @pytest.fixture
 def force_cloud_mode(monkeypatch):
     monkeypatch.setattr(auth_mod, "_is_cloud_mode", lambda: True)
+    # In cloud the bound auth provider decodes the session JWT through the
+    # kernel's WEB_HOST service, normally exposed by importing backend.main.
+    # Publish it here so these gate tests do not depend on another test having
+    # imported the app first (they failed when this file ran on its own).
+    from backend.plugin_sdk_host import install_web_host
+
+    install_web_host()
 
 
 @pytest.fixture
@@ -374,6 +381,8 @@ async def test_login_refused_for_blocked_email_domain(db_client, monkeypatch):
     assert "token" not in body
     # Refusal is BEFORE upsert: no user row was created for the blocked domain.
     assert await db_client.get_one("users", {"user_id": code}) is None
+    # ...and no login-IP row either: the refusal sits before the recorder
+    assert list(await db_client.get("instance_login_ips", {"user_id": code})) == []
     # And no fire-and-forget provisioning ran.
     assert seeded == []
 

@@ -20,7 +20,7 @@ stub: false
 - `_free_credit_withheld`（line ~574）保留为纵深防御兜底：登录既然已拒黑名单域，它在
   登录路径实际不会再命中，但仍守着任何未来绕过登录拒绝的路径，不删。
 - 名单来源不变：`DISPOSABLE_EMAIL_DOMAINS`（已含 `nimail.cn` / `maxxspace.com` /
-  `cc.cd`）+ `NARRANEXUS_BLOCKED_EMAIL_DOMAINS` env 扩展，整标签匹配（`notnimail.cn`
+  `10timer.com` / `cc.cd`）+ `NARRANEXUS_BLOCKED_EMAIL_DOMAINS` env 扩展，整标签匹配（`notnimail.cn`
   不误伤）。测试 `test_account_suspension.py::test_login_refused_for_blocked_email_domain`
   + 放行对照 `test_login_allowed_for_ordinary_email_domain`。
 
