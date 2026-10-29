@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-09-10
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — `_executor_target(ensured)`：url 与 token 同源取
+
+新增纯函数，从同一个 ensure() 结果同时取 (executor URL, executor API token) 交给驱动工厂。**为什么抽出来**：token 是种在**那一个**容器里的，绝不能与 URL 分开取；纯函数可直接测（与 `_dispatch_identity_token` 同一模式）。放在 `_dispatch_identity_token` 之前，**不在** `@timed` 与 `step_3_agent_loop` 之间（`test_step_3_keeps_its_timing_decorator` 守这个形状）。
 
 ## 2026-09-10 — 订阅集合改 import `SUBSCRIPTION_AUTH_TYPES`（PR#392 复审 I2）
 

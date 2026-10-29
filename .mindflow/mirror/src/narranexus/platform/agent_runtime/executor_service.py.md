@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 ---
+
+## 2026-10-29 — `ExecutorTokenMiddleware`：执行器 API 不再 internal-trust
+
+新增最外层原生 ASGI 中间件，env 里有 `NX_EXECUTOR_API_TOKEN`（broker 种下）时，**除 `/health` 外**所有路径都要求 `Authorization: Bearer <token>`，`hmac.compare_digest` 比较原始头字节，不符返回 401。**为什么**：模块 docstring 的「无鉴权可容忍」前提是别的租户够不到 :8020，而那只靠宿主机防火墙——2026-10-29 发现 prod 上它因缺 br_netfilter 失效了一天，10/28 攻击者确实对别人容器的 :8020 做过只读侦察。这是独立于网络的第二层。设计点：`/health` 开放（broker reaper/就绪探针要用，不含 workspace 数据）；env 无 token = 不校验（旧 broker + 新镜像组合不 401，broker 会在下次 ensure 把无 token 容器滚动替换）；挂在 `InFlightWorkMiddleware` 之后添加 = 最外层，被拒请求不计入 in-flight（否则会把容器标成 busy 不可回收）。容器内租户自己能读到 token——那是他自己的地盘，不构成风险。
 
 ## 2026-09-03（批 2a.5）— `/agent-loop` 透传 `deferred_tools` 给 driver（所有 driver 都收 `**kwargs`）
 

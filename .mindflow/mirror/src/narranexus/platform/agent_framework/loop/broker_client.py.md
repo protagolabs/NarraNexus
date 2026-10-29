@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/broker_client.py
 stub: false
-last_verified: 2026-08-24
+last_verified: 2026-10-29
 ---
+
+## 2026-10-29 — `ExecutorEnsureResult.executor_token`
+
+ensure() 响应新增 `executor_token`（broker 种在该用户执行器 env 里的 API token），解析为可选字段；旧 broker / 无 token 容器 → `None`，调用方不发鉴权头，旧执行器也不校验。**每回合 ensure 都重新拿**，调用方不缓存，所以容器重建（token 轮换）后不会出现拿旧 token 401。与 `identity_token` 同一条通道。见 [[executor_protocol.py]]。
 
 ## 2026-08-24 — `stop_executor` 返回"到底停了没有"
 

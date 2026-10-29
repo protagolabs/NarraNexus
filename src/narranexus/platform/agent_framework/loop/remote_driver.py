@@ -51,6 +51,7 @@ from loguru import logger
 from narranexus.platform.agent_runtime.executor_protocol import (
     build_agent_loop_request,
     build_steer_request,
+    executor_auth_headers,
 )
 from narranexus.platform.agent_framework.loop.cancellation_view import (
     CancellationView,
@@ -94,12 +95,22 @@ _MAX_STREAM_BYTES = 50 * 1024 * 1024
 class RemoteAgentLoopDriver:
     """Runs the agent loop on the remote Executor service."""
 
-    def __init__(self, framework: str, working_path: str, executor_url: str):
+    def __init__(
+        self,
+        framework: str,
+        working_path: str,
+        executor_url: str,
+        executor_token: str | None = None,
+    ):
         self.framework = framework
         self.working_path = str(working_path)
         base = executor_url.rstrip("/")
         self._url = base + "/agent-loop"
         self._steer_url = base + "/steer"
+        # Set on the SESSION (below), so the /agent-loop stream and every
+        # /steer POST that rides the same session present it. Empty without a
+        # token: a pre-token executor checks nothing.
+        self._auth_headers = executor_auth_headers(executor_token)
 
     def capabilities(self) -> set[str]:
         """The wrapped framework's declared capabilities, narrowed to what this
@@ -218,9 +229,9 @@ class RemoteAgentLoopDriver:
         # unguessable id in the request body, a pump POSTs each injection to the
         # executor's /steer under that id, and the executor's steer_consumed
         # frames are forwarded back to this channel below. The id is minted with
-        # `secrets` (not a guessable counter) because /steer is unauthenticated
-        # like /agent-loop — an unguessable handle is what stops a direct caller
-        # from injecting into a run they never started. None channel → no id →
+        # `secrets` (not a guessable counter): the executor API token gates
+        # /steer, but in-container code can read it, so an unguessable handle is
+        # what stops a token-holder from injecting into a run it never started. None channel → no id →
         # a non-steerable request, byte-for-byte the old body.
         steer_channel = kwargs.get("steering")
         # Steer this run only if BOTH a channel was handed in AND this framework's
@@ -274,7 +285,9 @@ class RemoteAgentLoopDriver:
             f"[RemoteAgentLoop] → {self._url} framework={self.framework!r}"
         )
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with aiohttp.ClientSession(
+                timeout=timeout, headers=self._auth_headers
+            ) as session:
                 async with session.post(self._url, json=body) as resp:
                     resp.raise_for_status()
                     # A steerable run pumps injections to /steer for the life of

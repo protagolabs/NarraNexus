@@ -47,11 +47,18 @@ class ExecutorEnsureResult:
     user (blueprint P1) — fresh per ensure(), so warm reuse still gets a
     fresh one. None when the broker predates the field or has no signing key
     configured; the dispatch path then simply does not stamp.
+
+    ``executor_token`` is the API token the broker planted in THIS user's
+    executor (sandbox isolation, 2026-10-29); every call to the executor must
+    present it (``executor_protocol.executor_auth_headers``). None when the
+    broker predates the field or the container predates tokens — that executor
+    enforces nothing, so callers send nothing.
     """
 
     url: str
     cold_started: bool
     identity_token: Optional[str] = None
+    executor_token: Optional[str] = None
 
 
 def broker_url() -> Optional[str]:
@@ -147,6 +154,7 @@ async def ensure_executor(
         url=executor_url,
         cold_started=(status == "started"),
         identity_token=data.get("identity_token") or None,
+        executor_token=data.get("executor_token") or None,
     )
 
 

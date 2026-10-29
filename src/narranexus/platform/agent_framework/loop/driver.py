@@ -272,6 +272,7 @@ def get_agent_loop_driver(
     framework: str | None = None,
     *,
     executor_url: str | None = None,
+    executor_token: str | None = None,
     **factory_kwargs: Any,
 ) -> AgentLoopDriver:
     """Resolve and construct the agent-loop driver for this turn.
@@ -283,6 +284,10 @@ def get_agent_loop_driver(
             broker). Overrides the static ``AGENT_EXECUTOR_URL`` env. When
             ``None``/empty, falls back to the env var (local → unset →
             in-process driver).
+        executor_token: the per-executor API token from the same broker
+            ensure() (sandbox isolation, 2026-10-29). Handed ONLY to the remote
+            driver — in-process factories never see it. ``None`` → no auth
+            header, which a pre-token executor accepts.
         **factory_kwargs: forwarded verbatim to the driver factory
             (e.g. ``working_path``).
 
@@ -308,7 +313,10 @@ def get_agent_loop_driver(
             RemoteAgentLoopDriver,
         )
         return RemoteAgentLoopDriver(
-            framework=name, executor_url=resolved_executor_url, **factory_kwargs
+            framework=name,
+            executor_url=resolved_executor_url,
+            executor_token=executor_token,
+            **factory_kwargs,
         )
 
     try:

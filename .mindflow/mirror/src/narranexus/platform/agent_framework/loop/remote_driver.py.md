@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-10-29
 ---
+
+## 2026-10-29 — 执行器 API token 挂在 session 上
+
+`__init__` 新增 `executor_token`，转成 `self._auth_headers` 设在 `aiohttp.ClientSession(headers=...)` 上。**放 session 级而不是每个 post**：`/agent-loop` 长流和 steer pump 的每个 `/steer` POST 共用这一个 session，一处设置两条路径都带上，也不改动 post 调用签名（现有测试的 fake session 不收 headers kwarg）。无 token 时为空 dict，对旧执行器零影响。
 
 ## 2026-09-03（批 2a.5）— 转发 `deferred_tools`
 

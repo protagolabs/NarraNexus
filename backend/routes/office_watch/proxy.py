@@ -55,6 +55,7 @@ from backend.middleware.body_size import MAX_OFFICE_EDIT_BYTES
 from backend.routes.office_watch import _token as office_watch_token
 from backend.routes.artifacts._token import TokenError
 from narranexus.platform.agent_framework.loop.broker_client import ensure_executor, wait_until_ready
+from narranexus.platform.agent_runtime.executor_protocol import executor_auth_headers
 from narranexus.platform.artifact import office_lock_present
 from narranexus.platform.utils.deployment_mode import is_cloud_mode
 from narranexus.platform.utils.office_watch import (
@@ -207,8 +208,13 @@ def _unregister_sse_stream(sid: int) -> None:
     _active_streams.pop(sid, None)
 
 
-async def _resolve_upstream(user_id: str, port: int, path: str, query: str) -> str:
-    """Build the upstream URL for the watch server, per run mode.
+async def _resolve_upstream(user_id: str, port: int, path: str, query: str) -> tuple[str, dict]:
+    """Build the upstream URL for the watch server, per run mode, plus the
+    headers that authenticate the hop.
+
+    The headers are the executor's API token (sandbox isolation, 2026-10-29):
+    the executor rejects ``/watch/*`` without it. Local has no executor hop and
+    no token, so they are empty there.
 
     Local/desktop (no broker) → the watch server is on this host.
     Cloud → it lives inside the user's executor container; reach it via the
@@ -219,8 +225,11 @@ async def _resolve_upstream(user_id: str, port: int, path: str, query: str) -> s
         suffix += f"?{query}"
     ensured = await ensure_executor(user_id)
     if ensured is not None:
-        return f"{ensured.url.rstrip('/')}/watch/{suffix}"
-    return f"http://127.0.0.1:{suffix}"
+        return (
+            f"{ensured.url.rstrip('/')}/watch/{suffix}",
+            executor_auth_headers(ensured.executor_token),
+        )
+    return f"http://127.0.0.1:{suffix}", {}
 
 
 async def _ensure_watch_in_executor(user_id: str, agent_id: str, rel: str) -> int | None:
@@ -239,7 +248,9 @@ async def _ensure_watch_in_executor(user_id: str, agent_id: str, rel: str) -> in
     body = {"agent_id": agent_id, "user_id": user_id, "file": rel}
     timeout = aiohttp.ClientTimeout(total=30)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, headers=executor_auth_headers(ensured.executor_token)
+        ) as session:
             async with session.post(f"{ensured.url.rstrip('/')}/watch/ensure", json=body) as r:
                 if r.status != 200:
                     return None
@@ -414,7 +425,9 @@ async def _file_version_in_executor(user_id: str, agent_id: str, rel: str) -> di
     q = f"agent_id={quote(agent_id)}&user_id={quote(user_id)}&file={quote(rel)}"
     timeout = aiohttp.ClientTimeout(total=15)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, headers=executor_auth_headers(ensured.executor_token)
+        ) as session:
             async with session.get(f"{ensured.url.rstrip('/')}/watch/version?{q}") as r:
                 if r.status != 200:
                     raise HTTPException(status_code=404, detail="file not found")
@@ -453,11 +466,13 @@ async def office_watch_version(request: Request, artifact_id: str) -> dict:
 async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: str, fwd_headers: dict):
     """Shared upstream fetch + HTML-rebase / SSE-stream. `prefix` is the
     browser-facing path the watch page's absolute URLs get rebased onto."""
-    upstream = await _resolve_upstream(user_id, port, path, query)
+    upstream, auth = await _resolve_upstream(user_id, port, path, query)
     timeout = aiohttp.ClientTimeout(total=None, sock_read=None, sock_connect=10)
     session = aiohttp.ClientSession(timeout=timeout)
     try:
-        resp = await session.get(upstream, headers=fwd_headers)
+        # auth last: the forwarded browser headers are an allowlist that never
+        # includes Authorization, but the executor token must win regardless.
+        resp = await session.get(upstream, headers={**fwd_headers, **auth})
     except aiohttp.ClientError as e:
         await session.close()
         logger.warning(f"office-watch proxy upstream failed ({upstream}): {e}")
@@ -510,12 +525,12 @@ async def _post_upstream(
     """POST ``body`` to the watch server and return (status, media_type, bytes).
     Module-level (not inline in the handler) so tests can stub the network
     seam while exercising the real gate logic."""
-    upstream = await _resolve_upstream(user_id, port, path, query)
+    upstream, auth = await _resolve_upstream(user_id, port, path, query)
     timeout = aiohttp.ClientTimeout(total=30, sock_connect=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
             resp = await session.post(
-                upstream, data=body, headers={"Content-Type": content_type}
+                upstream, data=body, headers={"Content-Type": content_type, **auth}
             )
             payload = await resp.read()
             return resp.status, resp.headers.get("Content-Type", "application/json"), payload

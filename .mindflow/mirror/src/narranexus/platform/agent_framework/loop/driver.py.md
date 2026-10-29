@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_framework/loop/driver.py
-last_verified: 2026-09-11
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — `get_agent_loop_driver(executor_token=...)` 只给远程驱动
+
+新增显式 `executor_token` 参数，**只**传给 `RemoteAgentLoopDriver`，不进 `**factory_kwargs`——in-process 驱动工厂永远看不到它（否则第三方框架工厂收到未知 kwarg 会炸）。与 `executor_url` 同源于一次 broker ensure()。
 
 ## 2026-09-11 — the not-installed run error names Model Defaults too; one registry walk
 

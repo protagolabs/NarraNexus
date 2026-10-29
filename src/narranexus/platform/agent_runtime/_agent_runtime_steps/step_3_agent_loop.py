@@ -88,6 +88,20 @@ _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 # package's __init__ eager-imports step_3_agent_loop). Imported above.
 
 
+def _executor_target(ensured) -> tuple[str | None, str | None]:
+    """(executor URL, executor API token) for this turn's driver.
+
+    Both come from the SAME broker ensure() — the token is the one planted in
+    exactly that container (sandbox isolation, 2026-10-29), so they must never
+    be sourced separately. ``(None, None)`` without a broker: the factory falls
+    back to the static env URL / in-process driver, neither of which has a
+    token to present.
+    """
+    if ensured is None:
+        return None, None
+    return ensured.url, ensured.executor_token
+
+
 def _dispatch_identity_token(ensured, user_id) -> str | None:
     """The identity token to stamp into this turn's MCP headers, or None.
 
@@ -2085,7 +2099,7 @@ async def step_3_agent_loop(
         ensured = await _ensure_executor_for_run(
             ctx.user_id, str(ctx.event.id) if ctx.event else None
         )
-        executor_url = ensured.url if ensured else None
+        executor_url, executor_token = _executor_target(ensured)
         if ensured is not None and ensured.cold_started:
             # The user's executor was asleep and is being woken — emit a
             # semantic marker so the frontend can show the "waking up" overlay.
@@ -2131,6 +2145,7 @@ async def step_3_agent_loop(
         driver = get_agent_loop_driver(
             framework=framework_name,
             executor_url=executor_url,
+            executor_token=executor_token,
             working_path=agent_working_path,
         )
         # Clear the "waking up" overlay the instant the (now-awake) executor
