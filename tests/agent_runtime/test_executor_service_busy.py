@@ -163,8 +163,9 @@ async def test_watch_paths_count_as_work():
 
 @pytest.mark.asyncio
 async def test_agent_loop_gives_up_on_a_body_that_never_arrives(monkeypatch):
-    """/agent-loop is unauthenticated and reachable from inside this very
-    container: the agent's own Bash can POST a chunked request and never close
+    """/agent-loop is reachable from inside this very container (it is
+    token-gated, but in-container code can still hold the token): the agent's
+    own Bash can POST a chunked request and never close
     it. Unbounded, request.json() waits forever while the middleware holds the
     container busy — i.e. never reapable. A parse budget only; the turn itself
     stays unbounded (rule #14)."""

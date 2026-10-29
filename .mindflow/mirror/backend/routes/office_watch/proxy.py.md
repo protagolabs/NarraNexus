@@ -4,6 +4,10 @@ last_verified: 2026-10-29
 stub: false
 ---
 
+### 2026-10-29（管线审查 M-1）
+
+`/watch/ensure`、`/watch/version` 收到 401/403 时打 `logger.error`（带 user_id）：执行器拒绝了平台的 API token，是平台故障。**不**把 401 透传给浏览器——前端会据此走登出，而这不是用户会话过期。`_resolve_upstream` 返回标注收紧为 `tuple[str, dict[str, str]]`。
+
 ## 2026-10-29 — 到执行器的每一跳都带 API token
 
 `_resolve_upstream` 改为返回 `(url, headers)`：云端 headers = `executor_auth_headers(ensured.executor_token)`，本地为空。透传 GET（`_proxy_stream`）与 POST（`_post_upstream`）把它合并进请求头（auth 放最后，确保覆盖）；`_ensure_watch_in_executor` / `_file_version_in_executor` 的 session 也挂上。**为什么**：执行器开始对 `/watch/*` 校验 token（沙箱隔离阶段 3），漏任何一跳 = 云端 Office 预览 401。浏览器转发头仍是不含 Authorization 的白名单，用户 JWT 不会被送进执行器，也不会与 token 冲突。

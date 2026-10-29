@@ -25,6 +25,8 @@ from __future__ import annotations
 import re
 from typing import Optional, Union
 
+from narranexus.platform.agent_framework.loop.executor_errors import EXECUTOR_INFRA_ERROR_NAMES
+
 # Anchored patterns (case-insensitive) that mark an error as a provider
 # credential/auth problem, vs. a generic failure. Anchored, not bare substrings:
 # until 2026-09-09 the list carried a bare "provider" marker, so ANY error whose
@@ -456,8 +458,8 @@ def self_serviceable_user_message(reason: str, raw_detail: str) -> str:
 #     the error string ("exit code -9" = SIGKILL/OOM, "exit code -6" = SIGABRT)
 #     — substring match. Positive exit codes (a tool the agent ran failed) are
 #     NOT infra and must not match.
-#   - Unreachable: the executor boundary raises the typed
-#     ``ExecutorUnreachableError`` (see agent_framework/loop/executor_errors.py) —
+#   - Unreachable: the executor boundary raises one of the typed executor
+#     transport errors (agent_framework/loop/executor_errors.py) —
 #     matched by exception class NAME, not fragile text matching. This keeps a
 #     USER's LLM-provider connection blip (which arrives as a response.error
 #     frame / transient, handled elsewhere) from being misread as executor
@@ -473,11 +475,12 @@ _OOM_RETURNCODE_MARKERS: tuple[str, ...] = (
     "exit code -6",
 )
 
-# Exact exception class names raised at the executor transport boundary.
+# Exact exception class names raised at the executor transport boundary,
+# registered next to the classes (executor_errors.EXECUTOR_INFRA_ERROR_NAMES).
 # ExecutorTokenRejectedError (the executor rejected the API token) shares the
 # unreachable reason: same user guidance (resend), same no-fallback handling;
 # the audit row's error_type keeps the two apart for ops.
-_EXECUTOR_UNREACHABLE_TYPES = frozenset({"ExecutorUnreachableError", "ExecutorTokenRejectedError"})
+_EXECUTOR_UNREACHABLE_TYPES = EXECUTOR_INFRA_ERROR_NAMES
 
 
 def classify_executor_infra_failure(
@@ -488,7 +491,7 @@ def classify_executor_infra_failure(
 
     Kept deliberately separate from ``classify_self_serviceable`` (disjoint
     concepts): this fires ONLY on an executor OOM (subprocess signal kill) or
-    the typed ``ExecutorUnreachableError``. A user's LLM-provider connection
+    a typed executor transport error. A user's LLM-provider connection
     error is NOT one of these — it is a transient the circuit breaker retries.
     """
     et = (error_type or "").strip()

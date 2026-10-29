@@ -287,7 +287,11 @@ app.add_middleware(InFlightWorkMiddleware)
 
 
 def _executor_token_from_env() -> str | None:
-    """The API token the broker planted in this container, or None."""
+    """The API token the broker planted in this container, or None.
+
+    Only meaningful BEFORE ``_take_executor_token`` runs at import — that pops
+    the variable, so any later call returns None. Use ``_EXECUTOR_TOKEN``.
+    """
     return os.environ.get(EXECUTOR_TOKEN_ENV) or None
 
 
@@ -364,9 +368,19 @@ class ExecutorTokenMiddleware:
         await response(scope, receive, send)
 
 
+# Taken out of os.environ here, before any agent subprocess spawns.
+_EXECUTOR_TOKEN = _take_executor_token()
+# Whether the second isolation layer is ON for this container. Never silent:
+# logged once at startup and exposed (as a bare bool) on /health, so a broker
+# regression that stops planting tokens shows up instead of quietly serving
+# every caller — the failure shape of the host firewall this layer backs up.
+_TOKEN_ENFORCED = _EXECUTOR_TOKEN is not None
+if _TOKEN_ENFORCED:
+    logger.info("[Executor] API token present: enforcing on every path but /health")
+else:
+    logger.warning("[Executor] no API token in env: this executor serves UNAUTHENTICATED")
 # Added LAST so it wraps outermost (Starlette applies middleware in reverse).
-# The token is taken out of os.environ here, before any agent subprocess spawns.
-app.add_middleware(ExecutorTokenMiddleware, token=_take_executor_token())
+app.add_middleware(ExecutorTokenMiddleware, token=_EXECUTOR_TOKEN)
 
 
 @app.get("/health")
@@ -388,6 +402,9 @@ async def health() -> dict:
     return {
         "status": "healthy",
         "busy": bool(_inflight_started),
+        # Bool only — /health is unauthenticated, so nothing about the token
+        # itself (length, prefix) may appear here.
+        "token_enforced": _TOKEN_ENFORCED,
         "inflight_work": len(_inflight_started),
         "inflight_oldest_s": (
             None if oldest is None else round(monotonic() - oldest, 1)

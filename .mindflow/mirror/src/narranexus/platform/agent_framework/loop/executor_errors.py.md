@@ -4,6 +4,10 @@ last_verified: 2026-10-29
 stub: false
 ---
 
+### 2026-10-29（管线审查 I-3）— 名单与类放在一起
+
+新增 `EXECUTOR_INFRA_ERROR_NAMES`（由本文件里的类名生成），[[failure.py]] 直接 import 它。此前「哪些类名算执行器基础设施故障」在两个文件里靠人同步，漏改的后果是**静默**：新类不被认作 infra → 走 helper-LLM 兜底编造回复。现在加类与登记是同一文件同一屏，测试 `test_every_executor_transport_error_is_registered_as_infra` 内省本模块所有异常类、断言全部在名单里。跨进程契约仍是字符串类名，所以不改成 issubclass。本模块零 import，`loop/__init__` 无再导出，不会形成循环。
+
 ## 2026-10-29 — 新增 `ExecutorTokenRejectedError(ExecutorUnreachableError)`
 
 执行器拒绝本次调用的 API token（401/403）时由 [[remote_driver.py]] 抛出；鉴权失败从来不是用户的错（意味着编排侧与那个容器对 token 不一致：broker 读回失败、跨仓契约漂移）。

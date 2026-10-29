@@ -50,12 +50,11 @@ class ExecutorTokenRejectedError(ExecutorUnreachableError):
     read-back failure, a cross-repo contract drift).
 
     How it is routed: step 3 classifies a fatal by CLASS NAME
-    (``type(e).__name__``) against ``failure._EXECUTOR_UNREACHABLE_TYPES`` —
-    that set membership is what makes it surface as ``infra_transient``, get
-    audited, and skip the fabricating helper-LLM fallback. Subclassing
-    ``ExecutorUnreachableError`` only matters to callers that ``except`` that
-    type; step 3 is not one, so a new error class here must ALSO be added to
-    that set or it falls through to the fallback.
+    (``type(e).__name__``) against ``EXECUTOR_INFRA_ERROR_NAMES`` at the bottom
+    of this module — that set membership is what makes it surface as
+    ``infra_transient``, get audited, and skip the fabricating helper-LLM
+    fallback. Subclassing ``ExecutorUnreachableError`` only matters to callers
+    that ``except`` that type; step 3 is not one.
 
     Named and worded to stay clear of auth-substring classifiers: the class
     name has no "auth" and the message carries no status code (it is on
@@ -69,3 +68,15 @@ class ExecutorTokenRejectedError(ExecutorUnreachableError):
     def __init__(self, message: str, *, target: str | None = None, status: int | None = None) -> None:
         super().__init__(message, target=target)
         self.status = status
+
+
+# The class names step 3 classifies as executor infrastructure failures
+# (``failure.classify_executor_infra_failure`` matches ``type(e).__name__``
+# against this set — names, not isinstance, because error_type crosses process
+# boundaries as a string). Lives HERE, next to the classes, so adding an
+# executor transport error and registering it are one edit in one file: a
+# class missing from this set silently falls through to the helper-LLM
+# fallback, which fabricates a reply over the platform failure.
+EXECUTOR_INFRA_ERROR_NAMES: frozenset[str] = frozenset(
+    cls.__name__ for cls in (ExecutorUnreachableError, ExecutorTokenRejectedError)
+)

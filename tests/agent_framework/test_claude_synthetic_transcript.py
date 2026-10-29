@@ -18,8 +18,9 @@ Why each matters:
   input fell from 49,137 to 2,247.
 * **A fresh session id per turn** is what allows deleting the file, which is
   what removes the cross-tenant read risk (a lingering transcript in the shared
-  CLAUDE_CONFIG_DIR plus a guessable handle, on an intentionally
-  unauthenticated /agent-loop). A derived, stable id would reopen it.
+  CLAUDE_CONFIG_DIR plus a guessable handle, on an /agent-loop that
+  in-container code can reach even now that it is token-gated). A derived,
+  stable id would reopen it.
 * **Cleanup on every exit** — success, exception, cancellation — because a fresh
   id per turn means nothing else will ever come back and remove a stranded file.
 * **Fail-open** because the transcript is an optimization and 铁律 #14 forbids

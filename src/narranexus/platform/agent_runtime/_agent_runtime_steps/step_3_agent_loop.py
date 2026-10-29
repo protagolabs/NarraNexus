@@ -66,6 +66,7 @@ from narranexus.platform.agent_framework.llm.failure import (
 from narranexus.platform.agent_runtime.execution_state import ExecutionState
 
 if TYPE_CHECKING:
+    from narranexus.contracts.framework import AgentLoopDriver
     from narranexus.platform.agent_framework.loop.broker_client import (
         ExecutorEnsureResult,
     )
@@ -102,7 +103,11 @@ def _executor_target(ensured) -> tuple[str | None, str | None]:
     return ensured.url, ensured.executor_token
 
 
-def _build_turn_driver(framework_name, ensured, working_path):
+def _build_turn_driver(
+    framework_name: str | None,
+    ensured: Optional["ExecutorEnsureResult"],
+    working_path: str,
+) -> "AgentLoopDriver":
     """Construct this turn's agent-loop driver from the broker ensure() result.
 
     The single place URL and API token reach the driver factory together —

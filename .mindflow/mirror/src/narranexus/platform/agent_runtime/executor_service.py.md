@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-10-29
 ---
 
+### 2026-10-29（管线审查 I-2）— 第二道防线开没开，必须看得见
+
+启动时 `_EXECUTOR_TOKEN = _take_executor_token()`，`_TOKEN_ENFORCED` 为真打 info「enforcing」、为假打 warning「serves UNAUTHENTICATED」；`/health` 加 `"token_enforced": bool`（**只给布尔**：/health 免鉴权，token 的长度前缀一概不出现）。为什么：broker 哪天回归不再种 env，这批执行器会无鉴权继续服务而 /health 200、日志干净——正是宿主机防火墙静默失效一天的那种形态；有了这个字段，巡检/reaper 能直接数出无 token 容器，也给 broker 的滚动替换一个可验证判据。`_executor_token_from_env()` 只在导入期 pop 之前有意义，docstring 注明，避免以后有人在别处调用它拿到恒 None。
+
 ## 2026-10-29 — `ExecutorTokenMiddleware`：执行器 API 不再 internal-trust
 
 新增最外层原生 ASGI 中间件，env 里有 `NX_EXECUTOR_API_TOKEN`（broker 种下）时，**除 `/health` 外**所有路径都要求 `Authorization: Bearer <token>`，`hmac.compare_digest` 比较原始头字节，不符返回 401。**为什么**：模块 docstring 的「无鉴权可容忍」前提是别的租户够不到 :8020，而那只靠宿主机防火墙——2026-10-29 发现 prod 上它因缺 br_netfilter 失效了一天，10/28 攻击者确实对别人容器的 :8020 做过只读侦察。这是独立于网络的第二层。设计点：`/health` 开放（broker reaper/就绪探针要用，不含 workspace 数据）；env 无 token = 不校验（旧 broker + 新镜像组合不 401，broker 会在下次 ensure 把无 token 容器滚动替换）；挂在 `InFlightWorkMiddleware` 之后添加 = 最外层（`user_middleware[0]`），被拒请求不计入 in-flight（否则会把容器标成 busy 不可回收）；只有 `lifespan` 放行，`websocket` 同样校验、不过发 close 1008——以后加 ws 路由默认是关的。

@@ -208,7 +208,7 @@ def _unregister_sse_stream(sid: int) -> None:
     _active_streams.pop(sid, None)
 
 
-async def _resolve_upstream(user_id: str, port: int, path: str, query: str) -> tuple[str, dict]:
+async def _resolve_upstream(user_id: str, port: int, path: str, query: str) -> tuple[str, dict[str, str]]:
     """Build the upstream URL for the watch server, per run mode, plus the
     headers that authenticate the hop.
 
@@ -252,6 +252,11 @@ async def _ensure_watch_in_executor(user_id: str, agent_id: str, rel: str) -> in
             timeout=timeout, headers=executor_auth_headers(ensured.executor_token)
         ) as session:
             async with session.post(f"{ensured.url.rstrip('/')}/watch/ensure", json=body) as r:
+                if r.status in (401, 403):
+                    # The executor refused the platform's API token: a platform
+                    # fault, never the browser's session (no 401 to the client,
+                    # the frontend would log the user out). Loud for ops.
+                    logger.error(f"office-watch: executor rejected the API token (HTTP {r.status}) for user {user_id}")
                 if r.status != 200:
                     return None
                 data = await r.json()
@@ -429,6 +434,11 @@ async def _file_version_in_executor(user_id: str, agent_id: str, rel: str) -> di
             timeout=timeout, headers=executor_auth_headers(ensured.executor_token)
         ) as session:
             async with session.get(f"{ensured.url.rstrip('/')}/watch/version?{q}") as r:
+                if r.status in (401, 403):
+                    # The executor refused the platform's API token: a platform
+                    # fault, never the browser's session (no 401 to the client,
+                    # the frontend would log the user out). Loud for ops.
+                    logger.error(f"office-watch: executor rejected the API token (HTTP {r.status}) for user {user_id}")
                 if r.status != 200:
                     raise HTTPException(status_code=404, detail="file not found")
                 return await r.json()

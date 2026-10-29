@@ -4,6 +4,10 @@ last_verified: 2026-10-29
 stub: false
 ---
 
+### 2026-10-29（管线审查 M-3）
+
+`_build_turn_driver` 补全参数与返回标注（`AgentLoopDriver` 走 `TYPE_CHECKING` 导入）。
+
 ## 2026-10-29 — `_build_turn_driver(framework, ensured, working_path)`
 
 本回合驱动的唯一构造点：url 与 API token 在这里一起进驱动工厂。**为什么抽出**：预审发现只测 `_executor_target` 抓不住「调用点漏传 token」——删掉那一行生产上每个云端回合 401，测试仍绿。现在 helper 直接用真实工厂测（断言远程驱动带 `Authorization`），另有源码形状测试断言 `step_3_agent_loop` 函数体走 `_build_turn_driver(` 而不直接调 `get_agent_loop_driver(`。同样放在 `@timed` 之外。

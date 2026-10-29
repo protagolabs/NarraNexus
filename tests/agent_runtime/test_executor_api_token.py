@@ -126,12 +126,12 @@ def test_the_executor_process_takes_the_token_out_of_its_env():
         "from narranexus.platform.agent_runtime import executor_service as es\n"
         "from narranexus.platform.agent_runtime.executor_protocol import EXECUTOR_TOKEN_ENV\n"
         "m = es.app.user_middleware[0]\n"
-        "print(EXECUTOR_TOKEN_ENV in os.environ, m.kwargs.get('token'))\n"
+        "print(EXECUTOR_TOKEN_ENV in os.environ, m.kwargs.get('token'), es._TOKEN_ENFORCED)\n"
     )
     env = {**os.environ, proto.EXECUTOR_TOKEN_ENV: "planted-at-spawn"}
     out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr[-2000:]
-    assert out.stdout.strip().splitlines()[-1] == "False planted-at-spawn"
+    assert out.stdout.strip().splitlines()[-1] == "False planted-at-spawn True"
 
 
 def test_token_is_taken_out_of_the_environment(monkeypatch):
@@ -448,3 +448,67 @@ async def test_office_watch_passthrough_presents_the_token(monkeypatch, cloud):
             assert headers.get("Authorization") == "Bearer tok"
         else:
             assert "Authorization" not in headers
+
+
+# ------------------------------------------------------------ never silent / never leaked
+
+
+@pytest.mark.asyncio
+async def test_health_reports_whether_the_token_is_enforced():
+    body = await es.health()
+    # A bare bool: /health is unauthenticated, nothing about the token itself.
+    assert body["token_enforced"] is es._TOKEN_ENFORCED
+    assert isinstance(body["token_enforced"], bool)
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_broker_reply_never_puts_tokens_in_the_error(monkeypatch):
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+
+    def handler(request):
+        return httpx.Response(200, json={"status": "weird", "executor_token": "SECRET-EXEC",
+                                         "identity_token": "SECRET-ID"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(broker_client.httpx, "AsyncClient",
+                        lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    with pytest.raises(RuntimeError) as ei:
+        await broker_client.ensure_executor("a")
+    msg = str(ei.value)
+    assert "SECRET-EXEC" not in msg and "SECRET-ID" not in msg
+    assert "executor_token" in msg  # the shape is still diagnosable
+
+
+@pytest.mark.asyncio
+async def test_missing_executor_token_is_warned_once_per_process(monkeypatch):
+    monkeypatch.setenv("BROKER_URL", "http://broker:8030")
+    monkeypatch.setattr(broker_client, "_warned_tokenless", False)
+    warnings = []
+    monkeypatch.setattr(broker_client.logger, "warning", lambda m, *a, **k: warnings.append(m))
+
+    def handler(request):
+        return httpx.Response(200, json={"status": "reused", "executor_url": "http://x:8020"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(broker_client.httpx, "AsyncClient",
+                        lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    await broker_client.ensure_executor("a")
+    await broker_client.ensure_executor("b")
+    assert len([w for w in warnings if "executor_token" in w]) == 1
+
+
+def test_every_executor_transport_error_is_registered_as_infra():
+    # A new class in executor_errors that is NOT in the set falls through to the
+    # helper-LLM fallback, which fabricates a reply over the platform failure.
+    import inspect
+
+    from narranexus.platform.agent_framework.llm import failure
+    from narranexus.platform.agent_framework.loop import executor_errors
+
+    classes = {
+        name for name, obj in inspect.getmembers(executor_errors, inspect.isclass)
+        if issubclass(obj, BaseException) and obj.__module__ == executor_errors.__name__
+    }
+    assert classes == set(executor_errors.EXECUTOR_INFRA_ERROR_NAMES)
+    for name in classes:
+        assert failure.classify_executor_infra_failure(name, "") == failure.EXECUTOR_INFRA_REASON_UNREACHABLE

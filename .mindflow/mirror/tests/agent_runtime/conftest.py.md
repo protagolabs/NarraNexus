@@ -1,8 +1,13 @@
 ---
 code_file: tests/agent_runtime/conftest.py
 stub: false
-last_verified: 2026-08-26
+last_verified: 2026-10-29
 ---
+
+## 2026-10-29 — 导入期清掉 `NX_EXECUTOR_API_TOKEN`
+
+执行器服务在**导入时**绑定 API token，本目录的测试直接驱动 `executor_service.app`。开发者调试执行器时在 shell 里 export 过这个变量，会让这些测试统一 401、与被测行为无关。conftest 在任何测试模块导入服务之前把它清掉；token 测试本身通过子进程显式传入，不受影响。
+
 # conftest.py — agent_runtime 测试的共享夹具
 
 ## `_reset_im_dm_fallback_history`（autouse，整目录）
