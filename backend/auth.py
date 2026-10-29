@@ -871,6 +871,17 @@ async def auth_middleware(request: Request, call_next):
             status_code=403,
         )
 
+    # Abuse IP<->account linkage: note which public IP this ACTIVE user is
+    # authenticating from (throttled per (user, ip), written in the background,
+    # never blocks or fails the request). A JWT is portable across addresses,
+    # so login-time recording alone misses the IP a token is replayed from —
+    # see backend/middleware/login_ips.py. Imported here, not at module top:
+    # backend.routes' package init imports routers that import this module.
+    from backend.middleware.login_ips import note_authenticated_request
+    from backend.routes._client_ip import client_ip
+
+    note_authenticated_request(request.state.user_id, client_ip(request))
+
     # Provider routing. Tag current_user_id on the ContextVar (consumed by
     # cost_tracker to attribute usage) and dispatch the resolver, which puts
     # this user's provider config on the request's ContextVars. The resolver

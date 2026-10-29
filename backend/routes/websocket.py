@@ -38,6 +38,8 @@ from loguru import logger
 
 from backend.config import settings
 from backend.auth import _account_state, _is_cloud_mode, decode_token
+from backend.middleware.login_ips import note_authenticated_request
+from backend.routes._client_ip import client_ip
 from backend.routes._mcp_egress import filter_public_mcp_servers
 from backend.auth_errors import (
     ACCOUNT_SUSPENDED,
@@ -979,6 +981,12 @@ async def websocket_agent_run(websocket: WebSocket):
                 })
                 await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
                 return
+
+            # Abuse IP<->account linkage: WS is exempt from the HTTP auth
+            # middleware, so note the active user's public IP here too — a token
+            # replayed over WS from a new address must reach instance_login_ips
+            # (throttled, background, never fails the connection).
+            note_authenticated_request(token_user_id, client_ip(websocket))
 
         # ---- Phase C reconnect branch ----
         # If the client supplied ``run_id``, this WS is reconnecting to

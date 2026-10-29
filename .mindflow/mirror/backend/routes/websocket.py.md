@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-10-28
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — 鉴权通过后记下用户的公网 IP（滥用 IP↔账号联动）
+
+云模式下账号状态门通过之后（被封账号在前面已 close），调
+`backend.middleware.login_ips.note_authenticated_request(token_user_id, client_ip(websocket))`。
+WS 不走 HTTP auth 中间件（`/ws/*` 被豁免），而它是产品主运行路径：一枚在别处签发、
+被拿到新地址上**重放来驱动 agent** 的 token，必须在这里进 `instance_login_ips`，哨兵才能在
+封这个 IP 时连带封账号。节流 + 后台写，绝不让连接失败。记录器语义见它自己的 mirror。
 
 ## 2026-10-28（PR #419 review I-3 / I-4）— 可见性闸的 local 语义与归属地
 

@@ -4,22 +4,18 @@ last_verified: 2026-10-29
 stub: false
 ---
 
-## 2026-10-29 — netmind-login 记录客户端 IP（滥用 IP↔账号联动）
+## 2026-10-29 — netmind-login 记录客户端 IP（滥用 IP↔账号联动）+ rearm 真正执行
 
-登录成功后(在**所有拒绝 `raise` 之后**:suspended / role 读等都过了)把
-`(user.user_id, client_ip(http_request))` upsert 进 `instance_login_ips`。
-用途:2026-10-28 事件后要求「封禁时 IP 和账号一起封」——哨兵据此把一个扫描
-IP 关联到它背后的账号(以及反向:封号时查该账号近期 IP)。要点:
-- **位置**:放在 `_schedule_login_rearm` 之后、provisioning 之前;在 suspended
-  短路 `raise` 的下游,所以**被拒的登录不记 IP**(测试钉住)。
-- **best-effort**:整段 try/except,记录失败只 warning,**绝不让登录失败**
-  (登录是关键路径)。
-- **口径**:IP 取 `client_ip()`(与限流桶、与哨兵在 Caddy log 看到的同一个);
-  `last_seen` 存 epoch 秒(跨进程比较免时区);`pair_key=f"{user_id}|{ip}"`
-  对上 `instance_login_ips` 的单列 UNIQUE upsert 目标。
-- 读方=`nexus_sentinel`(deploy 仓)只读此表:一个扫描 IP 被边缘自动封(已有的
-  `abuse.ip_ban`→host-guard 机制)时,连带封该 IP 近窗口内登录过的账号。本表只提供
-  IP↔账号映射;IP 封禁本身由哨兵 + 宿主防火墙 guard 执行,后端不做 IP 中间件。
+- **记录登录 IP**：登录成功后（在**所有拒绝 `raise` 之后**，被拒的登录不记）调
+  `backend.middleware.login_ips.record_login_ip(db_client, user_id, client_ip(...))`
+  写 `instance_login_ips`。写入逻辑、公网过滤、保留期都在那个模块里；本路由只是两条写入
+  路径之一（另一条是 auth 中间件按请求节流记录，见 `backend/auth.py`）。读方是 deploy 仓
+  `nexus_sentinel`：边缘自动封某扫描 IP 时，连带封近窗口内从它活跃过的账号。后端不做 IP
+  中间件——IP 封禁由哨兵 + 宿主防火墙 guard 执行，本仓只提供映射。
+- **`_schedule_login_rearm` 补 `await`**：它是 `async def`，原来裸调只造出协程被 GC，云上
+  登录从没触发过 `notify_user_runnability_changed`（充值/修好配置后重登，PAUSED_NO_QUOTA
+  的 job 不会被唤醒）；本地 `/login` 一直是 await 的。它只调度恢复工作、自吞异常，await
+  不拖慢也不打断登录。测试钉住（`test_netmind_login_actually_runs_the_rearm`）。
 
 ## 2026-10-28（PR #419 review I-8）— funnel 三个限额改走 `env_limit`
 

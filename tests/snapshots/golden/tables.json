@@ -4136,6 +4136,13 @@
         false
       ],
       [
+        "idx_login_ips_last_seen",
+        [
+          "last_seen"
+        ],
+        false
+      ],
+      [
         "idx_login_ips_pair",
         [
           "pair_key"

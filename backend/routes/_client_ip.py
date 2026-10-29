@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from fastapi import Request
+from starlette.requests import HTTPConnection
 
 # Counting X-Forwarded-For from the RIGHT depends on exactly ONE fact: the
 # number of proxy hops in front of this backend. (Not on any proxy's XFF
@@ -47,12 +47,13 @@ def _parse_trusted_proxy_hops(raw: Optional[str]) -> int:
 TRUSTED_PROXY_HOPS = _parse_trusted_proxy_hops(os.getenv("FUNNEL_TRUSTED_PROXY_HOPS"))
 
 
-def client_ip(request: Request) -> str:
+def client_ip(request: HTTPConnection) -> str:
     """Client IP as seen by the edge proxy: the N-th X-Forwarded-For entry
     from the right (N = TRUSTED_PROXY_HOPS — the ONLY assumption, see its
     comment). A shorter-than-expected chain (local runs, tests, or a
     directly-forged single-entry header) falls back to the socket peer
-    rather than trusting caller-supplied text."""
+    rather than trusting caller-supplied text. Takes any HTTPConnection —
+    HTTP requests and WebSockets cross the same proxy chain."""
     parts = [
         p.strip()
         for p in (request.headers.get("x-forwarded-for") or "").split(",")
