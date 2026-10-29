@@ -737,6 +737,23 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
             status_code=502, detail="NetMind auth service unavailable, try again"
         )
 
+    # Blocked email domains (throwaway / abuse — see _email_policy) are refused a
+    # session outright, not merely denied free credit. NetMind's own signup is
+    # public (its auth URL ships in /config.js), so an attacker can mint an
+    # account on a disposable domain and reach THIS route directly, bypassing our
+    # signup funnel; the free-credit gate below is not enough when the goal is a
+    # foothold, not the free wallet (2026-10-28: a nimail.cn account did exactly
+    # this). Refused before any user row is upserted or token minted. Opaque
+    # message + the suspended-account code, so a prober cannot tell a blocked
+    # domain from a suspended account (same neutral posture as _email_policy).
+    if is_blocked_email(netmind_user.email or ""):
+        domain = (netmind_user.email or "").rsplit("@", 1)[-1].strip().lower()
+        logger.warning(
+            f"[login] refused blocked email domain={domain} "
+            f"source={request.source or '-'}"
+        )
+        raise AuthError(ACCOUNT_SUSPENDED, "Account is not available", status_code=403)
+
     db_client = await get_db_client()
     user_repo = UserRepository(db_client)
     user, is_new = await user_repo.upsert_netmind_user(

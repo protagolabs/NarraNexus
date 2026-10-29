@@ -341,3 +341,63 @@ async def test_login_succeeds_for_active_account(db_client, monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["user_id"] == code
     assert resp.json()["token"]
+
+
+@pytest.mark.asyncio
+async def test_login_refused_for_blocked_email_domain(db_client, monkeypatch):
+    """A disposable/abuse email domain is refused a session at login, not merely
+    denied free credit — even for a brand-new account created directly at
+    NetMind (bypassing our signup funnel). No user row is upserted, no token is
+    issued, and no provisioning runs. 2026-10-28 regression: a nimail.cn account
+    minted at NetMind reached netmind-login and got a working session.
+    """
+    from backend.integrations.netmind.netmind_auth_client import NetmindUser
+    import backend.integrations.free_tier.provisioner as prov_mod
+
+    seeded: list[str] = []
+
+    async def _prov(user_id, **_kw):
+        seeded.append(user_id)
+
+    monkeypatch.setattr(prov_mod, "ensure_free_tier_provider", _prov)
+
+    # nimail.cn is in the built-in DISPOSABLE_EMAIL_DOMAINS list.
+    code = "b" * 32
+    user = NetmindUser(user_system_code=code, email="attacker@nimail.cn", nickname="B")
+    client = _make_login_app(db_client, monkeypatch, _FakeNetmind(user))
+
+    resp = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
+
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["code"] == ACCOUNT_SUSPENDED
+    assert "token" not in body
+    # Refusal is BEFORE upsert: no user row was created for the blocked domain.
+    assert await db_client.get_one("users", {"user_id": code}) is None
+    # And no fire-and-forget provisioning ran.
+    assert seeded == []
+
+
+@pytest.mark.asyncio
+async def test_login_allowed_for_ordinary_email_domain(db_client, monkeypatch):
+    """Guard against over-blocking: a normal domain still logs in (the blocked
+    check must not reject look-alikes or ordinary providers)."""
+    from backend.integrations.netmind.netmind_auth_client import NetmindUser
+    import backend.integrations.free_tier.provisioner as prov_mod
+    import backend.integrations.netmind.netmind_provisioner as nm_prov_mod
+
+    async def _prov(user_id, **_kw):
+        pass
+
+    monkeypatch.setattr(prov_mod, "ensure_free_tier_provider", _prov)
+    monkeypatch.setattr(nm_prov_mod, "ensure_netmind_provider", _prov)
+
+    code = "c" * 32
+    # "notnimail.cn" must NOT match the "nimail.cn" entry (whole-label matching).
+    user = NetmindUser(user_system_code=code, email="real@notnimail.cn", nickname="C")
+    client = _make_login_app(db_client, monkeypatch, _FakeNetmind(user))
+
+    resp = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
+
+    assert resp.status_code == 200
+    assert resp.json()["token"]

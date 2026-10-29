@@ -4,6 +4,26 @@ last_verified: 2026-10-29
 stub: false
 ---
 
+## 2026-10-29 — 黑名单邮箱域登录时直接拒绝（不再只是扣免费额度）
+
+事件：攻击者在 NetMind 侧直接建 `jyck@nimail.cn`（绕过我们的 signup funnel），再走
+`netmind-login` 拿到可用会话去打穿越漏洞。原设计里 `_email_policy.is_blocked_email`
+只在两处生效：signup 路由硬拒、以及登录时的 `_free_credit_withheld`（**只扣免费额度、
+仍放行登录**）。对"目标是拿立足点而非免费钱包"的攻击者无效。
+
+- `netmind_login` 在 `verify_token` 之后、`upsert_netmind_user` 之前新增一道：
+  `is_blocked_email(netmind_user.email)` 为真则 `AuthError(ACCOUNT_SUSPENDED,
+  "Account is not available", 403)`。**在建用户行、发 token 之前拒绝**，所以黑名单域
+  连账号行都不会 upsert。
+- 复用 `ACCOUNT_SUSPENDED` code + opaque 文案，与被封号返回完全一致：探测者无法区分
+  "域名被封"还是"账号被封"（与 `_email_policy` / `ban_api_client` 的中性措辞同口径）。
+- `_free_credit_withheld`（line ~574）保留为纵深防御兜底：登录既然已拒黑名单域，它在
+  登录路径实际不会再命中，但仍守着任何未来绕过登录拒绝的路径，不删。
+- 名单来源不变：`DISPOSABLE_EMAIL_DOMAINS`（已含 `nimail.cn` / `maxxspace.com` /
+  `cc.cd`）+ `NARRANEXUS_BLOCKED_EMAIL_DOMAINS` env 扩展，整标签匹配（`notnimail.cn`
+  不误伤）。测试 `test_account_suspension.py::test_login_refused_for_blocked_email_domain`
+  + 放行对照 `test_login_allowed_for_ordinary_email_domain`。
+
 ## 2026-10-29 — netmind-login 记录客户端 IP（滥用 IP↔账号联动）+ rearm 真正执行
 
 - **记录登录 IP**：登录成功后（在**所有拒绝 `raise` 之后**，被拒的登录不记）调
