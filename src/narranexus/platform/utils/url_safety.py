@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import socket
 from typing import Awaitable, Callable, List, Optional
 from urllib.parse import urlparse
 
@@ -48,11 +49,27 @@ class UnsafeUrlError(ValueError):
     """Raised when a URL is not a safe public HTTP(S) target."""
 
 
+# RFC 6598 shared address space (carrier-grade NAT). Python's is_private does
+# not cover it, yet it is never a public destination — and inside a VPC/VPN it
+# can be an internal range.
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+
+
 def _is_public_ip(ip_str: str) -> bool:
     """True only for globally-routable addresses. Rejects private, loopback,
     link-local (covers the 169.254.169.254 metadata IP), reserved,
-    multicast, and unspecified ranges — for both IPv4 and IPv6."""
-    ip = ipaddress.ip_address(ip_str)
+    multicast, unspecified and shared (CGNAT) ranges — for both IPv4 and
+    IPv6, including IPv4-mapped IPv6 spellings."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        # Unparseable (a misbehaving / injected resolver answer) is not a
+        # public address. Returning False keeps the refusal an UnsafeUrlError
+        # for callers that catch only that, instead of a bare ValueError.
+        return False
+    v4 = ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped else ip
+    if isinstance(v4, ipaddress.IPv4Address) and v4 in _SHARED_ADDRESS_SPACE:
+        return False
     return not (
         ip.is_private
         or ip.is_loopback
@@ -115,7 +132,9 @@ def is_obviously_non_public_url(url: object) -> bool:
 
 async def _default_resolver(host: str, port: int) -> List[str]:
     loop = asyncio.get_event_loop()
-    infos = await loop.getaddrinfo(host, port, proto=0)
+    # SOCK_STREAM: without a socket type getaddrinfo returns every address once
+    # per type (STREAM/DGRAM/RAW), and a connect loop would dial each 3 times.
+    infos = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     # sockaddr is info[4]; its first element is the address string (typed
     # str|int by the stubs because ports are ints — coerce to str).
     return [str(info[4][0]) for info in infos]
@@ -128,13 +147,15 @@ async def assert_public_http_url(
 ) -> List[str]:
     """Validate `url` is a safe public HTTP(S) target, or raise UnsafeUrlError.
 
-    Resolves the host and rejects if ANY resolved address is non-public
-    (this is what defeats DNS-rebinding — validation happens post-resolution,
-    on the actual addresses a client would connect to). A literal-IP host is
-    checked directly without resolving.
+    Resolves the host and rejects if ANY resolved address is non-public. A
+    literal-IP host is checked directly without resolving.
 
-    Returns the list of validated public IPs (useful for connection pinning
-    by a future caller). Raises UnsafeUrlError on any failure.
+    This is a PRE-check: an HTTP client that resolves the name again when it
+    connects can be handed a different answer (short-TTL rebinding). Requests
+    to user-supplied URLs must also go through `safe_http.egress_client` /
+    `PublicOnlyTransport`, which re-validate at connect time and dial the
+    validated address. Returns the validated public IPs; raises
+    UnsafeUrlError on any failure.
     """
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
@@ -143,6 +164,25 @@ async def assert_public_http_url(
     if not host:
         raise UnsafeUrlError("URL has no host")
 
+    default_port = 443 if parsed.scheme == "https" else 80
+    return await resolve_public_addresses(host, parsed.port or default_port, resolver=resolver)
+
+
+async def resolve_public_addresses(
+    host: str,
+    port: int,
+    *,
+    resolver: Optional[Resolver] = None,
+) -> List[str]:
+    """Resolve `host` and return its addresses only if EVERY one is public.
+
+    The shared core of the URL pre-check above and the connect-time gate in
+    `safe_http.PublicOnlyNetworkBackend` — one implementation of "what counts
+    as a safe address", so the two can never disagree. A literal-IP host is
+    checked directly without resolving. Raises UnsafeUrlError on any failure
+    (DNS errors included: an unresolvable host is a refusal, never a pass).
+    """
+    host = host.strip("[]")
     # Literal IP host — validate directly, no DNS. The public-ness check lives
     # in the `else` (runs only when ip_address did NOT raise), NOT inside the
     # try: UnsafeUrlError subclasses ValueError, so a `raise` inside the try
@@ -157,15 +197,17 @@ async def assert_public_http_url(
             raise UnsafeUrlError(f"host {host!r} is not a public address")
         return [host]
 
-    default_port = 443 if parsed.scheme == "https" else 80
     resolve = resolver or _default_resolver
     try:
-        addresses = await resolve(host, parsed.port or default_port)
+        addresses = await resolve(host, port)
     except UnsafeUrlError:
         raise
     except Exception as e:  # noqa: BLE001 — DNS failure is a hard reject, not a pass
         raise UnsafeUrlError(f"could not resolve host {host!r}: {e}") from e
 
+    # Order-preserving de-duplication: an injected resolver may still repeat an
+    # address, and every entry here becomes a separate dial attempt.
+    addresses = list(dict.fromkeys(addresses))
     if not addresses:
         raise UnsafeUrlError(f"host {host!r} resolved to no addresses")
     for addr in addresses:

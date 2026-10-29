@@ -34,7 +34,10 @@ influenced server-side fetch targets. Before any request the link's base URL
 passes the shared ``assert_public_http_url_in_cloud`` gate, and the parsed homeserver
 passes it before ``runtime-ready`` completes the remote bind or anything is
 persisted. Redirects are never followed (a public host could 302 into the
-cluster). Local/desktop skips the gate (single trusted user).
+cluster). In cloud the session's connector is pinned as well
+(``safe_http.egress_connector``) so the address actually dialled is the one
+validated, and ``*_PROXY`` env is ignored. Local/desktop skips the gate (single
+trusted user).
 
 Caveat: extracting the bearer relies on regexing the rendered markdown, and the
 bind state machine may require a human confirmation step on the NarraMessenger
@@ -50,7 +53,9 @@ from typing import Any, Optional, Tuple
 import aiohttp
 from loguru import logger
 
-from narranexus.platform.utils.url_safety import assert_public_http_url_in_cloud
+from narranexus.platform.utils import deployment_mode
+from narranexus.platform.utils.safe_http import egress_connector
+from narranexus.platform.utils.url_safety import UnsafeUrlError, assert_public_http_url_in_cloud
 
 from ._narramessenger_credential_manager import (
     NarramessengerCredential,
@@ -251,8 +256,14 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
         }
 
     try:
+        # Cloud pins every dial (the gate above resolved the name separately —
+        # DNS rebinding) and ignores *_PROXY env: a proxy resolves the name
+        # itself, bypassing the pin. Local keeps trust_env for desktop users
+        # behind a system proxy.
         async with aiohttp.ClientSession(
-            trust_env=True, timeout=aiohttp.ClientTimeout(total=25)
+            connector=egress_connector(),
+            trust_env=not deployment_mode.is_cloud_mode(),
+            timeout=aiohttp.ClientTimeout(total=25),
         ) as session:
             guide = await _get_text(session, f"{base}/{token}/setup-guide.md")
             if not guide:
@@ -324,6 +335,13 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                     "error": _step_failure("runtime-ready", ready),
                 }
             rdata = ready.get("data") or {}
+    except UnsafeUrlError as e:
+        logger.warning(f"[narramessenger] bind target refused at connect time: {e}")
+        return {
+            "success": False,
+            "error": "The bind link does not point at a public NarraMessenger "
+            "host. Re-copy the bind link from My Agents → Bind Agents.",
+        }
     except aiohttp.ClientError as e:
         return {
             "success": False,

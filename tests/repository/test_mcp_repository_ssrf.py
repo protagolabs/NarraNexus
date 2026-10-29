@@ -209,3 +209,62 @@ async def test_validate_exception_does_not_echo_detail(monkeypatch, exc_kind):
     assert ok is False
     assert UPSTREAM_SECRET not in error
     assert "172.20" not in error
+
+
+@pytest.mark.asyncio
+async def test_validate_refuses_rebinding_at_connect_when_enforced(monkeypatch):
+    # The pre-check sees a public answer, the dial would see the metadata IP:
+    # the pinned transport refuses before any socket opens.
+    import httpcore
+
+    answers = iter([["93.184.216.34"]])
+
+    async def _rebinding(host, port):
+        return next(answers, ["169.254.169.254"])
+
+    dials = []
+
+    async def _spy(self, host, port, timeout=None, local_address=None, socket_options=None):
+        dials.append((host, port))
+        raise httpcore.ConnectError("test: sockets disabled")
+
+    monkeypatch.setattr(httpcore.AnyIOBackend, "connect_tcp", _spy)
+
+    ok, err = await validate_mcp_sse_connection(
+        "https://rebind.example/sse", resolver=_rebinding, enforce_public_url=True
+    )
+
+    assert ok is False
+    assert "public" in err and "169.254" not in err
+    assert dials == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enforce", [True, False])
+async def test_validate_pins_the_transport_only_when_enforced(monkeypatch, enforce):
+    # Local/desktop (enforce_public_url=False) legitimately validates a
+    # localhost MCP server, so the client must not be pinned there.
+    import httpx
+
+    from narranexus.platform.utils.safe_http import PublicOnlyTransport
+
+    built = []
+
+    class _Client:
+        def __init__(self, *a, **k):
+            built.append(k)
+
+        async def __aenter__(self):
+            raise httpx.ConnectError("test: stop after construction")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    await validate_mcp_sse_connection(
+        "https://mcp.example.com/sse", resolver=_public_resolver, enforce_public_url=enforce
+    )
+
+    assert len(built) == 1
+    assert isinstance(built[0].get("transport"), PublicOnlyTransport) is enforce

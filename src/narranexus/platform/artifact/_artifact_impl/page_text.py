@@ -30,7 +30,7 @@ from typing import Optional
 import httpx
 from loguru import logger
 
-from narranexus.platform.utils.safe_http import safe_stream_get
+from narranexus.platform.utils.safe_http import egress_transport, safe_stream_get
 from narranexus.platform.utils.url_safety import Resolver
 
 _TIMEOUT_S = 6.0
@@ -87,7 +87,16 @@ async def fetch_page_text(
     """
     owns_client = client is None
     if client is None:
-        client = httpx.AsyncClient(follow_redirects=False, timeout=_TIMEOUT_S)
+        # Cloud: pinned transport — the per-hop pre-check in safe_stream_get
+        # is not enough on its own, the dial re-resolves (DNS rebinding).
+        # Local/desktop: None -> httpx's default transport (honours *_PROXY);
+        # a single trusted user, and the per-hop public-address pre-check
+        # still applies in every mode.
+        client = httpx.AsyncClient(
+            transport=egress_transport(resolver=resolver),
+            follow_redirects=False,
+            timeout=_TIMEOUT_S,
+        )
     try:
         # Redirect-following + per-hop SSRF gate live in the shared
         # safe_stream_get; here we just read a BOUNDED slice of the body.

@@ -16,9 +16,11 @@ Cloud only (铁律 #7): a local/desktop install is a single trusted user who
 legitimately runs MCP servers on localhost; the OS user is the trust
 boundary and a local agent has bash anyway.
 
-Note: like the validate-time gate, this NARROWS but does not close the DNS-
-rebinding window — the eventual fetch re-resolves the hostname. Full closure
-needs connection pinning to the validated IP (tracked as a follow-up).
+Note: like any pre-check, this NARROWS but does not close the DNS-rebinding
+window — the eventual fetch re-resolves the hostname. Connect-time pinning now
+exists (utils/safe_http), but the run-time MCP fetch happens inside the
+executor container (CLI / sse_client), where there is no Python seam to apply
+it; the compensating control is the container-level IMDS block.
 """
 from __future__ import annotations
 

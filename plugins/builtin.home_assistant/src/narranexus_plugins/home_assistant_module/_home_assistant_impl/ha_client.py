@@ -23,6 +23,9 @@ request to a user-controlled host. Validation is DEPLOYMENT-AWARE:
   link-local answer (the metadata range — reachable via spellings like
   `2852039166`, `169.254.169.254.` or `instance-data`) is refused, as is a
   host that does not resolve.
+In cloud the connection itself is pinned too (`safe_http.egress_connector`):
+the pre-check above and the dial resolve the name separately, so the
+connector's resolver re-validates what the socket opens to (DNS rebinding).
 Redirects are never followed (a public host could 302 into the cluster), and
 error strings never echo the upstream body or the network exception text —
 status code / generic wording only, details go to the log.
@@ -39,7 +42,8 @@ import aiohttp
 from loguru import logger
 
 from narranexus.platform.utils import deployment_mode
-from narranexus.platform.utils.url_safety import assert_public_http_url_in_cloud
+from narranexus.platform.utils.safe_http import egress_connector
+from narranexus.platform.utils.url_safety import UnsafeUrlError, assert_public_http_url_in_cloud
 
 _DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=8)
 # Cloud metadata service — never a legitimate HA host; refuse to dial it.
@@ -133,11 +137,13 @@ class HAClient:
         return {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
 
     async def _request(self, method: str, path: str, json_body: Optional[dict] = None) -> Any:
-        # Gate EVERY request, not just construction: a client outlives one DNS
-        # answer, and re-checking narrows (does not close) the rebinding window.
+        # Gate EVERY request (shape + local link-local screen + clear errors),
+        # and in cloud also pin the dial: egress_connector re-validates the
+        # addresses the socket actually opens to, closing the rebinding window
+        # between this check and the connect.
         await validate_base_url(self._base)
         url = f"{self._base}{path}"
-        connector = aiohttp.TCPConnector(ssl=self._verify_tls)
+        connector = egress_connector(ssl=self._verify_tls)
         try:
             async with aiohttp.ClientSession(timeout=_DEFAULT_TIMEOUT, connector=connector) as session:
                 async with session.request(
@@ -157,6 +163,9 @@ class HAClient:
                     if resp.content_type == "application/json":
                         return await resp.json()
                     return await resp.text()
+        except UnsafeUrlError as e:
+            logger.warning(f"HA base_url refused at connect time: {e}")
+            raise HAError(_CLOUD_PUBLIC_ONLY) from e
         except aiohttp.ClientError as e:
             logger.warning(f"HA request failed ({method} {url}): {type(e).__name__}: {e}")
             raise HAError("could not reach Home Assistant") from e

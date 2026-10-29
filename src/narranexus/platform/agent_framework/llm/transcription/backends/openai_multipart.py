@@ -38,7 +38,8 @@ from narranexus.platform.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
     TranscriptionCredential,
 )
-from narranexus.platform.utils.url_safety import assert_public_http_url_in_cloud
+from narranexus.platform.utils.safe_http import egress_client
+from narranexus.platform.utils.url_safety import UnsafeUrlError, assert_public_http_url_in_cloud
 
 
 # Whisper hard limit; second-line guard since backend max_upload_bytes
@@ -133,7 +134,9 @@ class OpenAIMultipartBackend(TranscriptionBackend):
             data["language"] = language
         headers = {"Authorization": f"Bearer {cred.api_key}"}
 
-        async with httpx.AsyncClient(timeout=_HTTPX_TIMEOUT, follow_redirects=False) as client:
+        # egress_client pins the dial in cloud: the gate above resolved the
+        # name once, the connection would otherwise resolve it again.
+        async with egress_client(timeout=_HTTPX_TIMEOUT, follow_redirects=False) as client:
             for attempt in range(1, _MAX_ATTEMPTS + 1):
                 try:
                     with path.open("rb") as fp:
@@ -141,6 +144,12 @@ class OpenAIMultipartBackend(TranscriptionBackend):
                         resp = await client.post(
                             url, data=data, files=files, headers=headers,
                         )
+                except UnsafeUrlError as e:
+                    logger.warning(
+                        f"openai_multipart via {cred.source_tag}: base_url refused "
+                        f"at connect time: {e}"
+                    )
+                    return None
                 except httpx.HTTPError as e:
                     logger.warning(
                         f"openai_multipart attempt {attempt} via {cred.source_tag}: "

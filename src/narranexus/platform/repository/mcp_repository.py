@@ -234,6 +234,7 @@ async def validate_mcp_sse_connection(
     """
     import httpx
 
+    from narranexus.platform.utils.safe_http import PublicOnlyTransport
     from narranexus.platform.utils.url_safety import (
         UnsafeUrlError,
         assert_public_http_url,
@@ -243,11 +244,10 @@ async def validate_mcp_sse_connection(
     # supplied URL from the server, so it can be pointed at internal targets —
     # cloud metadata (169.254.169.254), litellm/admin on the docker network,
     # loopback. Reject anything that resolves to a non-public address before
-    # connecting. Post-resolution checking NARROWS the DNS-rebinding window at
-    # validate time but does not close it — httpx re-resolves the hostname to
-    # connect, so a TTL=0 record can still flip to an internal IP (TOCTOU).
-    # Full closure needs connection pinning to the validated IP (tracked as a
-    # follow-up). Keep the reject message generic — never echo the resolved IP.
+    # connecting, and pin the connection itself (PublicOnlyTransport): httpx
+    # would otherwise re-resolve the hostname to connect, so a TTL=0 record
+    # could flip to an internal IP between the check and the dial (DNS
+    # rebinding). Keep the reject message generic — never echo the resolved IP.
     if enforce_public_url:
         try:
             await assert_public_http_url(url, resolver=resolver)
@@ -258,6 +258,7 @@ async def validate_mcp_sse_connection(
         # Use streaming request to validate SSE endpoint
         # SSE is a continuous stream; just check if the connection was established successfully
         async with httpx.AsyncClient(
+            transport=PublicOnlyTransport(resolver=resolver) if enforce_public_url else None,
             timeout=httpx.Timeout(timeout, connect=5.0),
             follow_redirects=False,
         ) as client:
@@ -299,6 +300,9 @@ async def validate_mcp_sse_connection(
                     # a readable one. The body is not read at all.
                     return False, f"HTTP {response.status_code} from the MCP server"
 
+    except UnsafeUrlError as e:
+        logger.warning(f"MCP SSE validation refused at connect time: {e}")
+        return False, "URL is not allowed: it must be a public http(s) endpoint."
     except httpx.TimeoutException:
         return False, f"Connection timeout after {timeout}s"
     except httpx.ConnectError as e:

@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.llm_clients/src/narranexus_plugins/llm_clients/anthropic_helper.py
-last_verified: 2026-09-07
+last_verified: 2026-10-29
 stub: false
 ---
+
+## 2026-10-29 — 用户 base_url 云端钉死出网
+
+`_build_client` 在 `anthropic_helper_config.user_endpoint` 时传
+`http_client=egress_sdk_http_client(DefaultAsyncHttpxClient)`（anthropic SDK 自己的默认 client 工厂，
+保留其超时默认值；连接上限以 PublicOnlyTransport 的为准）：云端连接钉在已校验公网地址、不跟随重定向（SDK 默认会跟，公网端点
+302 到 169.254.169.254 即可绕过）。平台卡 / 本地不变。见 [[safe_http]]。
 
 ## 2026-09-07 — 删掉已无用的 `DEFAULT_MODEL_SENTINEL` import
 
