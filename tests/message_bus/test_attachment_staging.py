@@ -125,7 +125,7 @@ async def test_missing_ref_is_skipped_not_raised(tmp_path):
 async def test_copy_fallback_when_hardlink_fails(tmp_path, monkeypatch):
     _write_workspace_file(tmp_path, "a.txt", b"payload")
 
-    def _boom(src, dst):
+    def _boom(*args, **kwargs):  # the link is made via dir fds now (src_dir_fd/dst_dir_fd kwargs)
         raise OSError("EXDEV: cross-device link")
 
     monkeypatch.setattr(os, "link", _boom)

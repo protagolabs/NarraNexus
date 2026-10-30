@@ -382,6 +382,58 @@ def list_dir(root: str, rel: str = "") -> list[DirEntryInfo]:
         os.close(fd)
 
 
+def iter_tree(
+    root: str,
+    rel: str = "",
+    *,
+    skip=None,
+    recurse: bool = True,
+    strict: bool = False,
+):
+    """Yield ``(rel_in_tree, DirEntryInfo)`` for every directory and regular
+    file under the directory ``root/rel``, walking fd-relative.
+
+    Each directory is listed through :func:`list_dir` (link-free walk from
+    ``root``, per-entry lstat), so a directory swapped for a link after an
+    earlier check lists as absent — or, with ``strict=True``, raises — instead
+    of exposing another tenant's tree. Links, FIFOs, sockets and devices are
+    never yielded. ``skip(rel, is_dir)`` prunes an entry and, for a directory,
+    its whole subtree. Iterative (no recursion), so tree depth cannot exhaust
+    the Python stack. Directories are yielded before their children, names in
+    sorted order. A missing start directory always raises FileNotFoundError.
+    """
+    stack = [""]
+    first = True
+    while stack:
+        rel_dir = stack.pop()
+        abs_rel = "/".join(p for p in (rel, rel_dir) if p)
+        try:
+            entries = list_dir(root, abs_rel)
+        except FileNotFoundError:
+            if first or strict:
+                raise
+            continue
+        except (OSError, ConfinedPathError):
+            if first or strict:
+                raise
+            continue
+        first = False
+        subdirs = []
+        for entry in sorted(entries, key=lambda i: i.name):
+            child = f"{rel_dir}/{entry.name}" if rel_dir else entry.name
+            if entry.is_dir:
+                if skip is not None and skip(child, True):
+                    continue
+                yield child, entry
+                subdirs.append(child)
+            elif entry.is_file:
+                if skip is not None and skip(child, False):
+                    continue
+                yield child, entry
+        if recurse:
+            stack.extend(reversed(subdirs))
+
+
 def dir_regular_bytes(root: str, rel: str) -> int:
     """Recursive sum of REGULAR-file sizes under the directory ``root/rel``.
 
@@ -481,6 +533,84 @@ def rename_within(root: str, src_rel: str, dst_rel: str, *, make_dst_parents: bo
             os.close(dst_fd)
     finally:
         os.close(src_fd)
+
+
+def link_or_copy(
+    src_root: str,
+    src_rel: str,
+    dst_root: str,
+    dst_rel: str,
+    *,
+    make_dst_parents: bool = False,
+) -> None:
+    """Hard-link the regular file ``src_root/src_rel`` to the NEW name
+    ``dst_root/dst_rel``, falling back to a byte copy (cross-device, or a
+    filesystem without hard links).
+
+    Both parent chains are walked O_NOFOLLOW and the link / copy is done
+    relative to the two directory fds; the source leaf must be a regular file
+    (a link or special file raises NotARegularFileError — ``linkat`` would
+    otherwise link the symlink inode itself). The destination must not exist
+    (FileExistsError) and is created ``O_EXCL|O_NOFOLLOW``. The SOURCE must be
+    the caller's own tree or platform staging, never another tenant's.
+    """
+    sparts = _split(src_rel)
+    dparts = _split(dst_rel)
+    sfd = _walk(src_root, sparts[:-1])
+    try:
+        dfd = _walk(dst_root, dparts[:-1], create=make_dst_parents)
+        try:
+            st = os.stat(sparts[-1], dir_fd=sfd, follow_symlinks=False)
+            if not stat_mod.S_ISREG(st.st_mode):
+                raise NotARegularFileError(errno.EINVAL, "not a regular file", src_rel)
+            try:
+                os.link(sparts[-1], dparts[-1], src_dir_fd=sfd, dst_dir_fd=dfd, follow_symlinks=False)
+            except FileExistsError:
+                raise
+            except (OSError, NotImplementedError):  # EXDEV, no hard links, no dir_fd link
+                _copy_file_fds(sfd, sparts[-1], dfd, dparts[-1])
+                return
+            # The source may have been swapped for a link between the lstat and
+            # the link: never leave a hard link to a symlink inode behind.
+            if not stat_mod.S_ISREG(os.stat(dparts[-1], dir_fd=dfd, follow_symlinks=False).st_mode):
+                os.unlink(dparts[-1], dir_fd=dfd)
+                raise NotARegularFileError(errno.EINVAL, "source changed type", src_rel)
+        finally:
+            os.close(dfd)
+    finally:
+        os.close(sfd)
+
+
+def _copy_file_fds(sfd: int, sname: str, dfd: int, dname: str) -> None:
+    in_fd = os.open(sname, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC, dir_fd=sfd)
+    try:
+        st = os.fstat(in_fd)
+        if not stat_mod.S_ISREG(st.st_mode):
+            raise NotARegularFileError(errno.EINVAL, "not a regular file", sname)
+        os.set_blocking(in_fd, True)
+        mode = stat_mod.S_IMODE(st.st_mode) & 0o777
+        out_fd = os.open(
+            dname, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | _O_CLOEXEC, mode, dir_fd=dfd
+        )
+        try:
+            while chunk := os.read(in_fd, 1024 * 1024):
+                view = memoryview(chunk)
+                while view:
+                    view = view[os.write(out_fd, view):]
+            os.fchmod(out_fd, mode)
+        except BaseException:
+            os.close(out_fd)
+            out_fd = -1
+            try:
+                os.unlink(dname, dir_fd=dfd)
+            except OSError:
+                pass
+            raise
+        finally:
+            if out_fd >= 0:
+                os.close(out_fd)
+    finally:
+        os.close(in_fd)
 
 
 def copy_tree(

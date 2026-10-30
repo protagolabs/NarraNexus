@@ -83,12 +83,28 @@ def compute_content_hash(skill_dir: Path) -> str:
     Excludes .skill_meta.json (install bookkeeping mutates it), so the hash
     is stable across meta updates and comparable by the reconciler.
     """
+    from pathlib import PurePosixPath
+
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils import confined_io
+
+    # Walked and read fd-relative: the skill dir is inside the owner's mount, so
+    # a directory swapped for a link must not make the hash (and the
+    # "modified"/"installed" verdict recorded from it) describe another tenant's
+    # files. Links are skipped (never dereferenced); a directory that cannot be
+    # walked raises (ConfinedPathError / OSError) rather than hashing less.
+    # Order = the previous ``sorted(rglob)`` order, so recorded hashes stay valid.
+    root, rel = confined_io.split_source(str(skill_dir), settings.base_working_path)
+    files = [
+        r
+        for r, entry in confined_io.iter_tree(root, rel, strict=True)
+        if entry.is_file and entry.name != ".skill_meta.json"
+    ]
     digest = hashlib.sha256()
-    for path in sorted(skill_dir.rglob("*")):
-        if not path.is_file() or path.name == ".skill_meta.json":
-            continue
-        digest.update(path.relative_to(skill_dir).as_posix().encode("utf-8"))
-        digest.update(path.read_bytes())
+    for r in sorted(files, key=lambda x: PurePosixPath(x).parts):
+        digest.update(r.encode("utf-8"))
+        with confined_io.open_read(root, f"{rel}/{r}") as f:
+            digest.update(f.read())
     return f"sha256:{digest.hexdigest()}"
 
 

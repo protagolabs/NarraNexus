@@ -35,6 +35,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import stat
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,7 +51,8 @@ from narranexus.platform.utils.attachment_storage import (
     on_disk_suffix,
     resolve_attachment_path,
 )
-from narranexus.platform.utils.file_safety import ensure_within_directory
+from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.file_safety import sanitize_filename
 from narranexus.platform.utils.workspace_paths import (
     agent_workspace_path,
     bus_files_dir,
@@ -78,17 +80,39 @@ def _sniff_mime(name: str) -> str:
     return mime or "application/octet-stream"
 
 
-def _link_or_copy(src: Path, dst: Path) -> None:
+def _split(path: "Path | str", base: Optional[str]) -> tuple[str, str]:
+    """(realpath(base), base-relative POSIX path) for a LEXICAL path.
+
+    Everything under a workspace or the per-user shared area is tenant-writable
+    (the owner's sandbox can plant links there), so every read, write, link and
+    stat of such a file goes through ``utils/confined_io`` — each component below
+    the base O_NOFOLLOW, operations relative to dir fds, never a path string and
+    never a resolve()d tenant tail. ConfinedPathError (a ValueError) when the
+    path is not strictly below the base.
+    """
+    return confined_io.split_under_base(str(path), _base(base))
+
+
+def _is_regular(path: "Path | str", base: Optional[str]) -> bool:
+    try:
+        root, rel = _split(path, base)
+        return stat.S_ISREG(confined_io.lstat(root, rel).st_mode)
+    except (OSError, ValueError):
+        return False
+
+
+def _link_or_copy(src: Path, dst: Path, base: Optional[str] = None) -> None:
     """Hard-link ``src`` → ``dst``; fall back to a byte copy across devices.
 
     Hard-linking keeps large files from doubling on disk when an agent forwards
-    or shares a file. ``os.link`` fails with ``EXDEV`` across filesystems (and a
-    few other cases); any OSError falls back to ``shutil.copy2``.
+    or shares a file. Done fd-relative (``confined_io.link_or_copy``): the source
+    is walked O_NOFOLLOW, so a directory the sender swapped for a link can no
+    longer make the platform link or copy another tenant's file into the
+    sender's shared area.
     """
-    try:
-        os.link(src, dst)
-    except OSError:
-        shutil.copy2(src, dst)
+    sroot, srel = _split(src, base)
+    droot, drel = _split(dst, base)
+    confined_io.link_or_copy(sroot, srel, droot, drel)
 
 
 def _resolve_ref_to_source(ref: str, sender_agent_id: str, owner_user_id: str, base: str) -> Optional[Path]:
@@ -128,11 +152,16 @@ def _resolve_ref_to_source(ref: str, sender_agent_id: str, owner_user_id: str, b
     # would make that tree "the workspace" (2026-10-28).
     workspace = agent_workspace_path(sender_agent_id, owner_user_id, base=os.path.realpath(base))
     try:
-        candidate = resolve_inside_workspace(workspace, ref)
+        resolved = resolve_inside_workspace(workspace, ref)
+        # The RESOLVED candidate only proves the ref stays inside the workspace;
+        # what the caller gets back is the LEXICAL path (workspace + the proven
+        # tail), which every later open walks O_NOFOLLOW — a directory swapped
+        # for a link after this check is refused, never followed.
+        candidate = workspace / resolved.relative_to(Path(os.path.abspath(workspace)))
     except ValueError as e:
         logger.warning(f"[bus attachment] rejected workspace-escaping ref: {ref!r} ({e})")
         return None
-    if not candidate.is_file():
+    if not _is_regular(candidate, base):
         logger.warning(f"[bus attachment] ref not found: {ref!r}")
         return None
     return candidate
@@ -145,32 +174,36 @@ def _base_root(base: str) -> Path:
 def _bus_att_dict(target: Path, base: str, *, original_name: str, mime: str) -> dict:
     """Build the bus-attachment dict for a file already written to ``target``.
 
-    ``target`` is symlink-resolved (``ensure_within_directory`` calls
-    ``.resolve()``), so the base MUST be resolved too before ``relpath`` — else a
-    symlinked base (e.g. macOS ``/var`` → ``/private/var``) yields a ``../``-laden
-    path that escapes and breaks both the marker and the shared-file resolver.
+    ``target`` is built on the REALPATH of the base (``_split``), never on a
+    resolve()d tenant tail, so a symlinked base (e.g. macOS ``/var`` →
+    ``/private/var``) cannot yield a ``../``-laden path that breaks the marker
+    and the shared-file resolver.
     """
-    rel = os.path.relpath(target, _base_root(base).resolve())
+    root, rel = _split(target, base)
     return {
         "file_id": target.stem,
         "original_name": original_name or target.name,
         "mime_type": mime,
-        "size_bytes": target.stat().st_size,
+        "size_bytes": confined_io.lstat(root, rel).st_size,
         "category": derive_category_from_mime(mime).value,
         "rel_path": Path(rel).as_posix(),
     }
 
 
-def _new_target(dest_dir: Path, filename: str) -> Path:
-    """Fresh ``{file_id}{suffix}`` path inside ``dest_dir`` (dir created). The
-    suffix is ``on_disk_suffix(filename)``, so no character of an author's file
-    name reaches the disk path unsanitised (defence in depth: the Read-tool
-    marker prints the path as an exact JSON literal)."""
-    dest_dir.mkdir(parents=True, exist_ok=True)
+def _new_target(dest_dir: Path, filename: str, base: Optional[str] = None) -> Path:
+    """Fresh ``{file_id}{suffix}`` path inside ``dest_dir`` (dir created through
+    the link-free walk). The suffix is ``on_disk_suffix(filename)``, so no
+    character of an author's file name reaches the disk path unsanitised
+    (defence in depth: the Read-tool marker prints the path as an exact JSON
+    literal). The returned path is LEXICAL on the realpath of the base — never an
+    ``ensure_within_directory`` (resolve()) result."""
+    root, rel = _split(dest_dir, base)
+    confined_io.make_dirs(root, rel)
     file_id = generate_file_id()
     suffix = on_disk_suffix(filename)
     on_disk_name = f"{file_id}{suffix}" if suffix else file_id
-    return ensure_within_directory(dest_dir, on_disk_name, label="bus attachment")
+    sanitize_filename(on_disk_name, label="bus attachment")
+    return Path(root) / rel / on_disk_name
 
 
 async def _stage_into(src: Path, dest_dir: Path, base: str, *, original_name: str) -> dict:
@@ -181,8 +214,8 @@ async def _stage_into(src: Path, dest_dir: Path, base: str, *, original_name: st
     cross-device ``shutil.copy2`` fallback can move tens of MB and must not
     block the event loop the caller (route / MCP tool) runs on.
     """
-    target = _new_target(dest_dir, src.name)
-    await asyncio.to_thread(_link_or_copy, src, target)
+    target = _new_target(dest_dir, src.name, base)
+    await asyncio.to_thread(_link_or_copy, src, target, base)
     return _bus_att_dict(target, base, original_name=original_name, mime=_sniff_mime(original_name or src.name))
 
 
@@ -206,8 +239,14 @@ async def store_bytes_into_bus(
     """
     base = _base(base)
     dest_dir = bus_files_dir(user_id, base) / _today_str()
-    target = _new_target(dest_dir, original_name or "")
-    await asyncio.to_thread(target.write_bytes, raw_bytes)
+    target = _new_target(dest_dir, original_name or "", base)
+
+    def _write() -> None:
+        root, rel = _split(target, base)
+        with confined_io.open_new(root, rel) as f:
+            f.write(raw_bytes)
+
+    await asyncio.to_thread(_write)
     return _bus_att_dict(target, base, original_name=original_name or target.name, mime=mime_type)
 
 
@@ -236,10 +275,9 @@ def store_bus_attachment_meta(
     if staged is None:
         return
     try:
-        _meta_sidecar_path(staged).write_text(
-            json.dumps(attachment, ensure_ascii=False), encoding="utf-8"
-        )
-    except OSError as e:
+        root, rel = _split(_meta_sidecar_path(staged), base)
+        confined_io.write_atomic(root, rel, json.dumps(attachment, ensure_ascii=False).encode("utf-8"))
+    except (OSError, ValueError) as e:
         logger.warning(f"[bus attachment] failed to write meta sidecar: {e}")
 
 
@@ -257,8 +295,10 @@ def load_bus_attachment_meta(
         return None
     sidecar = _meta_sidecar_path(staged)
     try:
-        loaded = json.loads(sidecar.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        root, rel = _split(sidecar, base)
+        with confined_io.open_read(root, rel) as f:
+            loaded = json.loads(f.read().decode("utf-8"))
+    except (OSError, ValueError):  # missing, a link on the way, or corrupt
         return None
     return loaded if isinstance(loaded, dict) else None
 
@@ -296,15 +336,16 @@ async def resolve_and_stage_refs(
     return out
 
 
-def _content_hash(path: Path) -> str:
-    """sha256 of a file's bytes, streamed.
+def _content_hash(path: Path, base: Optional[str] = None) -> str:
+    """sha256 of a file's bytes, streamed through the link-free walk.
 
     sha256 rather than md5: the same cost in practice, and it is the hash a
     content-addressed store would reuse later, so the index does not have to
     be re-computed to get there.
     """
     h = hashlib.sha256()
-    with open(path, "rb") as fh:
+    root, rel = _split(path, base)
+    with confined_io.open_read(root, rel) as fh:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
@@ -324,7 +365,9 @@ class _DedupProbe(NamedTuple):
     digest: Optional[str]
 
 
-async def _find_duplicate(db, team_id: str, name: str, size: int, src: Path) -> _DedupProbe:
+async def _find_duplicate(
+    db, team_id: str, name: str, size: int, src: Path, base: Optional[str] = None
+) -> _DedupProbe:
     """The existing row for this exact file, plus the digest if one was taken.
 
     Two-stage on purpose. Hashing reads the whole file, so it runs only after
@@ -336,7 +379,7 @@ async def _find_duplicate(db, team_id: str, name: str, size: int, src: Path) -> 
     candidates = await TeamFileRepository(db).find_by_name_and_size(team_id, name, size)
     if not candidates:
         return _DedupProbe(None, None)
-    digest = await asyncio.to_thread(_content_hash, src)
+    digest = await asyncio.to_thread(_content_hash, src, base)
     for row in candidates:
         if row.get("content_hash") == digest:
             return _DedupProbe(row, digest)
@@ -376,18 +419,19 @@ async def stage_path_into_team(
         db = await get_db_client()
 
     name = src.name
-    size = src.stat().st_size
+    sroot, srel = _split(src, base)
+    size = confined_io.lstat(sroot, srel).st_size
     digest = None
     try:
-        probe = await _find_duplicate(db, team_id, name, size, src)
+        probe = await _find_duplicate(db, team_id, name, size, src, base)
         digest = probe.digest
         if probe.row is not None:
-            reused = (_base_root(base) / probe.row["rel_path"]).resolve()
+            reused = Path(os.path.realpath(base)) / probe.row["rel_path"]
             # Only reuse a row whose file is still there. `_wipe_team_data`
             # removes the folder without touching rows it does not own, and a
             # row pointing at nothing would hand the agent a dead path while
             # reporting success.
-            if reused.is_file():
+            if _is_regular(reused, base):
                 return {
                     "file_id": probe.row["file_id"],
                     "original_name": probe.row["original_name"],
@@ -405,10 +449,10 @@ async def stage_path_into_team(
 
     dest_dir = team_shared_dir(owner_user_id, team_id, base)
     staged = await _stage_into(src, dest_dir, base, original_name=name)
-    staged["path"] = str((_base_root(base) / staged["rel_path"]).resolve())
+    staged["path"] = str(Path(os.path.realpath(base)) / staged["rel_path"])
 
     if digest is None:
-        digest = await asyncio.to_thread(_content_hash, src)
+        digest = await asyncio.to_thread(_content_hash, src, base)
 
     try:
         await TeamFileRepository(db).add({
@@ -447,7 +491,7 @@ async def stage_path_into_team(
                 "size_bytes": int(winner.get("size_bytes") or 0),
                 "category": winner.get("category"),
                 "rel_path": winner["rel_path"],
-                "path": str((_base_root(base) / winner["rel_path"]).resolve()),
+                "path": str(Path(os.path.realpath(base)) / winner["rel_path"]),
             }
         logger.warning(f"[team files] index row not written for {name!r}: {e}")
     return staged
@@ -484,7 +528,7 @@ def build_bus_markers(
         rel = att.get("rel_path")
         if not rel:
             continue
-        path = str((root / rel).resolve())
+        path = os.path.normpath(os.path.join(os.path.realpath(str(root)), rel))
         transcript = att.get("transcript")
         lines.append(
             file_marker(
@@ -517,13 +561,27 @@ def resolve_shared_file_by_id(
     if not is_valid_file_id(file_id):
         return None
     root = bus_files_dir(user_id, _base(base))
-    if not root.exists():
+    # Listed through the link-free walk (date dirs, then names): a `_shared` /
+    # `bus_files` / date dir swapped for a link lists as absent, and the result
+    # is a LEXICAL path whose every later open is O_NOFOLLOW again.
+    try:
+        broot, brel = _split(root, base)
+        date_dirs = [i for i in confined_io.list_dir(broot, brel) if i.is_dir]
+    except (OSError, ValueError):
         return None
-    matches = sorted(root.glob(f"*/{file_id}.*")) + sorted(root.glob(f"*/{file_id}"))
-    original = next((p for p in matches if p.is_file() and p.suffix.lower() != ".mp3"), None)
+    matches: List[Path] = []
+    for day in sorted(date_dirs, key=lambda i: i.name):
+        try:
+            names = confined_io.list_dir(broot, f"{brel}/{day.name}")
+        except (OSError, ValueError):
+            continue
+        for entry in sorted(names, key=lambda i: i.name):
+            if entry.is_file and (entry.name == file_id or entry.name.startswith(f"{file_id}.")):
+                matches.append(Path(broot) / brel / day.name / entry.name)
+    original = next((p for p in matches if p.suffix.lower() != ".mp3"), None)
     if original is not None:
         return original
-    return next((p for p in matches if p.is_file()), None)
+    return matches[0] if matches else None
 
 
 def resolve_shared_file_for_user(
@@ -548,12 +606,12 @@ def resolve_shared_file_for_user(
     base = _base(base)
     rel = (rel_path or "").replace("\\", "/").lstrip("/")
     parts = rel.split("/")
-    if not parts or parts[0] != user_id:
+    if not parts or parts[0] != user_id or any(p in ("", ".", "..") for p in parts):
         return None
-    user_root = (_base_root(base) / user_id).resolve()
-    candidate = (_base_root(base) / rel).resolve()
-    if not candidate.is_relative_to(user_root):
-        return None
-    if not candidate.is_file():
+    # Lexical candidate below the realpath of the base: only real directories
+    # are walked (O_NOFOLLOW), so there is nothing to resolve() — and no link a
+    # tenant planted under its own root can redirect the lookup elsewhere.
+    candidate = Path(os.path.realpath(base)) / rel
+    if not _is_regular(candidate, base):
         return None
     return candidate
