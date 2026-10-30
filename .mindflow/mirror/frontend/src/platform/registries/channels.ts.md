@@ -14,7 +14,8 @@ The rows of the Channels section as a registry (label, icon, config component, s
 
 It now caches the sorted array per input array (`WeakMap`) and defaults to
 `CHANNELS.snapshot()` instead of `list()`, so the same snapshot always yields
-the same array and the result is safe in hook dependency lists. Returning a new
+the same array and the result is safe in hook dependency lists. The array is
+shared between callers, so the return type is `readonly`. Returning a new
 array per call fed the Channels section's credential-probe loop (see
 `IMChannelsSection.tsx.md`). The sibling helpers (`sortedSidebarItems`,
 `sortedSettingsSections`, `visibleSlotEntries`) still return fresh arrays: they

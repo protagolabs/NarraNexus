@@ -69,13 +69,16 @@ registry does.
 Probe budget: one round per mount, per agent switch, per section re-open, per
 explicit refresh / child bind-state change, plus one round when the backend
 catalog lands after mount. Rounds may overlap; a round counter
-(`roundRef`) lets only the latest round write `statusMap`, so a slow round for
-the previous agent cannot paint its badges over the current one. The re-open
+(`roundRef`, bumped before the `agentId` check so clearing the agent also
+retires in-flight rounds) lets only the latest round write `statusMap`, so a
+slow round for the previous agent cannot paint its badges over the current one. The re-open
 refresh runs outside the `setSectionOpen` updater (updaters must be pure;
 StrictMode runs them twice).
 
 Locked by `__tests__/imChannelsProbeBudget.test.tsx` (mount, re-render, agent
-switch, Refresh, collapse → re-open, out-of-order rounds) and
+switch, Refresh, collapse → re-open, and out-of-order rounds — asserting both
+that the latest round's badges appear and that the stale round cannot replace
+them) and
 `__tests__/imChannelsLateCatalog.test.tsx`; removing the helper cache or the
 round guard turns them red. `refreshConnected` is also each card's
 `onBindStateChange`, so its identity is stable for children too.

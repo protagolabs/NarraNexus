@@ -92,26 +92,28 @@ describe('channels status probe budget', () => {
 
   it("a slow round for the previous agent never overwrites the current agent's badges", async () => {
     await builtinChannelsReady;
-    // agent_a: every channel bound + active, but its round is held back;
-    // agent_b: nothing bound, answers immediately.
+    // agent_a: nothing bound, and its round is held back; agent_b: every channel
+    // bound + active, answers immediately. The badges must show agent_b's state
+    // (proves the latest round DOES write) and keep it after agent_a's late
+    // round resolves (proves the stale round does NOT).
     let releaseA: () => void = () => {};
     const aGate = new Promise<void>((r) => { releaseA = r; });
     credential.mockImplementation(async (...args: unknown[]) => {
       const [channel, agent] = args as [string, string];
       if (agent === 'agent_a') {
         await aGate;
-        return { success: true, data: { channel, agent_id: agent, enabled: true } };
+        return { success: true, data: null };
       }
-      return { success: true, data: null };
+      return { success: true, data: { channel, agent_id: agent, enabled: true } };
     });
     const { rerender } = render(<IMChannelsSection />);
     await waitFor(() => expect(credential.mock.calls.length).toBeGreaterThanOrEqual(CHANNEL_COUNT));
     store.agentId = 'agent_b';
     rerender(<IMChannelsSection />);
-    await waitFor(() => expect(screen.getByText(`0/${CHANNEL_COUNT} connected`)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(`${CHANNEL_COUNT}/${CHANNEL_COUNT} connected`)).toBeInTheDocument());
     releaseA();
     await settle();
-    expect(screen.getByText(`0/${CHANNEL_COUNT} connected`)).toBeInTheDocument();
-    expect(screen.queryByText('✓ connected')).toBeNull();
+    expect(screen.getByText(`${CHANNEL_COUNT}/${CHANNEL_COUNT} connected`)).toBeInTheDocument();
+    expect(screen.getAllByText('✓ connected')).toHaveLength(CHANNEL_COUNT);
   });
 });

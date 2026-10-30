@@ -44,8 +44,8 @@ export function IMChannelsSection() {
   // paint its badges over the current agent's.
   const roundRef = useRef(0);
   const refreshConnected = useCallback(async () => {
+    const round = ++roundRef.current; // before the agentId check: clearing the agent also retires in-flight rounds
     if (!agentId) return;
-    const round = ++roundRef.current;
     const results = await Promise.all(
       channels.map(async (ch) => [ch.id, await ch.value.fetchStatus(agentId)] as const),
     );
