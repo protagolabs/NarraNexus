@@ -29,7 +29,9 @@ export function useAccountSuspendedSignOut(): [boolean, () => void] {
       // Pending WS reconnects would keep running otherwise. Imported on demand:
       // the WS client is not part of the first-load bundle, and if it was never
       // loaded there is nothing to close.
-      void import('@/services/wsManager').then(({ wsManager }) => wsManager.closeAll());
+      // A failed chunk load (e.g. a stale tab after a deploy) leaves nothing
+      // to close in this page's state; sign-out below still happens.
+      void import('@/services/wsManager').then(({ wsManager }) => wsManager.closeAll(), () => undefined);
       logout();
       setSuspended(true);
     };
