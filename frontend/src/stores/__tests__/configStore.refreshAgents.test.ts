@@ -112,17 +112,17 @@ describe('refreshAgents', () => {
     expect(useConfigStore.getState().agentId).toBe('agent_new');
   });
 
-  test("a new user's own guide agent is selected as soon as it is listed", async () => {
+  test("a new user's first own agent (the guide) is selected the moment it is listed", async () => {
     // Provisioned after login returns: login and the sidebar's mount pass had
     // nothing of the user's own to select.
-    useConfigStore.getState().setAgentId('');
+    useConfigStore.setState({ agents: [], agentId: '' });
     getAgents.mockResolvedValue({
       success: true,
-      agents: [{ agent_id: 'public_new', created_by: 'stranger' }] as AgentInfo[],
+      agents: [{ agent_id: 'public_new', created_by: 'stranger', bootstrap_active: true }] as AgentInfo[],
       count: 1,
     });
     await useConfigStore.getState().refreshAgents();
-    expect(useConfigStore.getState().agentId).toBe('');
+    expect(useConfigStore.getState().agentId).toBe(''); // a stranger's agent is never picked
     getAgents.mockResolvedValue({
       success: true,
       agents: [
@@ -135,13 +135,15 @@ describe('refreshAgents', () => {
     expect(useConfigStore.getState().agentId).toBe('guide');
   });
 
-  test('an empty selection is not filled with an ordinary own agent (no delayed silent swap)', async () => {
-    useConfigStore.getState().setAgentId('');
-    getAgents.mockResolvedValue({
-      success: true,
-      agents: [{ agent_id: 'mine', created_by: 'alice' }] as AgentInfo[],
-      count: 1,
-    });
+  test("a veteran's cleared selection is never refilled, even by a not-yet-chatted own agent", async () => {
+    // bootstrap_active is carried by every own agent that has not had three
+    // owner turns yet — it does not identify the guide.
+    const own = [
+      { agent_id: 'mine', created_by: 'alice' },
+      { agent_id: 'fresh', created_by: 'alice', bootstrap_active: true },
+    ] as AgentInfo[];
+    useConfigStore.setState({ agents: own, agentId: '' });
+    getAgents.mockResolvedValue({ success: true, agents: own, count: 2 });
     await useConfigStore.getState().refreshAgents();
     expect(useConfigStore.getState().agentId).toBe('');
   });
@@ -158,6 +160,18 @@ describe('refreshAgents', () => {
     });
     await useConfigStore.getState().refreshAgents();
     expect(useConfigStore.getState().agentId).toBe('mine');
+  });
+
+  test("a response that lands after a user switch is dropped", async () => {
+    let resolve!: (v: unknown) => void;
+    getAgents.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const pending = useConfigStore.getState().refreshAgents(); // as alice
+    useConfigStore.getState().logout();
+    useConfigStore.getState().login('bob');
+    resolve({ success: true, agents: [{ agent_id: 'alice_agent', created_by: 'alice' }] as AgentInfo[], count: 1 });
+    await pending;
+    expect(useConfigStore.getState().agents).toEqual([]);
+    expect(useConfigStore.getState().agentId).toBe('');
   });
 
   test('a refusal never clears the selection', async () => {

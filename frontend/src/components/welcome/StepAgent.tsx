@@ -26,6 +26,7 @@ import { api } from '@/lib/api';
 import { pickGuideAgent } from '@/lib/guideAgent';
 import { WelcomeStepFrame } from './WelcomeStepFrame';
 import type { AgentInfo } from '@/types';
+import { useConfigStore } from '@/stores';
 
 /** How long to wait for a fire-and-forget provision before letting the user
  *  through without it. Long enough for a slow disk, short enough that nobody
@@ -43,7 +44,8 @@ export interface StepAgentProps {
 
 export function StepAgent({ initialAgents, onDone, onSkip, onBack }: StepAgentProps) {
   const { t } = useTranslation();
-  const [agent, setAgent] = useState<AgentInfo | null>(() => pickGuideAgent(initialAgents));
+  const userId = useConfigStore((s) => s.userId);
+  const [agent, setAgent] = useState<AgentInfo | null>(() => pickGuideAgent(initialAgents, userId));
   const [gaveUp, setGaveUp] = useState(false);
   /** Stamped inside the effect, not during render — Date.now() in a render body
    *  is impure (react-hooks/purity) and would drift on every re-render. */
@@ -58,7 +60,7 @@ export function StepAgent({ initialAgents, onDone, onSkip, onBack }: StepAgentPr
       if (!alive) return;
       try {
         const res = await api.getAgents();
-        const found = pickGuideAgent(res.agents ?? []);
+        const found = pickGuideAgent(res.agents ?? [], userId);
         if (alive && found) {
           setAgent(found);
           return;
@@ -78,7 +80,7 @@ export function StepAgent({ initialAgents, onDone, onSkip, onBack }: StepAgentPr
       alive = false;
       window.clearTimeout(id);
     };
-  }, [agent]);
+  }, [agent, userId]);
 
   const name = agent?.name?.trim() || t('pages.welcome.agent.fallbackName');
 

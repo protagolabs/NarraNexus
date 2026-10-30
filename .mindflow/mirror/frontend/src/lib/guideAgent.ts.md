@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/guideAgent.ts
-last_verified: 2026-09-03
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 只认查看者**自己的** bootstrap_active agent
+
+签名改为 `pickGuideAgent(agents, userId)`，多一条 `created_by === userId`。`/api/auth/agents`
+返回全平台公开 agent 且每行都算 `bootstrap_active`，陌生人还在 bootstrap 期的公开 agent
+会被当成「你的引导 agent」：StepAgent 介绍它、WelcomePage 的 openGuideAgent 选中它，各面板
+以非 owner 身份成串 403（监控 v2 按失败数封 IP）。三个调用方（[[WelcomePage]]、[[StepAgent]]、
+[[onboardingGate]]）都传 userId。
 
 ## 2026-09-03 (评审修订) — 去掉 `?? agents[0]`
 

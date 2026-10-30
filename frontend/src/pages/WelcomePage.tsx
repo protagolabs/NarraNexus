@@ -103,7 +103,7 @@ export function WelcomePage() {
         detectionCount: detections.length,
         // Either the guide agent is already here, or login told us one is
         // coming (is_new_user AND the server's provisioning switch is on).
-        guideAgentEnabled: Boolean(pickGuideAgent(agents)) || isGuideCoachmarkPending(),
+        guideAgentEnabled: Boolean(pickGuideAgent(agents, userId)) || isGuideCoachmarkPending(),
       });
       setProbe({ steps, detections, agents });
     };
@@ -197,7 +197,7 @@ export function WelcomePage() {
 
   // The rail names the guide agent as soon as we know it — "Meet Wren" reads
   // like a promise, "Meet your agent" reads like a placeholder.
-  const guideName = pickGuideAgent(probe.agents)?.name?.trim() || t('pages.welcome.agent.fallbackName');
+  const guideName = pickGuideAgent(probe.agents, userId)?.name?.trim() || t('pages.welcome.agent.fallbackName');
   const railSteps: WelcomeRailStep[] = steps.map((id) => ({
     id,
     title: t(`pages.welcome.rail.${id}.title`, { name: guideName }),

@@ -10,7 +10,7 @@ import { resetSessionGuard } from '@/lib/sessionGuard';
 import { useTeamsStore } from './teamsStore';
 import type { AgentInfo } from '@/types';
 import { isSafeAgentId } from '@/lib/agentIdSafety';
-import { pickOwnGuideAgent } from '@/lib/defaultAgent';
+import { ownsAnyAgent, pickDefaultAgent } from '@/lib/defaultAgent';
 
 export type { AgentInfo };
 
@@ -123,6 +123,10 @@ export const useConfigStore = create<ConfigState>()(
         const selectedAtStart = get().agentId;
         try {
           const res = await api.getAgents();
+          // A response for a session that has since logged out / switched
+          // user must not land in the new one (it could even select one of the
+          // previous user's agents).
+          if (get().userId !== userId) return;
           if (res.success) {
             // A selection the server does not list (deleted, foreign, or from a
             // crafted link) would otherwise persist and make every panel request
@@ -137,17 +141,20 @@ export const useConfigStore = create<ConfigState>()(
             const { agentId } = get();
             const stale = agentId !== '' && agentId === selectedAtStart
               && !res.agents.some((a) => a.agent_id === agentId);
-            // A new user's guide agent is provisioned after login returns, so
-            // login and the sidebar's mount pass found nothing to select. When
-            // nothing was selected before or during this request, the viewer's
-            // own guide is selected as soon as it is listed. Only the guide:
-            // any own agent would turn "cleared, not swapped" into a delayed
-            // silent swap.
-            const guide = agentId === '' && selectedAtStart === ''
-              ? pickOwnGuideAgent(res.agents, userId) : '';
+            // A new user's first agent (the guide) is provisioned after login
+            // returns, so login and the sidebar's mount pass found nothing of
+            // theirs to select. At the moment the viewer's FIRST own agent
+            // appears — none in the list before, some now — with nothing
+            // selected before or during this request, it is selected. Keyed
+            // on that transition, not on bootstrap_active (which every
+            // not-yet-chatted own agent carries): a veteran's cleared selection
+            // is never refilled, so "cleared, not swapped" holds.
+            const firstOwn = agentId === '' && selectedAtStart === ''
+              && !ownsAnyAgent(get().agents, userId) && ownsAnyAgent(res.agents, userId)
+              ? pickDefaultAgent(res.agents, userId) : '';
             set(stale
               ? { agents: res.agents, agentId: '' }
-              : guide ? { agents: res.agents, agentId: guide } : { agents: res.agents });
+              : firstOwn ? { agents: res.agents, agentId: firstOwn } : { agents: res.agents });
           } else {
             // Keeping the previous list is deliberate (a backend hiccup must
             // not blank the sidebar) — being SILENT about it was not. The

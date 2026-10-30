@@ -12,6 +12,11 @@
  * agents brought in from Claude Code / Codex are never bootstrap-active, so
  * the guide is still the one that gets introduced.
  *
+ * Only the viewer's OWN bootstrap-active agent qualifies: the agent list also
+ * carries every public agent on the platform, and a stranger's agent that is
+ * itself still bootstrap-active would otherwise be introduced (and selected)
+ * as "your" guide — every panel would then read an agent the viewer cannot.
+ *
  * Only a bootstrap-active agent qualifies. There is no "first agent" fallback:
  * when provisioning is off, or the guide was deleted, guessing `agents[0]`
  * turned a user's OWN agent into "the one login made for you" — the gate then
@@ -21,6 +26,7 @@
 
 import type { AgentInfo } from '@/types';
 
-export function pickGuideAgent(agents: AgentInfo[]): AgentInfo | null {
-  return agents.find((a) => a.bootstrap_active) ?? null;
+export function pickGuideAgent(agents: AgentInfo[], userId: string): AgentInfo | null {
+  if (!userId) return null;
+  return agents.find((a) => a.bootstrap_active && a.created_by === userId) ?? null;
 }

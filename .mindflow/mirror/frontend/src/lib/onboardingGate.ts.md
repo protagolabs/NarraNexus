@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/lib/onboardingGate.ts
-last_verified: 2026-09-03
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 「用户自己的 agent」只数 `created_by === userId`
+
+`humanAgents` 原来是「列表里除引导 agent 外的全部」，而列表含全平台公开 agent——只要平台上
+有任何公开 agent，新用户就被判成老用户、写入 `landing_completed`、欢迎流程被跳过。现在只数
+查看者自己的、且不是引导 agent 的；引导 agent 由 `pickGuideAgent(agents, userId)` 认（只认自己的）。
 
 ## 2026-09-03 (评审修订) — 「哪些卡是 login 自动开的」交回后端
 
