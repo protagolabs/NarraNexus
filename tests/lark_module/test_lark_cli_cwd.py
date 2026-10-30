@@ -114,7 +114,7 @@ async def test_resolve_agent_workspace_cwd_happy_path(tmp_path: Path, monkeypatc
     ):
         ws = await resolve_agent_workspace_cwd("agent_abc", log_tag="lark-cli")
     assert ws is not None
-    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
     assert ws == tmp_path / agent_workspace_relpath("agent_abc", "user_alice")
     assert ws.is_dir(), "workspace dir must be created (mkdir -p semantics)"
 

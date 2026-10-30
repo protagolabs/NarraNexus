@@ -73,11 +73,11 @@ def _resolve_log_dir(arg: Path | None) -> Path:
     return _DEFAULT_LOG_ROOT
 
 
-# Shared with the SQLite backend (utils/fs_safety.py) so "fix the real dir, not
+# Shared with the SQLite backend (utils/fs/fs_safety.py) so "fix the real dir, not
 # work around it" behaves identically for logs and the DB. Imported under the
 # module-private names so existing tests/monkeypatches on `_setup._chmod_repair`
 # keep working.
-from narranexus.platform.utils.fs_safety import (  # noqa: E402
+from narranexus.platform.utils.fs.fs_safety import (  # noqa: E402
     chmod_repair_owned as _chmod_repair,
     chown_hint as _chown_hint,
     probe_writable as _probe_writable,

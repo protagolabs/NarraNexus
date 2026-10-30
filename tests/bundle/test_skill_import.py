@@ -100,7 +100,7 @@ async def _seed_agent(db, agent_id, agent_name, user_id="test_user"):
 def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
     """Create skills/<skill_dir>/ with a NO-frontmatter SKILL.md (like arena),
     a credentials.json (a sensitive file), and a .skill_meta.json with env_config."""
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     skills = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     skills.mkdir(parents=True, exist_ok=True)
@@ -133,7 +133,7 @@ async def test_full_copy_skill_lands_in_skill_dir_with_credentials(db_client, tm
     """
     from narranexus.platform.bundle.builder import ExportSelection, build_bundle
     from narranexus.platform.bundle.importer import preflight, confirm
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     aid, uid = "agent_skill0001", "test_user"
     await _seed_agent(db_client, aid, "SkillAgent", uid)
@@ -196,7 +196,7 @@ async def test_dir_fix_holds_without_secrets(db_client, tmp_workspace_root, tmp_
     scrubbed, the skill still lands in exactly skills/arena/ (no tmp stray)."""
     from narranexus.platform.bundle.builder import ExportSelection, build_bundle
     from narranexus.platform.bundle.importer import preflight, confirm
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     aid, uid = "agent_skill0002", "test_user"
     await _seed_agent(db_client, aid, "SkillAgent2", uid)
@@ -286,7 +286,7 @@ async def test_skill_secrets_kept_when_opted_in(db_client, tmp_workspace_root, t
 
 def _seed_builtin_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
     """Create a built-in skill dir (`.skill_meta.json` builtin: true) on disk."""
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     skills = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     skills.mkdir(parents=True, exist_ok=True)
@@ -336,7 +336,7 @@ async def test_builtin_skill_forced_to_builtin_method_despite_full_copy_request(
 
 
 def _seed_url_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str, url: str):
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     skills = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     skills.mkdir(parents=True, exist_ok=True)
@@ -355,7 +355,7 @@ async def test_url_rows_of_one_multi_skill_repo_each_land_their_own_skill(
     and a row naming a skill the repo does not ship is a recorded failure."""
     from narranexus.platform.bundle.builder import ExportSelection, build_bundle
     from narranexus.platform.bundle.importer import confirm, preflight
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
     from narranexus_plugins.skill_module.skill_module import SkillModule
 
     url = "https://github.com/acme/multi"

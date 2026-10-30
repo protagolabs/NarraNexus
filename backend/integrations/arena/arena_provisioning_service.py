@@ -430,7 +430,7 @@ class ArenaProvisioningService:
             # + claim_token are written here (credentials.json + skill env) — the
             # only place they live on our side.
             t = perf_counter()
-            from narranexus.platform.utils.workspace_paths import agent_workspace_path
+            from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
             workspace = agent_workspace_path(agent_id, user_id, base=settings.base_working_path)
             onboarder.install_skill(
                 workspace / "skills", creds, owner_user_id=user_id
@@ -494,7 +494,7 @@ class ArenaProvisioningService:
         agent_metadata. Best-effort: any failure returns a status string and
         leaves provisioning unaffected.
         """
-        from narranexus.platform.utils.workspace_paths import agent_workspace_path
+        from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
         prior = metadata.get("arena_owner_bind")
         try:

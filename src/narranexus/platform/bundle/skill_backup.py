@@ -22,7 +22,7 @@ from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.repository import SkillArchiveRepository
 from .security import bytes_sha256, file_sha256, validate_skill_archive_path
 from .skill_secrets import dir_is_builtin as _dir_is_builtin
-from narranexus.platform.utils.file_safety import (
+from narranexus.platform.utils.fs.file_safety import (
     ensure_within_directory,
     sanitize_filename,
 )
@@ -149,7 +149,7 @@ def _agent_workspace_root(agent_id: str, user_id: str) -> Optional[Path]:
     # Realpath the platform-owned base only; the tenant tail stays lexical so
     # resolve_inside_workspace can compare a resolved candidate against it.
     base = Path(os.path.realpath(core_settings.base_working_path))
-    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
     candidates = [
         base / agent_workspace_relpath(agent_id, user_id),  # canonical (current layout)
@@ -241,7 +241,7 @@ async def archive_local_zip(
     zip_file_path: str,
 ) -> Tuple[Path, str]:
     """Copy a workspace-local zip into the archive registry."""
-    from narranexus.platform.utils.workspace_paths import resolve_inside_workspace
+    from narranexus.platform.utils.fs.workspace_paths import resolve_inside_workspace
 
     ws = _agent_workspace_root(agent_id, user_id)
     if ws is None:

@@ -54,7 +54,7 @@ from narranexus.platform.message_bus.system_messages import (
     placeholders as _platform_placeholders,
 )
 from narranexus.platform.schema.attachment_schema import derive_category_from_mime
-from narranexus.platform.utils.workspace_paths import team_shared_dir
+from narranexus.platform.utils.fs.workspace_paths import team_shared_dir
 from narranexus.platform.repository.team_workspace_repository import (
     ArtifactHistoryRepository,
     TeamFileRepository,

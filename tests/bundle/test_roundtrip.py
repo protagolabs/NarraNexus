@@ -263,7 +263,7 @@ async def test_full_roundtrip(db_client, tmp_workspace_root):
     assert se_rows[0].instance_id == new_inst
 
     # Workspace tar was extracted to canonical path (layout-agnostic via helper)
-    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
     new_ws = tmp_workspace_root / agent_workspace_relpath(new_aid, user_id)
     assert new_ws.is_dir(), f"workspace not extracted to {new_ws}"
     notes_after = (new_ws / "notes.md").read_text(encoding="utf-8")
@@ -497,7 +497,7 @@ async def test_artifacts_roundtrip_strips_and_restores_prefix(db_client, tmp_wor
     art = new_arts[0]
     assert art["artifact_id"] != art_id
     assert re.fullmatch(ID_KINDS["artifact"], art["artifact_id"])
-    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
     assert art["file_path"] == f"{agent_workspace_relpath(new_aid, user_id)}/work/output.html"
     assert art["session_id"] is None, f"session_id should be NULL; got {art['session_id']!r}"
     assert int(art["pinned"]) == 1, f"pinned should be forced to 1; got {art['pinned']!r}"

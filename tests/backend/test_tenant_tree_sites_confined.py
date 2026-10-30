@@ -22,7 +22,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from narranexus.platform.settings import settings
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 OWNER, VICTIM = "u1", "u2"
 A_OWN, A_VIC = "agent_0123456789ab", "agent_ba9876543210"
@@ -433,7 +433,7 @@ def test_manyfold_stat_swap_after_resolve_never_reports_the_victim(manyfold, mon
 async def test_team_wipe_never_deletes_through_a_swapped_shared_dir(db_client, ws):
     from narranexus_plugins.teams.routes import _wipe_team_data
     from narranexus.platform.schema.team_schema import Team
-    from narranexus.platform.utils.workspace_paths import team_shared_dir
+    from narranexus.platform.utils.fs.workspace_paths import team_shared_dir
 
     base = str(ws["base"])
     tid = "team_abc"

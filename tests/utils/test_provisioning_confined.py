@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 from narranexus.platform.settings import settings
-from narranexus.platform.utils.workspace_paths import agent_workspace_path, agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path, agent_workspace_relpath
 
 AGENT, USER = "agent_0123456789ab", "u1"
 V_AGENT, V_USER = "agent_ba9876543210", "u2"
@@ -310,7 +310,7 @@ def _arena_service(monkeypatch, workspace_path):
             updates["meta"] = upd["agent_metadata"]
 
     monkeypatch.setattr(agent_repo_mod, "AgentRepository", _Repo)
-    import narranexus.platform.utils.workspace_paths as wp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wp_mod
 
     monkeypatch.setattr(wp_mod, "agent_workspace_path", lambda *a, **kw: workspace_path)
     seen = {}

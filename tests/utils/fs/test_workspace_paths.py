@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import narranexus.platform.utils.workspace_paths as wp
+import narranexus.platform.utils.fs.workspace_paths as wp
 
 
 def test_flat_layout_matches_legacy(monkeypatch):

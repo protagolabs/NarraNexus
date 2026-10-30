@@ -53,7 +53,7 @@ from narranexus.platform.repository.instance_awareness_repository import (
 from narranexus.platform.repository.mcp_repository import MCPRepository
 from narranexus.platform.repository.event_memory_repository import EventMemoryRepository
 from narranexus.platform.module_system._module_impl.instance_factory import InstanceFactory
-from narranexus.platform.utils.workspace_paths import agent_workspace_path
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
 
 class ApplyResult(BaseModel):

@@ -69,7 +69,7 @@ ref, base)`。顺序很重要——发送方自己的 upload 优先，共享区�
 `{base}/{user_id}/_shared/bus_files` 内；`owner_user_id` 由工具从 `agents.created_by` 查出、
 `agent_id` 被注入身份强制覆盖，模型操纵不了——**跨用户不可能**。同 owner 内确有扩面：共享区按
 用户扁平（不按 team 分区），所以 agent A 现在能按 id 解析到它从未加入的团队群里人类上传的
-文件、再经 `team_share_file` 转进它所在的团队。但 `utils/workspace_paths.py::turn_accessible_roots`
+文件、再经 `team_share_file` 转进它所在的团队。但 `utils/fs/workspace_paths.py::turn_accessible_roots`
 早已把整棵 `bus_files` 树无条件授予每个回合（注释明写 "user-wide by design"），这只是省掉了
 "先 Read 再按工作区相对路径附上"一步，不是新的读取原语。工具 docstring（`message_agent` /
 `team_share_file`）同批改成与实现一致（原来写"只能分享你实际拥有的文件"）。真正收口属于共享区

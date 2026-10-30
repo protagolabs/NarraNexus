@@ -346,7 +346,7 @@ def _stub_cold_path(monkeypatch, svc, fake_onboarder_cls):
     import narranexus.platform.module_system._module_impl.instance_factory as if_mod
     monkeypatch.setattr(if_mod, "InstanceFactory", _IF)
 
-    import narranexus.platform.utils.workspace_paths as wp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wp_mod
     monkeypatch.setattr(wp_mod, "agent_workspace_path", lambda *a, **kw: Path("/tmp/nx_ws"))
 
     async def _noop_aw(self, *a, **kw):
@@ -470,7 +470,7 @@ def test_provision_warm_path_retries_bind_from_workspace_key(monkeypatch, tmp_pa
     (skill_dir / "credentials.json").write_text(
         json.dumps({"api_key": "arena_sk_fromfile", "agent_id": "arena_1"})
     )
-    import narranexus.platform.utils.workspace_paths as wp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wp_mod
     monkeypatch.setattr(wp_mod, "agent_workspace_path", lambda *a, **kw: tmp_path)
     # the credentials are read through the link-free walk below base_working_path
     from narranexus.platform.settings import settings as core_settings

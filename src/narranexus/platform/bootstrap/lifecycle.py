@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, NamedTuple, Optional
 from loguru import logger
 
 from narranexus.platform.bootstrap.profiles import auto_delete_threshold_from_meta
-from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
+from narranexus.platform.utils.fs.workspace_paths import resolve_existing_workspace
 
 if TYPE_CHECKING:
     from narranexus.platform.utils.db.database import AsyncDatabaseClient

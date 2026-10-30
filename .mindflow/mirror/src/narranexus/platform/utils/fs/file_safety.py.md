@@ -1,10 +1,14 @@
 ---
-code_file: src/narranexus/platform/utils/file_safety.py
-last_verified: 2026-08-18
+code_file: src/narranexus/platform/utils/fs/file_safety.py
+last_verified: 2026-10-30
 stub: false
 ---
 
-# file_safety.py
+## 2026-10-30 — 搬入 `utils/fs/`
+
+从 `utils/` 根搬入文件系统安全分组（意图见 [[utils/fs/__init__]]），纯搬迁、行为不变。调用方写 `from narranexus.platform.utils.fs import file_safety` / `narranexus.platform.utils.fs.file_safety`。
+
+# fs/file_safety.py
 
 Validation helpers that guard against path traversal and oversized uploads before any file is written to disk.
 

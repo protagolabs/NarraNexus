@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30 — 附件读取走受限 fd；workspace 不再 `resolve()`
 
 `workspace` 现在是**词法**（realpath(base)+字面尾段），原来对它 `.resolve()`，workspace 目录被换成链接时"受害者的目录"就成了"workspace"，逃逸守卫反而放行。

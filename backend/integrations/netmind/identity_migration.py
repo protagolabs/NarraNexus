@@ -286,7 +286,7 @@ async def execute_migration(
 def _rename_workspaces(
     base_working_path: str, agent_ids: List[str], old_id: str, new_id: str
 ) -> int:
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
     renamed = 0
     for agent_id in agent_ids:
         old_dir = agent_workspace_path(agent_id, old_id, base=base_working_path)
