@@ -12,9 +12,10 @@
  * modules in this page's realm and can call the global `fetch` directly;
  * `HostAPI.http` (platform/host.ts) is guarded, but nothing forces a plugin to
  * use it. Reads the guard refuses throw `RequestLoopBlockedError` — after
- * LOOP_BLOCK_DELAY_MS for the per-URL verdicts (a retry loop on one URL is
- * slowed), at once for page-budget verdicts (retrying sooner cannot change a
- * page-wide state; the delay would only stall callers that walk a list).
+ * LOOP_BLOCK_DELAY_MS for the per-URL verdicts and 'slot_full' (a retry would
+ * be refused again at once; the delay slows that loop), at once for the
+ * page-budget verdicts and 'slot_wait' (retrying sooner cannot change a
+ * page-wide state, and a slot_wait retry queues again for up to 15s).
  * Everything else is plain `fetch`, returning the `Response` untouched so
  * callers keep their own status handling.
  *

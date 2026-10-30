@@ -168,11 +168,11 @@ export const useConfigStore = create<ConfigState>()(
               // The guide login made for them first (imports in the welcome
               // flow may be newer); otherwise their newest own agent.
               ? (pickGuideAgent(res.agents, userId)?.agent_id || pickDefaultAgent(res.agents, userId)) : '';
-            set(stale
-              ? { agents: res.agents, agentsLoaded: true, agentId: '' }
-              : firstOwn
-                ? { agents: res.agents, agentsLoaded: true, agentId: firstOwn }
-                : { agents: res.agents, agentsLoaded: true });
+            set({
+              agents: res.agents,
+              agentsLoaded: true,
+              ...(stale ? { agentId: '' } : firstOwn ? { agentId: firstOwn } : {}),
+            });
           } else {
             // Keeping the previous list is deliberate (a backend hiccup must
             // not blank the sidebar) — being SILENT about it was not. The

@@ -61,7 +61,9 @@ sent); a newcomer never overtakes a queued read, even when capacity frees by fai
 expiry rather than a release; a queued read whose URL got fail-blocked meanwhile
 is refused unsent; a queued read is re-judged when served (a path proven
 meanwhile, or edge limits switched off, needs no slot); a status-0 answer does
-not prove a path; dispose refuses queued reads; a served queued read leaves no
+not prove a path; the slot queue is bounded (`slot_full` past `MAX_SLOT_WAITERS`) and
+a full-queue refusal waits the per-URL delay so a retry loop cannot spin; the first
+local-backend decision is logged once; dispose refuses queued reads; a served queued read leaves no
 timer behind and is reported once; a queued read is let through when
 the oldest failure leaves the window even though no slot is ever released; a local backend
 (mode `local`, or no mode on a loopback origin) has no page-wide limits; an
@@ -71,8 +73,9 @@ a local backend.
 
 Every mechanism was checked red on revert: wiring, block extension, the 2s gap,
 escalation, release time, prune backfill, the failure block and failure and
-rapid budgets, failure reporting in guardedFetch, in-flight counting and its
-the slot limit, immediate budget refusals, the local-backend switch and its
-fail-closed default, the agent_id path key,
+rapid budgets, failure reporting in guardedFetch, the in-flight slot limit,
+immediate budget refusals, the slot-queue cap and its delayed refusal, the
+local-backend switch, its one-time log and its fail-closed default, the
+agent_id path key,
 cross-tab sharing (class and both channel directions), and not counting
 budget refusals per URL.

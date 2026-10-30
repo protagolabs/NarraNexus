@@ -265,8 +265,8 @@ export class RequestLoopGuard {
    * switched off need no slot). Resolves to the release function
    * (call it once the read settles, however it settles), or to a refusal: the
    * page's failure budget filled ('fail_budget'), the read's URL got
-   * fail-blocked ('failing'), or no slot freed within SLOT_WAIT_MAX_MS
-   * ('slot_wait').
+   * fail-blocked ('failing'), no slot freed within SLOT_WAIT_MAX_MS
+   * ('slot_wait'), or the queue itself is full ('slot_full').
    * Paths whose last answer was a success, and every read when the edge limits are off
    * (a known-local backend), take no slot.
    */
@@ -281,8 +281,14 @@ export class RequestLoopGuard {
         return;
       }
       if (this.#slotQueue.length >= MAX_SLOT_WAITERS) {
-        resolve('slot_full');
-        return;
+        // Before refusing on a full queue, serve it once: capacity may be free
+        // with nobody having woken it (see the drain after enqueueing below).
+        this.#drainQueue();
+        if (this.#slotQueue.length === 0 && this.#tryGrant(waiter)) return;
+        if (this.#slotQueue.length >= MAX_SLOT_WAITERS) {
+          resolve('slot_full');
+          return;
+        }
       }
       waiter.timer = setTimeout(() => {
         this.#dequeue(waiter);
