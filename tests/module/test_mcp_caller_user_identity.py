@@ -10,7 +10,7 @@ the worst failure shape we have — the job IS created (success=True), but
 under the wrong user, so the owner's Jobs list stays empty forever while
 the agent reports success ("假成功").
 
-The user_id discipline is DELIBERATELY weaker than agent_id's:
+The user_id discipline (differs from agent_id's in how None is treated):
 - placeholder ("user_current", ...) → injected turn owner replaces it
 - ``None`` / absent → left alone. Retrieval tools use user_id=None as a
   legitimate "no filter" value; injecting there would silently change
@@ -228,3 +228,107 @@ async def test_external_user_id_tool_is_left_alone(external):
     with injected(agent_id_headers(AGENT, user_id=USER)):
         out = await fn(agent_id="agent_current", user_id=external, text="hi")
     assert out == {"agent_id": AGENT, "user_id": external}
+
+
+# ---------------------------------------------------------------------------
+# Inventory gate: every real tool's user_id is classified (2026-10-30)
+# ---------------------------------------------------------------------------
+# The default is "account id, follows the turn owner". A new tool whose
+# user_id is a third-party id and forgets @external_user_id would have its
+# argument silently rewritten to the owner — no error, just the wrong target.
+# Adding such a tool must turn this red until it is consciously classified.
+
+EXTERNAL_USER_ID_TOOLS = {"discord_dm"}
+
+
+def _real_user_id_tools():
+    import inspect
+
+    from narranexus.platform.module_system import module_registry
+
+    found = {}
+    for _name, cls in module_registry.items():
+        try:
+            mcp = cls(agent_id="probe", user_id="probe", database_client=None).build_instrumented_mcp_server()
+        except Exception:
+            continue
+        if mcp is None:
+            continue
+        for tool in mcp._tool_manager.list_tools():
+            fn = getattr(tool, "fn", None)
+            try:
+                params = inspect.signature(fn).parameters
+            except (TypeError, ValueError):
+                continue
+            if "user_id" in params:
+                found[tool.name] = fn
+    return found
+
+
+def test_every_user_id_tool_is_classified():
+    tools = _real_user_id_tools()
+    external = {n for n, fn in tools.items() if getattr(fn, "_nx_external_user_id", False)}
+    assert external == EXTERNAL_USER_ID_TOOLS, (
+        f"tools marked @external_user_id changed: {sorted(external)}. A user_id that "
+        f"is NOT a NarraNexus account must be marked; update EXTERNAL_USER_ID_TOOLS "
+        f"deliberately."
+    )
+    # Coverage floor (see test_every_agent_id_tool_is_async): the except/continue
+    # above would otherwise let this gate hollow out while staying green.
+    assert len(tools) >= 38, f"only {len(tools)} user_id tools inspected — coverage shrank"
+
+
+@pytest.mark.asyncio
+async def test_discord_dm_receives_the_snowflake_through_the_real_wrapper(monkeypatch):
+    """Through the real module server (install_caller_identity applied): the
+    Discord snowflake must reach the body untouched, never the turn owner."""
+    from narranexus_plugins.discord_module import _discord_mcp_tools as tools_mod
+
+    seen = {}
+
+    class _Cred:
+        bot_token = "t"
+
+    async def _cred(agent_id):
+        return _Cred()
+
+    class _Client:
+        def __init__(self, token):
+            pass
+
+        async def create_dm_channel(self, user_id):
+            seen["user_id"] = user_id
+            return ""  # stop before any send
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(tools_mod, "_get_credential", _cred)
+    monkeypatch.setattr(tools_mod, "DiscordSDKClient", _Client)
+    fn = _real_user_id_tools()["discord_dm"]
+    snowflake = "123456789012345678"
+    with injected(agent_id_headers(AGENT, user_id=USER)):
+        await fn(agent_id=AGENT, user_id=snowflake, text="hi")
+    assert seen["user_id"] == snowflake
+
+
+@pytest.mark.asyncio
+async def test_positional_mismatching_user_is_overridden():
+    fn = _fn(_server(), "needs_both")
+    with injected(agent_id_headers(AGENT, user_id=USER)):
+        out = await fn(AGENT, OTHER_USER, "t")
+    assert out["user_id"] == USER
+
+
+def test_sync_tool_mismatching_user_is_overridden():
+    from mcp.server.fastmcp import FastMCP
+
+    mcp = FastMCP("sync-user")
+
+    @mcp.tool()
+    def user_only(user_id: str) -> dict:
+        return {"user_id": user_id}
+
+    install_caller_identity(mcp)
+    with injected({USER_ID_HEADER: USER}):
+        assert _fn(mcp, "user_only")(user_id=OTHER_USER) == {"user_id": USER}

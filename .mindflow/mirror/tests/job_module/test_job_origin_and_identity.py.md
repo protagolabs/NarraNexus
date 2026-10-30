@@ -1,6 +1,6 @@
 ---
 code_file: tests/job_module/test_job_origin_and_identity.py
-last_verified: 2026-08-17
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -18,9 +18,8 @@ stub: false
 
 ## 为什么身份修在写入点而不是身份层
 
-[[_mcp_identity]] 的 `resolve_caller_user_id` 只覆盖占位符，注释写明多用户流里
-「看似真实但不匹配」的值可能合法——那是关于**通用身份策略**的判断，本文件不去
-动它。「这个 job 是谁的」是更窄、且库里有答案的问题（`agents.created_by`），所
+[[_mcp_identity]] 的 `resolve_caller_user_id` 自 2026-10-30 起在有注入身份时把不一致
+的值改成回合所有者，但不覆盖无注入的路径。「这个 job 是谁的」是更窄、且库里有答案的问题（`agents.created_by`），所
 以断言打在 `create_job_from_args` 上：那是本地 MCP 进程与云端 seam 路由**共用**
 的写入路径，修在更上层会漏掉其中一个调用方。
 

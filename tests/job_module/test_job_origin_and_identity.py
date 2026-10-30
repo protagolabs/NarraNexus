@@ -22,11 +22,10 @@ asked for in a team room was filed under `usr_<uid>` or a peer's `agent_id` —
 an owner that does not exist. The owner's Jobs list stayed empty while the
 agent reported success.
 
-`_mcp_identity.resolve_caller_user_id` deliberately does NOT fix this: it
-overrides placeholders only, and its comment says a mismatching REAL value can
-be legitimate in multi-user flows. That judgement is about the generic identity
-path and is left alone. A job's owner is a narrower question with a ground
-truth — `agents.created_by` — so it is answered at the write site.
+`_mcp_identity.resolve_caller_user_id` overrides a mismatching value with the
+injected turn owner (since 2026-10-30), but only when an identity was
+injected. A job's owner has a ground truth — `agents.created_by` — so it is
+also answered at the write site, which covers callers without injection.
 
 The regression half matters as much: a job asked for in private chat must
 behave exactly as before, both in where it reports and in whose name it runs

@@ -89,10 +89,11 @@ TURN_SOURCE_HEADER = "X-NarraNexus-Turn-Source"
 # WHO owns this turn — the user whose request the agent is serving. Same
 # problem, worse failure shape: a model-guessed user_id on job_create still
 # CREATES the job (success=True) — under the wrong user, so the owner's Jobs
-# list stays empty forever while the agent reports success. Unlike agent_id
-# this is resolved placeholder-only (see resolve_caller_user_id): None is a
-# legitimate "no filter" value on retrieval tools, and a mismatching real
-# value can be legitimate in multi-user flows — measure before overriding.
+# list stays empty forever while the agent reports success. A supplied
+# placeholder OR mismatching value yields to this header (see
+# resolve_caller_user_id); None is left alone (a legitimate "no filter" value
+# on retrieval tools), and tools whose user_id is a third-party id opt out
+# with @external_user_id.
 USER_ID_HEADER = "X-NarraNexus-User-Id"
 
 # WHO/WHERE this turn's own errand is aimed at, when it has one: the peer that

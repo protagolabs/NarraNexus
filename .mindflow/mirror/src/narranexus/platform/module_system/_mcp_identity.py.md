@@ -13,7 +13,14 @@ stub: false
 
 真正指外部平台用户的参数（目前只有 Discord 的 `discord_dm`，Discord snowflake）用
 `@external_user_id` 标注（放在 `@mcp.tool()` 下面），wrapper 对其 `user_id` 完全不做
-解析，`agent_id` 照常解析。新增工具如果 `user_id` 是第三方 id，必须加这个标注。
+解析，`agent_id` 照常解析。新增工具如果 `user_id` 是第三方 id，必须加这个标注；
+`test_every_user_id_tool_is_classified` 钉死了带标注的集合（遍历真实的
+`build_instrumented_mcp_server()`，带覆盖下限），漏标会变红。
+
+范围说明：这一条防的是**模型在参数里填错/填别人的 id**。恶意直连 MCP 的调用方能否伪造
+注入身份本身，取决于 `NX_MCP_AUTH_MODE`——只有 enforce 模式下注入身份是经过签名证明的。
+语义变化：`submit_feedback` 在公开/官方 agent 上的反馈人一律记为 agent 属主（注入值恒为
+`agents.created_by`，见 agent_runtime 的 run 起点）。
 
 ## 2026-10-08（PR #410 review）
 
@@ -122,7 +129,7 @@ Ed25519 短期 JWT(云=broker 在 ensure() 时签,本地=agent-runtime 进程自
 `tests/module/test_mcp_caller_identity.py` 里的 arity 触发器（前人留的「arity changed —
 update _parse_bearer + this test」）按设计触发并已同步到 6。
 
-## 2026-08-04 — user_id 上线同一 seam（W1），纪律刻意弱于 agent_id
+## 2026-08-04 — user_id 上线同一 seam（W1）（当时纪律刻意弱于 agent_id，2026-10-30 已收紧）
 
 `X-NarraNexus-User-Id` + bearer 第 5 位（`BEARER_FIELDS` 尾部追加，老
 4 字段 bearer 解析出 user_id=None，兼容由既有 `_parse_bearer` 无界
@@ -130,9 +137,8 @@ split+截断保证）。动机是 job_create 的最恶性失败形状：模型�
 user_id 时 job **建成功**（success=True）但落在幻影用户名下——属主的
 Jobs 列表永远空着，agent 却报成功（假成功）。
 
-**与 agent_id 的三点刻意不同**（`resolve_caller_user_id` docstring 是
-契约原文）：
-1. **占位符才注入**（`user_current` 等 `PLACEHOLDER_USER_IDS`）；
+**与 agent_id 的异同**（`resolve_caller_user_id` docstring 是契约原文）：
+1. **占位符与不一致的真实值都让位于注入的回合所有者**（2026-10-30 前只有占位符）；
 2. **None 永远不碰**——检索工具用 `user_id=None` 表达「不过滤」，注入
    会静默改变查询语义；`is_placeholder_user_id(None)` 为 False（与
    `is_placeholder_agent_id` 极性相反，两个函数不能互换）；也因此
