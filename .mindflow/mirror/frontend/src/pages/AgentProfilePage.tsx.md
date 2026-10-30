@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/pages/AgentProfilePage.tsx
-last_verified: 2026-09-11
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 路由参数先过 `agentIdFromRoute`
+
+`agentId` 不再直接 `decodeURIComponent(routeAgentId)`：解码失败或解出的 id
+路径不安全（见 [[agentIdSafety.ts]]）一律当成 `''`，走已有的 `missingAgent`
+空态，effect 的 `if (!agentId) return` 保证不发任何请求、也不写 store。防的是
+`/app/agents/.x` 这类构造链接让受害者浏览器发出越界请求、被监控 v2 升级封号。
 
 ## 2026-09-11 — rename report + delete moved into `useAgentActions` (shared with the sidebar)
 

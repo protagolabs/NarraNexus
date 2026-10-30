@@ -4,6 +4,12 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `RequestLoopBlockedError(reason)`
+
+可选参数 `'limit' | 'slow'`（默认 `'limit'`）：`'slow'` 用于守卫的 `slot_wait` 拒绝（在途槽位
+15 秒内没有释放——服务端慢），文案取 `common.requestSlow`（10 个 locale 都已加），不再和限流共用
+「请求过多」，免得把慢后端说成用户请求太多。
+
 # apiError.ts — error types shared by the API client and guardedFetch
 
 ## Why it exists

@@ -3035,7 +3035,8 @@
     "downloadFailed": "Download failed: {{error}}",
     "doneTitle": "Done",
     "edit": "Edit",
-    "requestBlocked": "Too many repeated requests. Try again shortly."
+    "requestBlocked": "Too many requests. Try again shortly.",
+    "requestSlow": "The server is responding slowly. Try again shortly."
   },
   "toast": {
     "view": "View",

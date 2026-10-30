@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/components/welcome/StepAgent.tsx
-last_verified: 2026-08-27
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 只等查看者自己的引导 agent
+
+从 store 读 `userId` 传给 `pickGuideAgent`（见 [[guideAgent]]）：轮询期间列表里陌生人的公开
+bootstrap agent 不会被当成引导 agent 介绍；等不到就按原逻辑放行，不退而选别的 agent。
 
 # welcome/StepAgent.tsx — welcome step 3 (always last), meet the guide agent
 

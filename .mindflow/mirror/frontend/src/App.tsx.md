@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-09-10
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `onboardingGate` 路径变更
+
+`owesWelcomeFlow` 改从 `@/lib/agentIdentity/onboardingGate` 导入（该文件随 agent 身份相关模块
+移入 `lib/agentIdentity/`），行为不变。
 
 ## 2026-09-10 — 熔断横幅轮询抽成 `useCircuitBannerAutoClear`，事件 handler 去重
 

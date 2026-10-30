@@ -2520,7 +2520,8 @@
     "savedTo": "Guardado en {{path}}",
     "downloadFailed": "Error al descargar: {{error}}",
     "doneTitle": "Listo",
-    "requestBlocked": "Demasiadas solicitudes. Inténtalo de nuevo en breve."
+    "requestBlocked": "Demasiadas solicitudes. Inténtalo de nuevo en breve.",
+    "requestSlow": "El servidor responde con lentitud. Inténtalo de nuevo en breve."
   },
   "toast": {
     "view": "Ver",

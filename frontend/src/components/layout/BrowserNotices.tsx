@@ -48,8 +48,10 @@ function AgentBrowserNotices({ agentId }: { agentId: string }) {
 
   useEffect(() => {
     let active = true;
-    // 404 = this server never mounted /api/browser (a distribution that excludes the feature).
-    let featureAbsent = false;
+    // 404 = this server never mounted /api/browser (a distribution that excludes the feature);
+    // 403 = the viewer does not own this agent (someone else's public agent). Neither changes by
+    // asking again, so polling stops — a 2s poll on a 403 is a stream of failures the edge bans on.
+    let stopPolling = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
       setChecking(true);
@@ -65,8 +67,8 @@ function AgentBrowserNotices({ agentId }: { agentId: string }) {
         // 5xx / network errors stay a visible, retried failure. This is the safety net for the case
         // the factory listing could not be read (5xx, timeout, expired token) and so never removed
         // the Browser panel; the listing remains the primary signal.
-        if (e instanceof ApiError && e.status === 404) {
-          featureAbsent = true;
+        if (e instanceof ApiError && (e.status === 404 || e.status === 403)) {
+          stopPolling = true;
           setError(null);
         } else {
           setError(e instanceof Error ? e.message : String(e));
@@ -75,7 +77,7 @@ function AgentBrowserNotices({ agentId }: { agentId: string }) {
         if (active) {
           setChecking(false);
           // Schedule only after settlement, so slow polls cannot overlap.
-          if (!featureAbsent) timer = setTimeout(() => { void load(); }, POLL_MS);
+          if (!stopPolling) timer = setTimeout(() => { void load(); }, POLL_MS);
         }
       }
     };

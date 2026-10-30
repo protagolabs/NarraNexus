@@ -14,6 +14,12 @@ stub: false
 toast / 徽标规则不变：首次只记录、非当前 agent 时间戳前进才提醒、同一时间戳不重复；单次调用失败
 下个 tick 重试，并 `console.warn` 一行（一块最多 200 个 agent 这次没提醒，持续失败不能是静默的）。`refreshAgents` 仍在 30s 的 mid tick，节奏未变。
 
+## 2026-10-30 — 首登快速轮询按「自己的 agent」判断是否已到
+
+快速轮询的进入 / 退出条件从 `agents.length > 0` 改为 `ownsAnyAgent(agents, userId)`：
+列表含全平台公开 agent，非空不代表新用户的引导 agent 已供给，原条件在 prod 上让快速
+轮询直接不启动。引导 agent 出现后由 `configStore.refreshAgents` 自动选中（见其 mirror）。
+
 ## 2026-08-21 — tickBgMessages「有新回复」信号只订阅 chat 流
 
 `tickBgMessages` 用 `getSimpleChatHistory(aid, 5)` 尾条时间戳前进当作"该 agent 有新回复"→ 弹 toast +

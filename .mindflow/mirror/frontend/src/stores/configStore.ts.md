@@ -1,8 +1,49 @@
 ---
 code_file: frontend/src/stores/configStore.ts
-last_verified: 2026-08-17
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `refreshAgents`：失效选中清空、新用户首个 agent 自动选中、换号丢弃
+
+成功拿到列表后：
+
+- **失效选中清成 `''`，不换人。** 当前 `agentId` 不在列表里（已删除 / 别人的私有 agent /
+  构造链接写进来的合法格式 id）时清空——否则它被 persist，每次加载各面板都请求它，成串
+  403/404（监控 v2 按失败数封 IP）。不自动换成别的 agent：聊天中途静默换人，下一条消息
+  就发错对象。只判断**请求发出时就已是当前选中**的值，请求在途期间新选的（刚创建的
+  agent）可能晚于这份列表，不能被它判死。同一会话里清空后不会自动再选；完整重新加载时
+  AgentList 挂载用 [[defaultAgent.ts]] 挑查看者自己的默认 agent（列表含全平台公开 agent，
+  `agents[0]` 常是陌生人的，不能用）。
+- **新用户第一个自己的 agent 出现的那一刻自动选中。** 请求前后都没有选中、旧列表里没有
+  任何自己的 agent、新列表里有了——优先选引导 agent（[[guideAgent]] `pickGuideAgent`，
+  欢迎流程里同时导入的 agent 可能更新），否则自己最新的。新用户的引导 agent 在登录返回后
+  才供给，登录页和侧栏挂载时都无可选。判据是「从无到有」这个转变，**不是**
+  `bootstrap_active`：后端只看 workspace 里 `Bootstrap.md` 是否还在，每个还没聊满 3 轮的
+  自己的 agent 都带着它，按它判会把老用户被清空的选中悄悄填上，违背「清空不换人」。
+  副作用（接受）：零自有 agent 的用户走 `useAgentImported(open:false)` 时，这次 refresh 也会
+  选中第一个 agent（不导航）；arenaLanding / open:true 导入随后显式选自己的目标，中间可能
+  多一轮对自己 agent 的面板请求，不会 403。
+- **登出 / 换号后到达的响应直接丢弃**（`get().userId` 已变），不写进新会话。
+- **`agentsLoaded`**：**只有** `refreshAgents` 成功拿到列表时置 true（`setAgents` 不置位：
+  LoginPage 直接写入的列表、`useCreateAgent` 的乐观插入都不算「本次会话取过」；bundle-export 是
+  `layout: 'app'`，进入前侧栏 AgentList 挂载时必然已刷新过），`login` / `logout` 置 false；rehydrate 的
+  `merge` 强制回 false，所以存储里的值永远不算数（没用 `partialize`，省下首屏体积）。`agents` 本身仍持久化（侧栏首屏靠它
+  立即出内容），所以冷启动时它可能是上一次会话的旧列表；需要按「当前列表」判断的代码（如
+  BundleExportPage 的 `?agents=` 快捷入口）等这个标记。
+- `success:false` / 网络失败一律不动选中与列表。
+- `chatStore.activeAgentId` 不在这里同步：BrowserNotices 读它，对已失效 id 最多再请求一次
+  （403/404 后停止轮询）。
+
+## 2026-10-30 — active agent id 拒收「不可能是真 agent」的值
+
+`setAgentId` 对非空且 `isSafeAgentId` 为假的值（空串以外的 dot 开头、含
+`/` `\` `%` NUL）**直接忽略**，保留原选中，并 `console.warn` 一行（只说拒绝了，不打出 id——
+它常是链接可控内容）；persist 新增 `merge`，rehydrate 时
+把这类已存值清成 `''`。原因：后端对非单段路径的 agent id 记签名越界，监控 v2
+对同一账号 10 分钟内 ≥2 个不同越界值会封号+封其独占 IP；active agent id 是所有
+面板请求的拼接来源，一旦被恶意链接或旧状态写进来，用户自己的浏览器就会替攻击者
+「刷」越界。规则单点在 [[agentIdSafety.ts]]。`''` 仍是合法的「清空选中」。
 
 ## 2026-08-17 — `refreshAgents` 被服务端拒绝时不再一声不吭
 
@@ -114,4 +155,4 @@ Depends on `api.ts` (`getAgents`, `getAwareness`) and `@/types` for `AgentInfo`.
 
 **`cloud-web` mode never shows "Change Mode".** If `mode === 'cloud-web'` (force-deployed cloud build), `LoginPage` hides the "Change Mode" button. Calling `logout()` in this mode clears the session but leaves `mode` as `cloud-web` in `runtimeStore`, sending the user directly back to `/login` instead of `/mode-select`.
 
-**`refreshAgents` silently ignores network errors.** Called by `useAutoRefresh` every 30 seconds. A transient backend restart will not clear the agent list — it just logs a console error. This is intentional so a brief backend restart doesn't destroy the UI.
+**`refreshAgents` keeps the list on errors, and says so.** Called by `useAutoRefresh` every 30 seconds. A transient backend restart or a `{success:false}` answer will not clear the agent list (a brief backend restart must not destroy the UI); both paths log a console error (see the 2026-08-17 entry).
