@@ -14,6 +14,7 @@ import json
 import pytest
 import pytest_asyncio
 
+import narranexus_plugins.chat_module._chat_latest as cl
 import narranexus_plugins.chat_module.routes as ch
 from narranexus.platform.repository import InstanceRepository
 from narranexus.platform.utils.db.database import AsyncDatabaseClient
@@ -94,7 +95,7 @@ async def test_endpoint_and_cache_on_mysql(mysql_client, monkeypatch):
         return mysql_client
 
     monkeypatch.setattr(ch, "get_db_client", _db)
-    ch._LATEST_CACHE.clear()
+    cl._LATEST_CACHE.clear()
     install_web_host()
 
     async def latest():
@@ -109,8 +110,8 @@ async def test_endpoint_and_cache_on_mysql(mysql_client, monkeypatch):
         # updated_at is a DATETIME(6) value here: an unchanged row must compare equal
         # (served from the cache) and a rewritten row must not.
         parsed = []
-        real = ch._latest_conversation_row
-        monkeypatch.setattr(ch, "_latest_conversation_row", lambda m: parsed.append(1) or real(m))
+        real = cl.latest_conversation_row
+        monkeypatch.setattr(cl, "latest_conversation_row", lambda m: parsed.append(1) or real(m))
         assert (await latest())[AGENTS[0]] == "2026-10-30T10:00:00"
         assert parsed == []
         # Through the production writer, whose upsert bumps updated_at
@@ -125,4 +126,4 @@ async def test_endpoint_and_cache_on_mysql(mysql_client, monkeypatch):
         assert (await latest())[AGENTS[0]] == "2026-10-30T13:00:00"
         assert parsed == [1]
     finally:
-        ch._LATEST_CACHE.clear()
+        cl._LATEST_CACHE.clear()

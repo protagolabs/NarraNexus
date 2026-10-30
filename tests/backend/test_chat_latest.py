@@ -19,6 +19,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+import narranexus_plugins.chat_module._chat_latest as cl
 import narranexus_plugins.chat_module.routes as ch
 
 OWNER = "owner_u1"
@@ -62,7 +63,7 @@ async def env(monkeypatch):
         return db
 
     monkeypatch.setattr(ch, "get_db_client", _db)
-    ch._LATEST_CACHE.clear()
+    cl._LATEST_CACHE.clear()
     install_web_host()
 
     app = FastAPI()
@@ -77,7 +78,7 @@ async def env(monkeypatch):
     try:
         yield client, db, instance
     finally:
-        ch._LATEST_CACHE.clear()
+        cl._LATEST_CACHE.clear()
         await db.close()
 
 
@@ -158,8 +159,8 @@ async def test_a_new_message_is_seen_and_an_unchanged_row_is_not_reparsed(env, m
     assert _latest(client, OWNER, ["a1"]) == {"a1": "2026-10-30T10:00:00"}
 
     parsed = []
-    real = ch._latest_conversation_row
-    monkeypatch.setattr(ch, "_latest_conversation_row", lambda m: parsed.append(1) or real(m))
+    real = cl.latest_conversation_row
+    monkeypatch.setattr(cl, "latest_conversation_row", lambda m: parsed.append(1) or real(m))
     # Unchanged row: served from the cache, memory not read or parsed again.
     assert _latest(client, OWNER, ["a1"]) == {"a1": "2026-10-30T10:00:00"}
     assert parsed == []
@@ -199,10 +200,56 @@ async def test_several_instances_of_one_agent_report_the_newest(env):
 
 
 @pytest.mark.asyncio
+async def test_one_malformed_memory_row_costs_only_its_own_agent(env):
+    """A list-shaped blob, a non-dict message, a null meta_data: each must cost
+    only its own agent, not blank the signal for the whole list."""
+    client, db, instance = env
+    await instance("ok", "a_ok", OWNER, _msg("assistant", "fine", "2026-10-30T10:00:00"))
+    await db.insert("module_instances", {"instance_id": "bad1", "agent_id": "a_bad1", "user_id": OWNER,
+                                         "module_class": "ChatModule", "status": "active"})
+    await db.insert("instance_json_format_memory_chat", {"instance_id": "bad1", "memory": json.dumps([1, 2])})
+    await instance("bad2", "a_bad2", OWNER, {"role": "assistant", "content": "x", "meta_data": None})
+    await db.insert("module_instances", {"instance_id": "bad3", "agent_id": "a_bad3", "user_id": OWNER,
+                                         "module_class": "ChatModule", "status": "active"})
+    await db.insert("instance_json_format_memory_chat",
+                    {"instance_id": "bad3", "memory": json.dumps({"messages": ["not a dict"]})})
+    assert _latest(client, OWNER, ["a_ok", "a_bad1", "a_bad2", "a_bad3"]) == {"a_ok": "2026-10-30T10:00:00"}
+
+
+@pytest.mark.asyncio
+async def test_ties_resolve_like_the_conversation_tab(env):
+    """Equal parsed times, different raw strings: the tab's stable sort keeps the
+    later message within an instance, and the later-listed (older) instance."""
+    client, _db, instance = env
+    await instance("c_new", "a1", OWNER,
+                   _msg("assistant", "x", "2026-10-30T10:00:00Z"),
+                   _msg("assistant", "y", "2026-10-30T10:00:00+00:00"))
+    await instance("c_old", "a1", OWNER, _msg("assistant", "z", "2026-10-30T10:00:00.000"))
+    assert _latest(client, OWNER, ["a1"])["a1"] == _tab_newest(client, OWNER, "a1")
+
+
+@pytest.mark.asyncio
+async def test_a_tie_inside_one_instance_keeps_the_later_message(env):
+    client, _db, instance = env
+    await instance("c1", "a1", OWNER,
+                   _msg("assistant", "x", "2026-10-30T10:00:00Z"),
+                   _msg("assistant", "y", "2026-10-30T10:00:00+00:00"))
+    latest = _latest(client, OWNER, ["a1"])["a1"]
+    assert latest == "2026-10-30T10:00:00+00:00"
+    assert latest == _tab_newest(client, OWNER, "a1")
+
+
+def test_unauthenticated_call_is_refused(env):
+    client, _db, _instance = env
+    r = client.get("/api/agents/chat-latest", params={"agent_ids": "a1"})
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_input_bounds(env):
     client, _db, _instance = env
     assert _latest(client, OWNER, []) == {}
-    too_many = [f"a{i}" for i in range(ch._CHAT_LATEST_MAX_AGENTS + 1)]
+    too_many = [f"a{i}" for i in range(cl.CHAT_LATEST_MAX_AGENTS + 1)]
     r = client.get("/api/agents/chat-latest", params={"agent_ids": ",".join(too_many)},
                    headers={"x-test-user": OWNER})
     assert r.status_code == 422

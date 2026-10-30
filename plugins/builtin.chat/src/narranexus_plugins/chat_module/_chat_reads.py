@@ -41,7 +41,7 @@ import json
 
 from loguru import logger
 
-_CHAT_MEMORY_TABLE = "instance_json_format_memory_chat"
+from narranexus_plugins.chat_module._chat_projection import CHAT_MEMORY_TABLE as _CHAT_MEMORY_TABLE
 
 
 def _empty(instance_id: str, note: str) -> dict:

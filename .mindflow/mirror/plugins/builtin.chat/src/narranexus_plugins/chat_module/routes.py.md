@@ -4,27 +4,15 @@ last_verified: 2026-10-30
 stub: false
 ---
 
-## 2026-10-30 — `GET /chat-latest` + `_project_message` 抽出
+## 2026-10-30 — `GET /chat-latest`；单条消息投影抽到 `_chat_projection`
 
-**`_project_message(msg, peer_scoped)`**：把 simple-chat-history 循环里「一条 memory 消息在 owner 面板
-上显示成什么（或不显示）」原样抽成函数——peer scope 只留 a2a/message_bus、非 user-facing 来源只留
-assistant、IM/job 不通知 owner 时折叠成 activity、owner_notify 原文透出。纯搬移，行为不变
-（test_activity_log_a2a_visibility 全绿）。
+simple-chat-history 循环里「一条 memory 消息在 owner 面板上显示成什么（或不显示）」原样抽成
+[[_chat_projection]] 的 `project_message`（连同 `parse_timestamp` / `parse_json_field` / 两个
+来源常量 / 表名常量），本文件用本地别名导入，行为不变（test_activity_log_a2a_visibility 全绿）。
 
-**`GET /api/agents/chat-latest?agent_ids=a,b,...`**（≤200 个，超出 422）：对每个 agent 返回调用者**自己的**
-ChatModule instance 里、对话 tab（include='chat'）最新一行的时间戳；没有这样一行的 agent 不出现。
-给侧栏后台「有新回复」用，替代逐 agent 调 simple-chat-history。与 tab **按构造一致**：同一个
-`_project_message`，activity 行不算，时间相同时取后者（同 tab 的稳定排序）。测试直接拿真实
-simple-chat-history 对拍。
-
-成本：一次索引查询（`InstanceRepository.list_ids_by_agents_and_user`，走 `(agent_id, user_id)`）、
-一次只取 `(instance_id, updated_at)` 的投影读，只有 `updated_at` 变了的 memory 行才整读+解析。
-进程内缓存 `_LATEST_CACHE`（instance_id → (updated_at, 结果)，上限 2 万、旧的先淘汰）是纯缓存，
-多进程各自正确。**只信任亚秒精度的 `updated_at`**（`_stamp_is_precise`）：MySQL DATETIME(6) 带微秒；
-SQLite 的 `datetime('now')` 只有整秒，同一秒两次写入 `updated_at` 不变，第二次会被漏掉——所以整秒
-时间戳每次重读（本地单用户，成本等于原来逐 agent 轮询，但只 1 个请求）。依赖：chat memory 的写入口
-`EventMemoryRepository.add_instance_json_format_memory` 的 upsert 会把 `updated_at` 刷成
-`CURRENT_TIMESTAMP(6)`；新增写入口若直接 UPDATE 而不刷 `updated_at`，缓存会过期。
+新增 **`GET /api/agents/chat-latest?agent_ids=…`**（≤200 个，超出 422；需登录）：薄壳，解析去重
+后交给 [[_chat_latest]] 的 `chat_latest_for_user`，返回每个 agent 对话 tab 最新一行的时间戳。侧栏
+后台「有新回复」用，替代逐 agent 调 simple-chat-history；投影、作用域、成本与缓存见 [[_chat_latest]]。
 
 ## 2026-10-28 — `event-log/{event_id}` 加 owner 门
 
