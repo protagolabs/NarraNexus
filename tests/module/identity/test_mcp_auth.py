@@ -341,30 +341,18 @@ def test_every_agent_id_tool_is_async():
     would silently bypass the policy."""
     import inspect
 
-    from narranexus.platform.module_system import module_registry
+    from tests.module._tool_surface import served_tools
 
+    # The served (instrumented) fns: the wrapper is async exactly when the
+    # tool is, so this checks what module_runner actually serves.
+    tools, _failed = served_tools()
     offenders = []
     checked = 0
-    for name, cls in module_registry.items():
-        try:
-            m = cls(agent_id="probe", user_id="probe", database_client=None)
-            mcp = m.create_mcp_server()
-        except Exception:
-            continue
-        if mcp is None:
-            continue
-        for tool in mcp._tool_manager.list_tools():
-            fn = getattr(tool, "fn", None)
-            if fn is None:
-                continue
-            try:
-                params = inspect.signature(fn).parameters
-            except (TypeError, ValueError):
-                continue
-            if "agent_id" in params and not inspect.iscoroutinefunction(fn):
-                offenders.append(f"{name}.{tool.name}")
-            if "agent_id" in params:
-                checked += 1
+    for t in tools:
+        if "agent_id" in t.params and not inspect.iscoroutinefunction(t.fn):
+            offenders.append(f"{t.module}.{t.name}")
+        if "agent_id" in t.params:
+            checked += 1
     assert offenders == [], (
         f"sync tools declaring agent_id bypass OwnerScopedPolicy: {offenders}"
     )

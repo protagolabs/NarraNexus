@@ -19,6 +19,13 @@ stub: false
 `ACCOUNT_USER_ID_TOOLS` 或 `EXTERNAL_USER_ID_TOOLS` 之一，且标注与所在集合一致；新增工具
 不归类就变红，逼人显式判断。
 
+**覆盖留 DB 审计**（auto-review #428）：每次覆盖真实值都进进程内计数
+（`_note_user_override`，同步、无 I/O），由 async 包装层每次调用后
+`flush_user_overrides()` 按 60 秒窗口写一行 `mcp_identity_user_override`
+（instance_executor_audit）。形状照搬 mcp_auth 的 tokenless 测量：`supplied` 调用方可控，
+长度截 64、key 数上限 256，超出全部并入一个常量桶。sync 工具没法 await，计数留到同进程下一次
+async 调用时落盘。审计失败只记 debug，不影响工具。
+
 范围说明：这一条防的是**模型在参数里填错/填别人的 id**。恶意直连 MCP 的调用方能否伪造
 注入身份本身，取决于 `NX_MCP_AUTH_MODE`——只有 enforce 模式下注入身份是经过签名证明的。
 语义变化：`submit_feedback` 在公开/官方 agent 上的反馈人一律记为 agent 属主（注入值恒为

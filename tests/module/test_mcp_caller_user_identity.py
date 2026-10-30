@@ -257,31 +257,12 @@ ACCOUNT_USER_ID_TOOLS = {
 
 
 def _real_user_id_tools():
-    import inspect
+    from tests.module._tool_surface import served_tools
 
-    from narranexus.platform.module_system import module_registry
-
-    found = {}
-    failed = []
-    for name, cls in module_registry.items():
-        try:
-            mcp = cls(agent_id="probe", user_id="probe", database_client=None).build_instrumented_mcp_server()
-        except Exception as e:  # noqa: BLE001 — reported below, never skipped silently
-            failed.append(f"{name}: {type(e).__name__}: {e}")
-            continue
-        if mcp is None:
-            continue
-        for tool in mcp._tool_manager.list_tools():
-            fn = getattr(tool, "fn", None)
-            try:
-                params = inspect.signature(fn).parameters
-            except (TypeError, ValueError):
-                continue
-            if "user_id" in params:
-                found[tool.name] = fn
+    tools, failed = served_tools()
     # A module that cannot be built would hide its tools from the gate.
     assert not failed, f"modules failed to build under probe args: {failed}"
-    return found
+    return {t.name: t.fn for t in tools if "user_id" in t.params}
 
 
 def test_every_user_id_tool_is_classified():
@@ -358,3 +339,111 @@ def test_sync_tool_mismatching_user_is_overridden():
     install_caller_identity(mcp)
     with injected({USER_ID_HEADER: USER}):
         assert _fn(mcp, "user_only")(user_id=OTHER_USER) == {"user_id": USER}
+
+
+# ---------------------------------------------------------------------------
+# Overrides leave a durable, bounded audit row (auto-review #428, Important)
+# ---------------------------------------------------------------------------
+# Rewriting user_id silently changes which account a call lands under; a log
+# line alone vanishes with the container. Same shape as mcp_auth's tokenless
+# measurement: in-process counts, bounded keys, one row per flush window.
+
+
+@pytest.fixture
+def audit_rows(monkeypatch):
+    from narranexus.platform.module_system import _mcp_identity as ident
+
+    rows: list[dict] = []
+
+    async def fake_get_db_client():
+        return object()
+
+    class FakeAuditRepo:
+        def __init__(self, db):
+            pass
+
+        async def record(self, **kw):
+            rows.append(kw)
+
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", fake_get_db_client)
+    monkeypatch.setattr(
+        "narranexus.platform.repository.executor_audit_repository.ExecutorAuditRepository",
+        FakeAuditRepo,
+    )
+    ident._override_counts.clear()
+    monkeypatch.setattr(ident, "_override_flush_deadline", 0.0)
+    return rows
+
+
+@pytest.mark.asyncio
+async def test_override_is_recorded_as_an_audit_row(audit_rows):
+    fn = _fn(_server(), "needs_both")
+    with injected(agent_id_headers(AGENT, user_id=USER)):
+        await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")
+    assert len(audit_rows) == 1
+    row = audit_rows[0]
+    assert row["event_type"] == "mcp_identity_user_override"
+    assert row["detail"]["total"] == 1
+    (entry,) = row["detail"]["counts"]
+    assert entry == {"tool": "needs_both", "supplied": OTHER_USER, "owner": USER, "n": 1}
+
+
+@pytest.mark.asyncio
+async def test_placeholder_and_matching_values_are_not_overrides(audit_rows):
+    fn = _fn(_server(), "needs_both")
+    with injected(agent_id_headers(AGENT, user_id=USER)):
+        await fn(agent_id=AGENT, user_id="user_current", title="t")
+        await fn(agent_id=AGENT, user_id=USER, title="t")
+    assert audit_rows == []
+
+
+@pytest.mark.asyncio
+async def test_override_keys_are_bounded(audit_rows, monkeypatch):
+    from narranexus.platform.module_system import _mcp_identity as ident
+
+    monkeypatch.setattr(ident, "_override_flush_deadline", float("inf"))  # hold the window open
+    with injected({USER_ID_HEADER: USER}):
+        for i in range(ident._OVERRIDE_KEYS_MAX + 50):
+            resolve_caller_user_id(f"forged_user_{i:04d}" + "x" * 200, tool="t")
+    assert len(ident._override_counts) == ident._OVERRIDE_KEYS_MAX + 1
+    assert ident._override_counts[ident._OVERRIDE_OVERFLOW_KEY] == 50
+    assert all(len(k[1]) <= ident._OVERRIDE_VALUE_MAX for k in ident._override_counts)
+
+
+@pytest.mark.asyncio
+async def test_sync_tool_override_is_flushed_by_the_next_async_call(audit_rows):
+    from mcp.server.fastmcp import FastMCP
+
+    mcp = FastMCP("sync-then-async")
+
+    @mcp.tool()
+    def user_only(user_id: str) -> dict:
+        return {"user_id": user_id}
+
+    @mcp.tool()
+    async def needs_both(agent_id: str, user_id: str) -> dict:
+        return {}
+
+    install_caller_identity(mcp)
+    with injected(agent_id_headers(AGENT, user_id=USER)):
+        _fn(mcp, "user_only")(user_id=OTHER_USER)
+        assert audit_rows == []  # a sync frame cannot await the write
+        await _fn(mcp, "needs_both")(agent_id=AGENT, user_id=USER)
+    assert len(audit_rows) == 1
+    assert audit_rows[0]["detail"]["counts"][0]["tool"] == "user_only"
+
+
+@pytest.mark.asyncio
+async def test_audit_failure_never_breaks_the_tool(monkeypatch):
+    from narranexus.platform.module_system import _mcp_identity as ident
+
+    async def boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", boom)
+    ident._override_counts.clear()
+    monkeypatch.setattr(ident, "_override_flush_deadline", 0.0)
+    fn = _fn(_server(), "needs_both")
+    with injected(agent_id_headers(AGENT, user_id=USER)):
+        out = await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")
+    assert out["user_id"] == USER

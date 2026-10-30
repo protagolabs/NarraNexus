@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import time
 from typing import Any, Callable, NamedTuple, Optional
 
 from loguru import logger
@@ -441,7 +442,66 @@ def caller_event_id_from_request() -> Optional[str]:
     return None
 
 
-def resolve_caller_user_id(supplied: Any) -> Any:
+# Every override of a REAL supplied user_id is also kept as a durable,
+# aggregated audit row (instance_executor_audit, mcp_identity_user_override):
+# it silently changes which account a call lands under, and a log line alone
+# is gone after a restart (incident lesson #5). Same shape as mcp_auth's
+# tokenless measurement — in-process counts, bounded keys, one row per window.
+# `supplied` is caller-controlled, so its length and the key cardinality are
+# capped; past the cap everything folds into ONE constant bucket.
+_OVERRIDE_FLUSH_SECONDS = 60.0
+_OVERRIDE_VALUE_MAX = 64
+_OVERRIDE_KEYS_MAX = 256
+_OVERRIDE_OVERFLOW_KEY = ("<overflow>", "", "")
+_override_counts: dict[tuple[str, str, str], int] = {}
+_override_flush_deadline: float = 0.0
+
+
+def _note_user_override(tool: str, supplied: str, owner: str) -> None:
+    """Count one override (sync, no I/O). Flushed by flush_user_overrides."""
+    key = (tool[:_OVERRIDE_VALUE_MAX], supplied[:_OVERRIDE_VALUE_MAX], owner[:_OVERRIDE_VALUE_MAX])
+    if key not in _override_counts and len(_override_counts) >= _OVERRIDE_KEYS_MAX:
+        key = _OVERRIDE_OVERFLOW_KEY
+    _override_counts[key] = _override_counts.get(key, 0) + 1
+
+
+async def flush_user_overrides() -> None:
+    """Write the pending override counts as one audit row, at most once per
+    window. Called by the async tool wrapper after every call (a dict check
+    when nothing is due). A sync tool cannot await the write: its overrides
+    are counted and land with the next async call in the same process.
+    The observer never breaks the observed: any failure is logged at debug.
+    """
+    global _override_flush_deadline
+    if not _override_counts:
+        return
+    now = time.monotonic()
+    if now < _override_flush_deadline:
+        return
+    _override_flush_deadline = now + _OVERRIDE_FLUSH_SECONDS
+    counts = dict(_override_counts)
+    _override_counts.clear()
+    entries = [
+        {"tool": t, "supplied": s, "owner": o, "n": n}
+        for (t, s, o), n in sorted(counts.items())
+    ]
+    try:
+        from narranexus.platform.repository.executor_audit_repository import (
+            ExecutorAuditRepository,
+        )
+        from narranexus.platform.schema.executor_audit import EVENT_MCP_IDENTITY_USER_OVERRIDE
+        from narranexus.platform.utils.db.db_factory import get_db_client
+
+        db = await get_db_client()
+        await ExecutorAuditRepository(db).record(
+            event_type=EVENT_MCP_IDENTITY_USER_OVERRIDE,
+            detail={"total": sum(counts.values()), "counts": entries},
+        )
+    except Exception as e:  # noqa: BLE001 — the observer must not break the observed
+        logger.debug(f"[mcp-identity] user-override audit row not written: {e}")
+
+
+def resolve_caller_user_id(supplied: Any, *, tool: str = "") -> Any:
     """The user_id a tool should actually use.
 
     ``user_id`` on a tool names a NarraNexus ACCOUNT — whose workspace, skills,
@@ -476,6 +536,7 @@ def resolve_caller_user_id(supplied: Any) -> Any:
             f"[mcp-identity] user_id={supplied!r} does not match the turn "
             f"owner ({injected!r}) — using the turn owner"
         )
+        _note_user_override(tool or "-", str(supplied), str(injected))
     return injected
 
 
@@ -606,6 +667,7 @@ def _wrap_fn(fn: Callable) -> Callable:
     # guard silently returns the wrong shape exactly where it matters most.
     returns_dict = _annotation_is_dict(sig.return_annotation)
     resolves_user = not getattr(fn, "_nx_external_user_id", False)
+    tool_name = getattr(fn, "__name__", "?")
 
     def _guard(supplied: Any) -> Any:
         msg = placeholder_agent_id_error(supplied)
@@ -621,16 +683,15 @@ def _wrap_fn(fn: Callable) -> Callable:
         # "no filter" value on retrieval tools, and injecting there silently
         # scopes a query that was meant to be unscoped. Tools marked
         # @external_user_id carry a third-party id here and are skipped.
-        if not resolves_user:
-            pass
-        elif "user_id" in kwargs:
-            kwargs = {**kwargs, "user_id": resolve_caller_user_id(kwargs["user_id"])}
-        elif "user_id" in names:
-            u_idx = names.index("user_id")
-            if u_idx < len(args):
-                new_args = list(args)
-                new_args[u_idx] = resolve_caller_user_id(new_args[u_idx])
-                args = tuple(new_args)
+        if resolves_user:
+            if "user_id" in kwargs:
+                kwargs = {**kwargs, "user_id": resolve_caller_user_id(kwargs["user_id"], tool=tool_name)}
+            elif "user_id" in names:
+                u_idx = names.index("user_id")
+                if u_idx < len(args):
+                    new_args = list(args)
+                    new_args[u_idx] = resolve_caller_user_id(new_args[u_idx], tool=tool_name)
+                    args = tuple(new_args)
 
         if "agent_id" in kwargs:
             kwargs = {**kwargs, "agent_id": resolve_caller_agent_id(kwargs["agent_id"])}
@@ -698,6 +759,7 @@ def _wrap_fn(fn: Callable) -> Callable:
             unresolved = _still_placeholder(args, kwargs)
             if unresolved is not None:
                 return _guard(unresolved)
+            await flush_user_overrides()
             denial = await _ownership_denial(args, kwargs)
             if denial is not None:
                 return {"success": False, "error": denial} if returns_dict else denial
