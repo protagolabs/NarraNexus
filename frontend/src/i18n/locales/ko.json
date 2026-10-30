@@ -2518,7 +2518,8 @@
     "actionFailedTitle": "실행되지 않았습니다",
     "savedTo": "{{path}} 에 저장했습니다",
     "downloadFailed": "다운로드 실패: {{error}}",
-    "doneTitle": "완료"
+    "doneTitle": "완료",
+    "requestBlocked": "이 페이지에서 반복 요청이 너무 많아 잠시 중지했습니다. 잠시 후 다시 시도해 주세요."
   },
   "toast": {
     "view": "보기",

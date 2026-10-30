@@ -32,6 +32,7 @@ import { getAuthHeaders } from '@/lib/authHeaders';
 import { addPluginBundle, pluginT } from './i18n';
 import { reportUiError } from './errorSink';
 import { REGISTRIES, RegistryConflictError, type Registry, type RegistryEntry } from './registries';
+import { guardedFetch } from '@/lib/guardedFetch';
 
 export const HOST_API_VERSION = 1;
 
@@ -134,7 +135,7 @@ async function requestJson<T>(pluginId: string, path: string, init?: RequestInit
   if (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`)) {
     throw new Error(`HostAPI.http.request: path must start with "${prefix}" (got "${path}")`);
   }
-  const res = await fetch(`${base}${path}`, {
+  const res = await guardedFetch(`${base}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders(), ...(init?.headers ?? {}) },
   });

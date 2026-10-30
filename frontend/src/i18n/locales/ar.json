@@ -2527,7 +2527,8 @@
     "actionFailedTitle": "لم تنجح العملية",
     "savedTo": "تم الحفظ في {{path}}",
     "downloadFailed": "فشل التنزيل: {{error}}",
-    "doneTitle": "تم"
+    "doneTitle": "تم",
+    "requestBlocked": "طلبات متكررة كثيرة جدًا من هذه الصفحة، لذا تم إيقافها مؤقتًا. يرجى المحاولة مرة أخرى بعد قليل."
   },
   "toast": {
     "view": "عرض",

@@ -2519,7 +2519,8 @@
     "actionFailedTitle": "Isso não funcionou",
     "savedTo": "Guardado em {{path}}",
     "downloadFailed": "Falha no download: {{error}}",
-    "doneTitle": "Concluído"
+    "doneTitle": "Concluído",
+    "requestBlocked": "Muitas solicitações repetidas desta página, por isso foram pausadas brevemente. Tente novamente em instantes."
   },
   "toast": {
     "view": "Ver",

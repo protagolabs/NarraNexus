@@ -4,16 +4,16 @@ last_verified: 2026-10-30
 stub: false
 ---
 
-## 2026-10-30 — request-loop guard in `request()`
+## 2026-10-30 — network calls go through guardedFetch
 
-Before `fetch`, GETs pass through a module-level `RequestLoopGuard`
-(`requestLoopGuard.ts`): an identical GET URL repeated more than 15 times in 5s
-is blocked until it stays quiet for a full 5s, and the page as a whole is
-capped at 400 admitted GETs per minute. A refused call waits 1s (rejecting early
-if `options.signal` aborts), logs one console error per URL per minute and
-throws `RequestLoopBlockedError` (subclass of `ApiError`, `status` 0), so
-existing `instanceof ApiError` handling keeps working. Writes are never refused.
-Backstop for render-loop floods (2026-10-30 Channels-section incident).
+Every `fetch` in this file is now `guardedFetch` (`guardedFetch.ts`): reads pass
+the per-page request-loop guard (a URL repeated faster than any poll is blocked;
+loop-shaped traffic is capped by page budgets shared across tabs), writes pass
+straight through. A refused read waits 1s and throws `RequestLoopBlockedError`.
+`ApiError` and `RequestLoopBlockedError` moved to `apiError.ts` (to break the
+import cycle with `guardedFetch.ts`) and are re-exported here, so callers keep
+importing them from `@/lib/api`. Backstop for render-loop floods (2026-10-30
+Channels-section incident).
 
 ## 2026-10-16 — getProviderCatalog
 

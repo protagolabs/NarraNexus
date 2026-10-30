@@ -4,17 +4,20 @@
  * @date: 2026-10-30
  * @description: The request-loop guard refuses an identical GET repeated past the window limit, keeps a spinning loop at zero network traffic until it goes quiet for a full window, caps the page-wide GET rate, and never touches writes.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { api, ApiError, RequestLoopBlockedError } from '../api';
+import { __resetRequestLoopGuardForTests, guardedFetch } from '../guardedFetch';
+import { useRuntimeStore } from '@/stores/runtimeStore';
 import {
   delayUnlessAborted,
   isGuardedMethod,
   LOOP_BLOCK_DELAY_MS,
   LOOP_MAX_PER_WINDOW,
   LOOP_WINDOW_MS,
-  PAGE_GET_MAX_PER_WINDOW,
-  PAGE_GET_WINDOW_MS,
+  PAGE_RAPID_MAX,
+  PAGE_TOTAL_MAX,
+  PAGE_WINDOW_MS,
   RequestLoopGuard,
 } from '../requestLoopGuard';
 
@@ -120,21 +123,65 @@ describe('RequestLoopGuard', () => {
     expect(g.check('/api/b')).toBe('ok');
   });
 
-  it('caps the page-wide GET rate, and recovers as the real rate drops', () => {
-    // A loop with a changing query never repeats a URL; the page budget holds it.
+  it('caps a changing-query loop with the total budget, and recovers afterwards', () => {
+    // Never repeats a URL, so the per-URL layer cannot see it.
     let now = 0;
     const g = new RequestLoopGuard(() => now);
     let admitted = 0;
     for (let i = 0; i < 2_000; i++) {
       if (g.check(`/api/x?t=${i}`) === 'ok') admitted += 1;
-      now += 10; // 100 distinct GETs/s for 20s
+      now += 10; // 100 distinct reads/s for 20s
     }
-    expect(admitted).toBe(PAGE_GET_MAX_PER_WINDOW);
-    now += PAGE_GET_WINDOW_MS;
+    expect(admitted).toBe(PAGE_TOTAL_MAX);
+    now += PAGE_WINDOW_MS;
     expect(g.check('/api/after')).toBe('ok');
   });
 
-  it('a busy but human page stays under the page budget', () => {
+  it('caps a loop over a fixed set of URLs, each read every 2s+, with the total budget (pre-push review I-A)', () => {
+    // 20 agents fetched in turn at 10 reads/s: every URL is hit only every 2s,
+    // so neither the per-URL layer nor the rapid budget sees it.
+    let now = 0;
+    const g = new RequestLoopGuard(() => now);
+    let admitted = 0;
+    for (let i = 0; i < 600; i++) {
+      if (g.check(`/api/agents/agent_${i % 20}/simple-chat-history`) === 'ok') admitted += 1;
+      now += 100;
+    }
+    expect(admitted).toBeLessThanOrEqual(PAGE_TOTAL_MAX);
+  });
+
+  it('caps a loop spread over a few URLs, each under the per-URL limit, with the rapid budget', () => {
+    // 6 URLs at 2/s each = 720/min, above the edge ban line, while every URL
+    // stays at 10 per 5s (under LOOP_MAX_PER_WINDOW).
+    let now = 0;
+    const g = new RequestLoopGuard(() => now);
+    let admitted = 0;
+    for (let tick = 0; tick < 120; tick++) {
+      for (let u = 0; u < 6; u++) if (g.check(`/api/channels/c${u}/credential`) === 'ok') admitted += 1;
+      now += 500;
+    }
+    expect(admitted).toBeLessThanOrEqual(6 + PAGE_RAPID_MAX); // first read of each URL is not a repeat
+  });
+
+  it('ordinary polling is never refused while it stays under the edge ban line (review I-2)', () => {
+    // 100 agents' chat history every 15s plus the other background polls:
+    // ~440 reads/min, under PAGE_TOTAL_MAX, and it never spends the rapid budget.
+    let now = 0;
+    const g = new RequestLoopGuard(() => now);
+    const refused: string[] = [];
+    for (let t = 0; t < 5 * 60_000; t += 1_000) {
+      now = t;
+      const due: string[] = [];
+      if (t % 15_000 === 0) for (let a = 0; a < 100; a++) due.push(`/api/agents/agent_${a}/simple-chat-history?limit=5`);
+      if (t % 10_000 === 0) due.push('/api/agent-inbox?agent_id=a', '/api/jobs?agent_id=a', '/api/teams');
+      if (t % 30_000 === 0) due.push('/api/auth/agents', '/api/notices?unread_only=true');
+      if (t % 3_000 === 0) due.push(`/api/teams/t1/messages?since=${t}`);
+      for (const k of due) if (g.check(k) !== 'ok') refused.push(k);
+    }
+    expect(refused).toEqual([]);
+  });
+
+  it('a busy but human page is never refused', () => {
     // 281/min is the measured per-IP human peak (2026-10-28).
     let now = 0;
     const g = new RequestLoopGuard(() => now);
@@ -142,6 +189,68 @@ describe('RequestLoopGuard', () => {
       expect(g.check(`/api/y?i=${i % 40}`)).toBe('ok');
       now += 60_000 / 281;
     }
+  });
+
+  it('the total budget can be switched off (local backend: no edge ban to avoid)', () => {
+    let now = 0;
+    const g = new RequestLoopGuard({ now: () => now, totalBudgetEnabled: () => false });
+    let admitted = 0;
+    for (let i = 0; i < 2_000; i++) {
+      if (g.check(`/api/x?t=${i}`) === 'ok') admitted += 1;
+      now += 10;
+    }
+    expect(admitted).toBe(2_000);
+  });
+
+  it('tabs share the page budgets (review I-3)', () => {
+    let now = 0;
+    const tabs: RequestLoopGuard[] = [];
+    for (let i = 0; i < 2; i++) {
+      tabs.push(new RequestLoopGuard({
+        now: () => now,
+        onSpend: (kind) => tabs.filter((_, j) => j !== i).forEach((t) => t.recordRemote(kind)),
+      }));
+    }
+    let admitted = 0;
+    for (let i = 0; i < 1_000; i++) {
+      if (tabs[i % 2].check(`/api/x?t=${i}`) === 'ok') admitted += 1; // both tabs run the same loop
+      now += 10;
+    }
+    expect(admitted).toBe(PAGE_TOTAL_MAX); // one shared budget, not one per tab
+  });
+
+  it('a request refused by a page budget does not count toward its URL window (review M-3)', () => {
+    let now = 0;
+    const g = new RequestLoopGuard(() => now);
+    // Spend the rapid budget: 15 URLs × 10 quick repeats each (each stays under
+    // the per-URL limit).
+    for (let k = 0; k < 15; k++) for (let r = 0; r <= 10; r++) { g.check(`/api/fill/${k}`); now += 1; }
+    expect(g.check('/api/z')).toBe('ok'); // first read: not a repeat
+    for (let i = 0; i < LOOP_MAX_PER_WINDOW * 2; i++) {
+      // Rapid repeats, all refused by the budget. Were refusals counted toward
+      // the URL's window, this would flip to 'loop' after 15.
+      expect(g.check('/api/z')).toBe('page_budget');
+    }
+  });
+
+  it('a block that expires untouched and is then pruned keeps its real release time (review M-2)', () => {
+    const run = (gapAfterBlockMs: number) => {
+      let now = 0;
+      const g = new RequestLoopGuard(() => now);
+      const trip = () => { for (let i = 0; i <= LOOP_MAX_PER_WINDOW; i++) g.check('/api/hot'); };
+      trip(); // 5s block, then no attempts at all
+      now += LOOP_WINDOW_MS + 1;
+      for (let i = 0; i < 600; i++) { g.check(`/api/once?i=${i}`); now += 1; } // forces a prune
+      now += gapAfterBlockMs;
+      trip();
+      const start = now;
+      while (g.check('/api/hot') === 'loop') now += 2_500; // > LOOP_EXTEND_GAP_MS: never extends
+      return now - start;
+    };
+    // Without the backfill the pruned strike keeps an infinite release time and
+    // a trip 70s later would wrongly escalate. (Quick repeats escalating is
+    // covered by the backoff test above.)
+    expect(run(70_000)).toBeLessThan(2 * LOOP_WINDOW_MS);
   });
 
   it('reports a key at most once per minute', () => {
@@ -154,9 +263,10 @@ describe('RequestLoopGuard', () => {
     expect(g.shouldReport('/api/x')).toBe(true);
   });
 
-  it('guards GET only', () => {
+  it('guards reads (GET, HEAD) only', () => {
     expect(isGuardedMethod(undefined)).toBe(true);
     expect(isGuardedMethod('get')).toBe(true);
+    expect(isGuardedMethod('HEAD')).toBe(true);
     for (const m of ['POST', 'PUT', 'PATCH', 'DELETE']) expect(isGuardedMethod(m)).toBe(false);
   });
 
@@ -169,6 +279,7 @@ describe('RequestLoopGuard', () => {
 });
 
 describe('api.request with the loop guard', () => {
+  beforeEach(() => __resetRequestLoopGuardForTests());
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -218,5 +329,83 @@ describe('api.request with the loop guard', () => {
     const agent = `agent_write_${Math.random()}`;
     for (let i = 0; i < LOOP_MAX_PER_WINDOW * 2; i++) await api.updateJob(`job_${agent}`, agent, { payload: 'x' });
     expect(fetchSpy).toHaveBeenCalledTimes(LOOP_MAX_PER_WINDOW * 2);
+  });
+});
+
+describe('guardedFetch', () => {
+  beforeEach(() => __resetRequestLoopGuardForTests());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('returns the Response untouched, error statuses included', async () => {
+    const res = new Response('gone', { status: 410 });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
+    expect(await guardedFetch('/api/artifacts/raw/x', { method: 'HEAD' })).toBe(res);
+  });
+
+  it('refuses a raw-fetch loop with a localized message that names no URL (review I-1, I-4)', async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const url = '/api/agents/agent_secret/artifacts?scope=context';
+    for (let i = 0; i < LOOP_MAX_PER_WINDOW; i++) await guardedFetch(url);
+    const blocked = guardedFetch(url);
+    const settled = expect(blocked).rejects.toBeInstanceOf(RequestLoopBlockedError);
+    await vi.advanceTimersByTimeAsync(LOOP_BLOCK_DELAY_MS);
+    await settled;
+    expect(fetchSpy).toHaveBeenCalledTimes(LOOP_MAX_PER_WINDOW);
+    const err = await blocked.catch((e: Error) => e);
+    expect(err.message).not.toContain('/api/');
+    expect(err.message).not.toContain('agent_secret');
+    expect(err.message).not.toBe('common.requestBlocked'); // resolved, not a raw key
+  });
+});
+
+describe('guardedFetch across tabs (pre-push review I-C)', () => {
+  // The real BroadcastChannel (Node provides one): the production wiring, not
+  // the class methods.
+  const CHANNEL = 'narranexus.request-loop-guard';
+  let other: BroadcastChannel;
+  beforeEach(() => {
+    __resetRequestLoopGuardForTests();
+    useRuntimeStore.setState({ mode: 'cloud-web' }); // behind the edge: total budget on
+    other = new BroadcastChannel(CHANNEL);
+  });
+  afterEach(() => {
+    other.close();
+    useRuntimeStore.setState({ mode: null });
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("another tab's reads spend this tab's budget", async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (let i = 0; i < PAGE_TOTAL_MAX; i++) other.postMessage('total');
+    await new Promise((r) => setTimeout(r, 50)); // let the messages land
+    vi.useFakeTimers();
+    const refused = guardedFetch('/api/one-more');
+    const settled = expect(refused).rejects.toBeInstanceOf(RequestLoopBlockedError);
+    await vi.advanceTimersByTimeAsync(LOOP_BLOCK_DELAY_MS);
+    await settled;
+  });
+
+  it('a local backend ignores the total budget (no edge in front of it)', async () => {
+    useRuntimeStore.setState({ mode: 'local' });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
+    for (let i = 0; i < PAGE_TOTAL_MAX; i++) other.postMessage('total');
+    await new Promise((r) => setTimeout(r, 50));
+    await expect(guardedFetch('/api/one-more')).resolves.toBeInstanceOf(Response);
+  });
+
+  it("this tab's reads are announced to the other tabs", async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
+    const seen: unknown[] = [];
+    other.onmessage = (e: MessageEvent<unknown>) => seen.push(e.data);
+    await guardedFetch('/api/announced');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(seen).toContain('total');
   });
 });

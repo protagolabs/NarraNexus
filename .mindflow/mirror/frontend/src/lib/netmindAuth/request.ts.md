@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/netmindAuth/request.ts
-last_verified: 2026-08-12
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -73,3 +73,11 @@ OAuth hook.
   modules (types are allowed as they are zero-runtime).
 - See `references/phase1-frontend-login-migration.md` §3 for the full request
   layer design and `token` header convention source.
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

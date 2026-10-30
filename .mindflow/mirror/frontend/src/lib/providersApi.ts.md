@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/providersApi.ts
-last_verified: 2026-09-09
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -51,3 +51,11 @@ confirmSessionDeath,2026-08-02 事故正是本资源)和 FastAPI detail 提取�
   session-dead 401 只会变成一行红字,502 HTML 被说成"网络错误"。
 - 仓库仍有三处遗留手工解析(api.ts / arenaLanding.ts / artifactsApi.ts),
   别加第四处。
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

@@ -19,6 +19,7 @@
 import { ApiError, api } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/authHeaders';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+import { guardedFetch } from './guardedFetch';
 
 /** THE provider-row shape — the one type every frontend consumer uses
  * (GET /api/providers serializes exactly these; optionality mirrors the
@@ -120,5 +121,5 @@ export function authFetch(
 ): Promise<Response> {
   const headers = new Headers(init?.headers);
   Object.entries(getAuthHeaders()).forEach(([k, v]) => headers.set(k, v));
-  return fetch(input, { ...init, headers });
+  return guardedFetch(input, { ...init, headers });
 }

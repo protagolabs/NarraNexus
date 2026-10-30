@@ -9,6 +9,7 @@
 
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 import { authHeaders } from './artifactsApi';
+import { guardedFetch } from '@/lib/guardedFetch';
 
 export const officeWatchApi = {
   /** Open (or re-open) the live preview for an office artifact.
@@ -20,7 +21,7 @@ export const officeWatchApi = {
    */
   async open(artifactId: string): Promise<string> {
     const q = `artifact_id=${encodeURIComponent(artifactId)}`;
-    const r = await fetch(`${getApiBaseUrl()}/api/office-watch/open?${q}`, {
+    const r = await guardedFetch(`${getApiBaseUrl()}/api/office-watch/open?${q}`, {
       headers: authHeaders(),
     });
     if (!r.ok) throw new Error(`office-watch open failed: ${r.status}`);
@@ -41,7 +42,7 @@ export const officeWatchApi = {
     artifactId: string,
   ): Promise<{ mtime: number; size: number; lock?: boolean }> {
     const q = `artifact_id=${encodeURIComponent(artifactId)}`;
-    const r = await fetch(`${getApiBaseUrl()}/api/office-watch/version?${q}`, {
+    const r = await guardedFetch(`${getApiBaseUrl()}/api/office-watch/version?${q}`, {
       headers: authHeaders(),
     });
     if (!r.ok) throw new Error(`office-watch version failed: ${r.status}`);
@@ -56,7 +57,7 @@ export const officeWatchApi = {
    */
   async sendBatch(artifactId: string, commands: unknown[]): Promise<{ ok: boolean; raw: unknown }> {
     const q = `artifact_id=${encodeURIComponent(artifactId)}`;
-    const r = await fetch(`${getApiBaseUrl()}/api/office-watch/edit?${q}`, {
+    const r = await guardedFetch(`${getApiBaseUrl()}/api/office-watch/edit?${q}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(commands),
@@ -89,7 +90,7 @@ export const officeWatchApi = {
   async uploadAsset(agentId: string, artifactId: string, file: File): Promise<string> {
     const form = new FormData();
     form.append('file', file);
-    const r = await fetch(
+    const r = await guardedFetch(
       `${getApiBaseUrl()}/api/agents/${agentId}/artifacts/${artifactId}/office-asset`,
       { method: 'POST', headers: authHeaders(), body: form },
     );
@@ -99,7 +100,7 @@ export const officeWatchApi = {
 
   /** Turn an applied watch edit into a registry commit point (spec B §3.2). */
   async commitEdit(agentId: string, artifactId: string): Promise<void> {
-    const r = await fetch(
+    const r = await guardedFetch(
       `${getApiBaseUrl()}/api/agents/${agentId}/artifacts/${artifactId}/office-edit-commit`,
       { method: 'POST', headers: authHeaders() },
     );

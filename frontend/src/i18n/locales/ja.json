@@ -2518,7 +2518,8 @@
     "actionFailedTitle": "うまくいきませんでした",
     "savedTo": "{{path}} に保存しました",
     "downloadFailed": "ダウンロードに失敗しました: {{error}}",
-    "doneTitle": "完了"
+    "doneTitle": "完了",
+    "requestBlocked": "このページからの繰り返しリクエストが多すぎるため、一時的に停止しました。しばらくしてから再度お試しください。"
   },
   "toast": {
     "view": "表示",
