@@ -637,3 +637,25 @@ def test_skill_scan_lists_the_owners_skills_and_disabled_ones(ws):
     }
     assert listed == {"alpha": False, "beta": True}
     assert sm._resolve_skill_dir("alpha") == ws["own"] / "skills" / "alpha"
+
+
+def test_install_meta_write_uses_the_lexical_skill_path_not_a_resolved_one(ws, tmp_path, monkeypatch):
+    """ensure_within_directory resolve()s: with a `skills` link in place at that
+    instant it returns the VICTIM's real skill dir. If the link is swapped back
+    before the rename, a meta write through that value would merge and rewrite
+    the victim's env_config."""
+    from narranexus_plugins.skill_module import skill_module as sm_mod
+
+    victim = _victim_skill(ws)
+    victim_meta = victim / ".skill_meta.json"
+    victim_meta.write_text('{"env_config": {"API_KEY": "victim-secret"}}', encoding="utf-8")
+    (ws["own"] / "skills").mkdir(parents=True)
+    monkeypatch.setattr(sm_mod, "ensure_within_directory", lambda base, name, label="x": victim)
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    (staged / "SKILL.md").write_text(_skill_md("demo"), encoding="utf-8")
+    info = _module().install_from_dir(staged, source_type="zip")
+    assert json.loads(victim_meta.read_text(encoding="utf-8")) == {"env_config": {"API_KEY": "victim-secret"}}
+    own_meta = json.loads((ws["own"] / "skills" / "demo" / ".skill_meta.json").read_text(encoding="utf-8"))
+    assert own_meta["source_type"] == "zip"
+    assert info.path == str(ws["own"] / "skills" / "demo")

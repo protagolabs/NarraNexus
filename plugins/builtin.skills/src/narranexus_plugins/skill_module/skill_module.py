@@ -1312,7 +1312,11 @@ class SkillModule(XYZBaseModule):
         # An explicit target_dir_name (e.g. the bundle's known skill_dir)
         # wins over the SKILL.md-derived name.
         safe_skill_name = sanitize_filename(target_dir_name or info.name, label="skill name")
-        target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
+        # Validates the name only. Its RETURN value is a resolve()d path — with a
+        # swapped `skills` link at that instant it would be the VICTIM's real
+        # skill dir — so everything below uses the LEXICAL path instead.
+        ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
+        target_dir = self.skills_dir / safe_skill_name
         # The deletion target is the LEXICAL path (``ensure_within_directory``
         # resolves its result, which would turn a swapped ``skills`` link into
         # the victim's real path and make the confined walk accept it).
