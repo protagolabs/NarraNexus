@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import ts from 'typescript';
 
 const SRC = join(process.cwd(), 'src');
 const MOCK_INDEX = join(SRC, 'lib/mock');
@@ -27,10 +28,28 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-// Every static module specifier: `import … from`, `export … from` and the
-// side-effect `import '…'`, anywhere on a line. Type-only forms are erased at
-// build time and skipped; dynamic `import(…)` is the intended way in.
-const SPECIFIER = /\b(import|export)\s+(type\s+)?(?:[^'";]*?\bfrom\s*)?['"]([^'"]+)['"]/g;
+/**
+ * Every static module specifier, read with the TypeScript parser (a regex
+ * either misses a spelling or swallows the next statement): import / export
+ * declarations with a module specifier, side-effect imports included. Only
+ * whole-declaration `import type` / `export type` is skipped — with
+ * verbatimModuleSyntax an `import { type A }` still emits an import. Dynamic
+ * `import(…)` is not a declaration, and is the intended way in.
+ */
+function staticSpecifiers(file: string, text: string): string[] {
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false);
+  const out: string[] = [];
+  for (const node of sf.statements) {
+    if (ts.isImportDeclaration(node)) {
+      if (node.importClause?.isTypeOnly) continue;
+      if (ts.isStringLiteral(node.moduleSpecifier)) out.push(node.moduleSpecifier.text);
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+      if (node.isTypeOnly) continue;
+      if (ts.isStringLiteral(node.moduleSpecifier)) out.push(node.moduleSpecifier.text);
+    }
+  }
+  return out;
+}
 
 /** Resolve a specifier to an extension-less, index-less absolute path (null for packages). */
 function resolveSpecifier(file: string, spec: string): string | null {
@@ -43,13 +62,12 @@ function resolveSpecifier(file: string, spec: string): string | null {
 
 function mockImplImports(file: string, text: string): string[] {
   const hits: string[] = [];
-  for (const m of text.matchAll(SPECIFIER)) {
-    if (m[2]) continue; // import type / export type
-    const target = resolveSpecifier(file, m[3]);
+  for (const spec of staticSpecifiers(file, text)) {
+    const target = resolveSpecifier(file, spec);
     if (target !== MOCK_INDEX && target !== MOCK_FIXTURES) continue;
     // The one allowed edge: the mock implementation importing its own fixtures.
     if (file === join(SRC, 'lib/mock/index.ts') && target === MOCK_FIXTURES) continue;
-    hits.push(`${relative(SRC, file)}: ${m[3]}`);
+    hits.push(`${relative(SRC, file)}: ${spec}`);
   }
   return hits;
 }
@@ -70,6 +88,10 @@ describe('mock layer is lazy', () => {
       "export { mockApi } from './mock/';",
       "import './mock/index.js';",
       "import type { MockApi } from './mock'; import { mockApi } from './mock';",
+      "import {\n  mockApi,\n} from './mock'",
+      "export type Foo = {\n  a: number\n}\nimport { mockApi } from './mock'\n",
+      "export type Mode = Foo | Bar\nexport { mockApi } from './mock'\n",
+      "import { type MockApi } from './mock';",
     ];
     for (const line of caught) expect(mockImplImports(api, line), line).not.toEqual([]);
     const allowed = [
@@ -78,15 +100,23 @@ describe('mock layer is lazy', () => {
       "import { MOCK_ENABLED } from './mock/flag';",
       "const m = await import('./mock');",
       "import { mock } from 'some-package/mock';",
+      "// import { mockApi } from './mock'",
+      "const s = \"import { mockApi } from './mock'\";",
     ];
     for (const line of allowed) expect(mockImplImports(api, line), line).toEqual([]);
     // flag.ts is scanned too: it is the eager half and must never pull the rest in.
     expect(mockImplImports(join(SRC, 'lib/mock/flag.ts'), "import { mockApi } from './index';")).not.toEqual([]);
   });
 
-  test('main.tsx loads it with a dynamic import', () => {
+  test('main.tsx loads it with a dynamic import, installs it, then renders', () => {
     const main = readFileSync(join(SRC, 'main.tsx'), 'utf8');
     expect(main).toMatch(/import\(\s*['"]\.\/lib\/mock['"]\s*\)/);
+    // Installing before the first render is what makes the first frame mocked;
+    // rendering without it would show real data under the "Mock data" banner.
+    expect(main).toMatch(/installMockApi\(\s*m\.mockApi\s*\)\s*\n\s*render\(\)/);
+    const onFailed = main.slice(main.indexOf('(e) => {'), main.indexOf('} else {'));
+    expect(onFailed).toContain('failed to load');
+    expect(onFailed).not.toContain('render(');
   });
 
   test("the build gate's marker string still identifies the fixtures", () => {

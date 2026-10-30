@@ -23,8 +23,10 @@ for (const [r] of sizes) {
   const text = readFileSync(resolve(dist, r), 'utf8');
   for (const s of budget.initial_forbidden_strings ?? []) if (text.includes(s)) problems.push(`initial set file ${r} contains forbidden marker ${JSON.stringify(s)}`);
 }
-// Largest LAZY chunk (the entry is budgeted separately above).
-const largest = readdirSync(resolve(dist, 'assets')).filter((f) => f.endsWith('.js') && !/^index-/.test(f)).map((f) => [f, statSync(resolve(dist, 'assets', f)).size]).sort((a, b) => b[1] - a[1])[0];
+// Largest LAZY chunk (the entry is budgeted separately above; other chunks may also be named
+// index-*, e.g. one built from a lib/*/index.ts, so only the entry file itself is excluded).
+const entryFile = entry ? entry[0].replace(/^assets\//, '') : null;
+const largest = readdirSync(resolve(dist, 'assets')).filter((f) => f.endsWith('.js') && f !== entryFile).map((f) => [f, statSync(resolve(dist, 'assets', f)).size]).sort((a, b) => b[1] - a[1])[0];
 if (largest && largest[1] > budget.largest_lazy_chunk_bytes) problems.push(`largest chunk ${largest[0]} ${largest[1]} > ${budget.largest_lazy_chunk_bytes}`);
 console.log(`bundle budget: initial ${initial} bytes over ${sizes.length} files; entry ${entry ? entry[1] : 'n/a'}; largest ${largest ? largest.join(' ') : 'n/a'}`);
 if (problems.length) {
