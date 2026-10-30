@@ -10,20 +10,14 @@
  * plugin's own `activate(host)`) — no change required here.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Link as LinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { useConfigStore } from '@/stores';
-
-
-/**
- * Props every IM-channel config component must accept. The parent passes
- * ``onBindStateChange`` so that bind/unbind/test in the child fans out to
- * the parent's connected-badge refresh — otherwise the parent badge stays
- * stale until the user manually clicks "Refresh status".
- */
+// Each channel card gets `onBindStateChange={refreshConnected}` so bind/unbind/test in
+// the child refreshes the connected badges here (ChannelConfigProps lives in the registry).
 import { CHANNELS, sortedChannels, useRegistryEntries, type ChannelStatus } from '@/platform/registries';
 import './registerBuiltinChannels';
 
@@ -31,7 +25,13 @@ export function IMChannelsSection() {
   // Rows come from the ui.channels registry: builtins register in
   // registerBuiltinChannels.ts (owner = the channel plugin), channel plugins
   // add theirs; a disabled builtin's row is gone with the plugin.
-  const channels = sortedChannels(useRegistryEntries(CHANNELS));
+  // `sortedChannels` copies before sorting, so it returns a new array on every
+  // call. Memoize on the registry snapshot (stable until the registry changes):
+  // `channels` feeds `refreshConnected`'s deps, and an unstable array there made
+  // the mount effect refire after every `setStatusMap` — an unbounded
+  // credential-probe loop that tripped the edge flood ban (2026-10-30).
+  const entries = useRegistryEntries(CHANNELS);
+  const channels = useMemo(() => sortedChannels(entries), [entries]);
   const { t } = useTranslation();
   const { agentId } = useConfigStore();
   // Expanded by default: opening Channels should show the channel list, not a
@@ -56,7 +56,7 @@ export function IMChannelsSection() {
   // session) look like they hadn't taken effect.
   //
   // react-hooks/set-state-in-effect flags this because refreshConnected
-  // calls setConnectedMap. The rule prefers Suspense / React Query /
+  // calls setStatusMap. The rule prefers Suspense / React Query /
   // SWR for server-state mount fetches; we use raw useEffect across
   // this codebase (see LarkConfig, SlackConfig) so adopting that here
   // would be an out-of-scope refactor. Disabling per-call with the

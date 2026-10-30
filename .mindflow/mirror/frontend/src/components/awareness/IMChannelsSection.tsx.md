@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/awareness/IMChannelsSection.tsx
-last_verified: 2026-09-07
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -19,8 +19,9 @@ in each channel's own config component.
 It is not a registry of channels — that's `ui.channels` (`@/platform/registries`),
 populated by `registerBuiltinChannels.ts` for the six builtins and by
 individual channel plugins for third-party ones. This file only reads
-`sortedChannels(useRegistryEntries(CHANNELS))` and renders whatever rows are
-currently registered.
+the registry snapshot (`useRegistryEntries(CHANNELS)`), sorts it with
+`sortedChannels` inside a `useMemo`, and renders whatever rows are currently
+registered.
 
 It also does not define `ChannelConfigProps` — that type lives in
 `@/platform/registries`. See the 2026-09-07 entry below.
@@ -47,3 +48,24 @@ had no importable path to the shared props type (it can't import a private
 app component), and a future refactor of this file could silently change
 the type five other files depend on. The re-export is gone; every consumer
 now imports `ChannelConfigProps` straight from `@/platform/registries`.
+
+## 2026-10-30 — memoized the sorted row array (credential-probe loop)
+
+`sortedChannels` copies before sorting, so calling it directly in render
+produced a new array every render. That array is a dependency of
+`refreshConnected`, which the mount effect depends on — so every
+`setStatusMap` re-render rebuilt the callback, refired the effect and probed
+all channels again: an unbounded loop of `GET /api/channels/<ch>/credential`
+for as long as the section was mounted (about 30 requests/s per open panel at
+a 200 ms round-trip). On prod that tripped the edge flood auto-ban (IP ban +
+linked account suspension) for any user who opened the Channels section.
+
+The rows are now `useMemo(() => sortedChannels(entries), [entries])` over the
+registry snapshot, which is referentially stable until the registry changes.
+Probe budget: one round per mount, per agent switch, per section re-open and
+per explicit refresh / child bind-state change, plus one round when the
+backend catalog lands after mount. Locked by
+`__tests__/imChannelsProbeBudget.test.tsx` and
+`__tests__/imChannelsLateCatalog.test.tsx` (both fail if the memo is removed).
+`refreshConnected` is also passed to each channel card as
+`onBindStateChange`, so its identity is now stable for children too.
