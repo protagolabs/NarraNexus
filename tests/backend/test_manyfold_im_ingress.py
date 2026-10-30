@@ -1103,6 +1103,8 @@ async def test_convert_attachments_persists_via_native_store(monkeypatch, tmp_pa
     import narranexus.platform.utils.attachment_storage as storage_mod
     import narranexus.platform.utils.workspace_paths as wsp_mod
 
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)  # confined storage
     workspace = tmp_path / "agent_x_u1"
     (workspace / "chat-attachments/s1/u").mkdir(parents=True)
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 32
@@ -1503,6 +1505,8 @@ def _fake_workspace_env(monkeypatch, tmp_path):
     import narranexus.platform.utils.attachment_storage as storage_mod
     import narranexus.platform.utils.workspace_paths as wsp_mod
 
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)  # confined storage
     workspace = tmp_path / "agent_x_u1"
     (workspace / "chat-attachments/s1/u").mkdir(parents=True)
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 32
