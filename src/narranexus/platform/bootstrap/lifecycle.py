@@ -59,8 +59,10 @@ class BootstrapStatus(NamedTuple):
     - event_count / threshold: for the caller's auto-delete decision + logging.
       event_count is None when it was NOT queried (file absent, or a
       threshold-None semantic-only profile) — do not read it as "0 events".
-    - bootstrap_path: the resolved Bootstrap.md path (so the caller can remove it
-      without re-resolving the workspace).
+    - bootstrap_path: the LEXICAL Bootstrap.md path (base realpath-ed, tenant
+      tail not resolved), so the caller can remove it through the link-free walk
+      without re-resolving the workspace. Never turn it into a realpath: a
+      swapped agent dir would then resolve into another tenant's tree.
     """
 
     active: bool

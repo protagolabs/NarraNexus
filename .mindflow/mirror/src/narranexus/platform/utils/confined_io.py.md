@@ -94,11 +94,14 @@ narramessenger `_matrix_send`。
 ### 完整性声明（口径）与仍**未转换**的位置
 
 扫描口径：`git grep -lE "agent_workspace_path|agent_workspace_relpath|resolve_existing_workspace|base_working_path|get_workspace_path|team_shared_dir|bus_files_dir|user_shared_root|resolve_agent_workspace_cwd|workspace_candidate_relpaths|resolve_workspace_relative_file|resolve_inside_workspace|BASE_WORKING_PATH|bootstrap_path" -- src backend plugins scripts`，
-外加对 `src backend plugins` 中每一处 `rmtree` / `os.remove` / `unlink` 的逐个检查（路径来自计算对象、不含上述词的删除点——
-如 `context_runtime` 的 `status.bootstrap_path`——就是这样漏掉过的）。
+外加对 `src backend plugins` 中每一处 `rmtree` / `os.remove` / `unlink` / `move` / `rename` / `copy*` / `open(` /
+`read_*` / `write_*` / `mkdir` / `iterdir` / `glob` / `walk` 的逐个检查（路径来自计算对象、不含上述词的站点——
+如 `context_runtime` 的 `status.bootstrap_path`、skill 路由的 `skill.path`——就是这样漏掉过的）。
 命中的**每个**文件都已逐个检查（含 `resolve_agent_workspace_cwd` 的全部调用方）。**除下表外**，它们对租户可写树的 by-path 读 / 写 / 删 / 列表 / stat 站点均已转换；下表是**全部**例外及原因：
 
-- **路径交给另一个进程**（无法传 fd，只能靠 `resolve_*` 的检查，已知并接受）：`backend/routes/office_watch/proxy.py` `/office-watch/open` 与 `utils/office_watch.py`（`Popen` officecli）；
+- **路径交给另一个进程**（无法传 fd，只能靠 `resolve_*` 的检查，已知并接受）：`backend/routes/office_watch/proxy.py` `/office-watch/open` 与 `utils/office_watch.py`（`Popen` officecli；
+  它自己的 meta `write_text`、glob / `read_text` / `unlink`、日志 `open(..,"ab")` 也按路径操作——可接受只因为云上
+  `ensure_watch` 在**该用户自己的执行器**里运行（`proxy.py` 转发到执行器），桌面是单租户）；
   `plugins/builtin.channels.lark/.../lark_cli_client.py`（~:293 `cwd = resolve_agent_workspace_cwd`，lark-cli 子进程）；
   `plugins/builtin.channels.narramessenger/.../narra_cli_client.py`（~:345，narra-cli 子进程）。cwd 的**创建**已经受限（`workspace_cwd.py`）。
 - `plugins/builtin.nexus_plugins_module/.../_nexus_plugins_impl/service.py` 的 `scaffold` / `edit` / `list`（agent 自己的插件草稿目录 `dev_root(workspace)`）：
@@ -110,7 +113,8 @@ narramessenger `_matrix_send`。
   `backend/migrations/m0002_workspace_nested_layout.py`、`backend/routes/admin/migration.py`、`scripts/data_migrations/migrate_workspace_layout.py`、
   `scripts/data_migrations/migrate_users_to_netmind.py`、`scripts/release/deploy-cloud.sh`。
 - **平台自有路径，不在租户挂载内**：`backend/routes/manyfold/diagnostics.py`（对 `base_working_path` 本身做 `os.access`、日志目录 `iterdir`）；
-  `marketplace/_skill_marketplace_impl/{artifact_store,secret_box}.py`（`base_working_path` 的**兄弟**目录 / 平台私有目录）；`platform/settings.py` / `utils/db/schema_registry.py`（仅配置 / 文档字符串）。
+  `marketplace/_skill_marketplace_impl/{artifact_store,secret_box}.py`（平台私有目录：`secret_box` 在 `base/.secrets`，
+  是 base 的子目录但不在任何按用户挂载的 `{base}/{user}` 内）；`platform/settings.py` / `utils/db/schema_registry.py`（仅配置 / 文档字符串）。
 - **调试脚本，不是运行路径**：`scripts/debug/verify_arena_provision.py`（~:105 对租户技能文件按路径 `.exists()`，
   且仍用旧的平铺布局；只在开发机手动运行）。
 - **只做路径字符串拼接、不碰磁盘**：`module_system/data_access/__init__.py`（仅 re-export）、`plugins/builtin.common_tools/.../artifact_lines.py`、`plugins/builtin.social_network/.../routes.py`（仅注释）、`message_bus/team_files.py`、`message_bus/message_bus_trigger.py`

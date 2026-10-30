@@ -24,7 +24,7 @@ threshold, bootstrap_path)`；判定 = Bootstrap.md 存在（读侧 `resolve_exi
 legacy flat 布局）**且**（threshold 为 None 的语义型 profile，或 `event_count < threshold`）。
 
 **不是全仓唯一**:`backend/routes/auth.py` 另算一个**前端信任**的 `AgentInfo.bootstrap_active`——
-只 `os.path.isfile(Bootstrap.md)`、**无阈值**（list 接口担不起每 agent 一次 COUNT），它 gate 前端那颗
+只看 Bootstrap.md 是否存在（2026-10-30 起经 `bootstrap_file_present` 受限判断，不再 `os.path.isfile`）、**无阈值**（list 接口担不起每 agent 一次 COUNT），它 gate 前端那颗
 静态问候气泡。两者只在「越阈值但 Bootstrap.md 还没被 auto-delete」的窄窗口分叉（前端显示气泡、
 但两个写入方因 `status.active=False` 拒绝落库）。要统一得先解 list 接口的 N+1（记 `reference/
 self_notebook/todo/`）；在那之前,改一处记得连带看 `auth.py` 两处（已加注释指回本文件,可 grep 到）。
