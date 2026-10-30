@@ -127,9 +127,9 @@ async def test_a_share_hashes_the_source_at_most_once(env, monkeypatch):
     calls = {"n": 0}
     real = impl._content_hash
 
-    def counting(path):
+    def counting(path, *args, **kwargs):
         calls["n"] += 1
-        return real(path)
+        return real(path, *args, **kwargs)
 
     monkeypatch.setattr(impl, "_content_hash", counting)
 

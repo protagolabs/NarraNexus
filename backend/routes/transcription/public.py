@@ -37,15 +37,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from loguru import logger
 
+from backend.routes._confined_response import ConfinedFileResponse, open_tenant_file
 from narranexus.platform.agent_framework.llm.transcription.url_signer import (
     SignedClaims,
     TokenError,
     verify,
 )
-from narranexus.platform.utils.attachment_storage import resolve_attachment_path
+from narranexus.platform.settings import settings as core_settings
+from narranexus.platform.utils.attachment_storage import get_workspace_path, resolve_attachment_path
 
 
 router = APIRouter()
@@ -119,7 +121,22 @@ async def fetch_audio(token: str):
         )
 
     path = _resolve_path_for_variant(claims)
-    if path is None or not path.exists():
+    # Serve from a file object opened through the link-free walk (the resolver
+    # is only a check; FileResponse(path=...) re-opened the string).
+    # `within`: the resolvers return REALPATHS (see open_tenant_file) — pin the
+    # file to the token's own workspace / per-user root.
+    served = (
+        open_tenant_file(
+            path,
+            within=[
+                get_workspace_path(claims.agent_id, claims.user_id),
+                Path(core_settings.base_working_path) / claims.user_id,
+            ],
+        )
+        if path is not None
+        else None
+    )
+    if served is None:
         logger.warning(
             f"transcription public: file missing for "
             f"file_id={claims.file_id} variant={claims.variant}"
@@ -127,8 +144,8 @@ async def fetch_audio(token: str):
         raise HTTPException(status_code=404, detail="Attachment not found")
 
     media_type = _MIME_BY_EXT.get(path.suffix.lower(), "application/octet-stream")
-    return FileResponse(
-        path=str(path),
+    return ConfinedFileResponse(
+        served,
         media_type=media_type,
         # Don't leak our internal file_id naming through the
         # Content-Disposition filename — NetMind doesn't need it.

@@ -298,6 +298,8 @@ def test_format_category_enum_is_reduced_to_its_value():
 def test_stored_upload_suffix_is_sanitised_and_a_plain_one_kept(monkeypatch, tmp_path):
     """Defence in depth behind the marker's exact path literal: an uploader's
     file name cannot put whitespace or delimiters into the stored path."""
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)  # storage is confined below the base
     monkeypatch.setattr(at_storage, "get_workspace_path", lambda a, u: tmp_path)
 
     _, forged = at_storage.store_uploaded_attachment(

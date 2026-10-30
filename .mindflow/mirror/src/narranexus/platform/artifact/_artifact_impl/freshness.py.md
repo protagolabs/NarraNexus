@@ -1,8 +1,27 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/freshness.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（PR #433 review I1）— legacy 行认领指纹时度量失败不再中断
+
+`entry_size_bytes` 对目录型 entry 现在会抛（树过深 / 目录不可读 → `ArtifactTooLarge`，扫描中换成链接 → `ArtifactPathEscape`），
+以前 `os.walk` 永不抛。legacy 行（`content_hash is None`）的首次认领分支没跟上：抛出后 hash 永远写不回，快速筛永不武装，
+每次 state-block 渲染都重哈希该 entry。现在与 `commit_content_refresh` 同口径：`except (OSError, ArtifactError)` 保留旧 size、
+打 warning、**照常认领 hash** 并返回 `"fresh"`。**不**降级成 `"missing"`——那会把健康的 artifact 推进 heal。
+注册路径（`registration.py`）的度量失败仍然抛，25MB 上限不降级。测试：`test_null_hash_row_claims_the_hash_even_when_size_is_unmeasurable`。
+
+## 2026-10-30（复审）— 注释口径修正
+
+此前写"mtime 与随后读 hash 的是同一个 inode"并不成立：mtime 来自一次受限打开的 fstat，hash 由 `compute_entry_hash` 再做一次
+受限打开。两次之间若目录被换成链接，第二次被拒（→ `"missing"`），但不保证是同一个 inode。保证的是：两次读取都不穿过链接。
+
+## 2026-10-30 — mtime、hash、office 锁探测都走受限路径
+
+确权后的 `os.stat(abs_entry)` 改为对受限打开的 fd 做 `fstat`（mtime 与随后读 hash 的是同一个 inode）；hash 经
+`compute_entry_hash`（受限读）；`office_lock_present` 用 `confined_path_exists`——链接被换进来时读作"无锁"，
+不再是对别人目录的存在性探针。链接/越界一律 `"missing"`。`entry_size_bytes` 现在接收 artifact（见 [[commit]]）。
 
 # freshness.py — 外部编辑侦测(5①)
 

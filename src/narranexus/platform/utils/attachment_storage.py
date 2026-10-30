@@ -54,6 +54,7 @@ from narranexus.platform.schema.attachment_schema import (
     FILE_MARKER_UNAVAILABLE_PATH,
     category_value,
 )
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.file_safety import (
     ensure_within_directory,
     sanitize_filename,
@@ -100,25 +101,65 @@ def _date_dir(workspace: Path, date_str: str) -> Path:
     return workspace / _USER_UPLOAD_SUBDIR / date_str
 
 
-def _read_index(date_dir: Path) -> dict:
-    index_path = date_dir / _INDEX_FILENAME
-    if not index_path.exists():
-        return {}
+def _split(path: Path) -> tuple[str, str]:
+    """(realpath(base), base-relative POSIX path) for a LEXICAL workspace path.
+
+    Everything below ``{workspace}/user_upload_files`` is tenant-writable (the
+    owner's sandbox can plant links there), so all I/O under it goes through
+    ``utils/fs/confined_io``: every component below the base O_NOFOLLOW, temp and
+    target files created with O_EXCL, never by a path string. The tenant tail is
+    never resolve()d. Raises ConfinedPathError (a ValueError) outside the base.
+    """
+    from narranexus.platform.settings import settings as core_settings
+
+    return confined_io.split_under_base(str(path), core_settings.base_working_path)
+
+
+def _exists_dir(path: Path) -> bool:
     try:
-        with index_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        root, rel = _split(path)
+        return confined_io.lstat(root, rel).st_mode & 0o170000 == 0o040000
+    except (OSError, ValueError):
+        return False
+
+
+def _is_regular_file(root: str, rel: str) -> bool:
+    try:
+        return confined_io.lstat(root, rel).st_mode & 0o170000 == 0o100000
+    except (OSError, ValueError):
+        return False
+
+
+def _list_date_dirs(upload_root: Path) -> list[Path]:
+    """Real date subdirectories, newest name first, via the link-free walk."""
+    try:
+        root, rel = _split(upload_root)
+        infos = confined_io.list_dir(root, rel)
+    except (OSError, ValueError):
+        return []
+    return [upload_root / i.name for i in sorted(infos, key=lambda i: i.name, reverse=True) if i.is_dir]
+
+
+def _read_index(date_dir: Path) -> dict:
+    try:
+        root, rel = _split(date_dir)
+        with confined_io.open_read(root, f"{rel}/{_INDEX_FILENAME}") as f:
+            data = json.loads(f.read().decode("utf-8"))
         return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        # A corrupt index should not poison resolution — log via the caller.
+    except (OSError, ValueError):
+        # Missing, a link on the way, or a corrupt index: none of it may poison
+        # resolution (ConfinedPathError and JSONDecodeError are ValueErrors).
         return {}
 
 
 def _write_index(date_dir: Path, index: dict) -> None:
-    index_path = date_dir / _INDEX_FILENAME
-    tmp_path = index_path.with_suffix(".json.tmp")
-    with tmp_path.open("w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, index_path)
+    """Replace the day's index atomically through the link-free walk: the temp
+    file gets a RANDOM name and is created O_EXCL|O_NOFOLLOW, so a link planted
+    at ``_index.json.tmp`` (or at ``_index.json``) is never written through."""
+    root, rel = _split(date_dir)
+    confined_io.write_atomic(
+        root, f"{rel}/{_INDEX_FILENAME}", json.dumps(index, ensure_ascii=False, indent=2).encode("utf-8")
+    )
 
 
 #: Longest on-disk suffix kept (dot included); a longer one is cut.
@@ -158,7 +199,8 @@ def store_uploaded_attachment(
     workspace = get_workspace_path(agent_id, user_id)
     date_str = _today_str()
     date_dir = _date_dir(workspace, date_str)
-    date_dir.mkdir(parents=True, exist_ok=True)
+    root, date_rel = _split(date_dir)
+    confined_io.make_dirs(root, date_rel)
 
     # Derive the on-disk extension from the (sanitized) original filename.
     # Fall back to no-extension if the user uploaded e.g. 'screenshot' with
@@ -168,9 +210,11 @@ def store_uploaded_attachment(
 
     file_id = generate_file_id()
     on_disk_name = f"{file_id}{suffix}" if suffix else file_id
-    target_path = ensure_within_directory(date_dir, on_disk_name, label="attachment")
-
-    with target_path.open("wb") as f:
+    # LEXICAL target (never an ensure_within_directory result, which resolve()s
+    # a planted link away); created O_EXCL|O_NOFOLLOW so nothing is written
+    # through a link planted at that name.
+    target_path = Path(root) / date_rel / on_disk_name
+    with confined_io.open_new(root, f"{date_rel}/{on_disk_name}") as f:
         f.write(raw_bytes)
 
     index = _read_index(date_dir)
@@ -200,46 +244,46 @@ def resolve_attachment_path(
     if not is_valid_file_id(file_id):
         return None
     workspace = get_workspace_path(agent_id, user_id)
-    if not workspace.exists():
+    if not _exists_dir(workspace):
+        return None
+
+    def _candidate(date_dir: Path, entry: dict) -> Optional[Path]:
+        try:
+            name = sanitize_filename(entry["filename"], label="attachment")
+            root, date_rel = _split(date_dir)
+        except (KeyError, TypeError, ValueError):
+            return None
+        # Lexical join: a planted link is refused by the confined existence
+        # check (and again by every confined open), never resolve()d.
+        if _is_regular_file(root, f"{date_rel}/{name}"):
+            return Path(root) / date_rel / name
         return None
 
     today = datetime.now(timezone.utc).date()
     for offset in range(_RESOLVER_LOOKBACK_DAYS):
         date_str = (today.fromordinal(today.toordinal() - offset)).strftime("%Y-%m-%d")
         date_dir = _date_dir(workspace, date_str)
-        if not date_dir.exists():
+        if not _exists_dir(date_dir):
             continue
         entry = _read_index(date_dir).get(file_id)
         if not entry:
             continue
-        try:
-            candidate = ensure_within_directory(
-                date_dir, entry["filename"], label="attachment"
-            )
-        except ValueError:
-            return None
-        if candidate.exists():
+        candidate = _candidate(date_dir, entry)
+        if candidate is not None:
             return candidate
+        if not isinstance(entry, dict) or "filename" not in entry:
+            return None
 
     # Fallback: directly scan the user_upload_files tree. Useful when the
     # index is missing/corrupt for some date we haven't tracked. Bounded by
     # the number of date subdirectories — small in practice.
-    upload_root = workspace / _USER_UPLOAD_SUBDIR
-    if upload_root.exists():
-        for date_dir in sorted(upload_root.iterdir(), reverse=True):
-            if not date_dir.is_dir():
-                continue
-            entry = _read_index(date_dir).get(file_id)
-            if not entry:
-                continue
-            try:
-                candidate = ensure_within_directory(
-                    date_dir, entry["filename"], label="attachment"
-                )
-            except ValueError:
-                continue
-            if candidate.exists():
-                return candidate
+    for date_dir in _list_date_dirs(workspace / _USER_UPLOAD_SUBDIR):
+        entry = _read_index(date_dir).get(file_id)
+        if not entry:
+            continue
+        candidate = _candidate(date_dir, entry)
+        if candidate is not None:
+            return candidate
 
     return None
 
@@ -320,16 +364,7 @@ def get_attachment_metadata(
     if not is_valid_file_id(file_id):
         return None
     workspace = get_workspace_path(agent_id, user_id)
-    if not workspace.exists():
-        return None
-
-    upload_root = workspace / _USER_UPLOAD_SUBDIR
-    if not upload_root.exists():
-        return None
-
-    for date_dir in sorted(upload_root.iterdir(), reverse=True):
-        if not date_dir.is_dir():
-            continue
+    for date_dir in _list_date_dirs(workspace / _USER_UPLOAD_SUBDIR):
         entry = _read_index(date_dir).get(file_id)
         if entry:
             return entry

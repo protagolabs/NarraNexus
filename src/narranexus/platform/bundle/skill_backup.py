@@ -250,22 +250,50 @@ async def archive_local_zip(
     # elsewhere and a workspace dir swapped for a link to another tenant's
     # tree all fail here (2026-10-28).
     try:
-        src = resolve_inside_workspace(ws, zip_file_path)
+        resolved = resolve_inside_workspace(ws, zip_file_path)
+        # The RESOLVED path only proves the ref stays inside the workspace; the
+        # bytes are read through the LEXICAL path (workspace + the proven tail)
+        # with every component O_NOFOLLOW — a directory swapped for a link after
+        # this check is refused, never followed into another tenant's tree.
+        src = ws / resolved.relative_to(Path(os.path.abspath(ws)))
     except ValueError as e:
         raise ValueError(f"zip_file_path must be inside this agent's workspace ({e})") from None
-    if not src.exists() or not src.is_file():
-        raise ValueError(f"file not found: {src}")
+    from narranexus.platform.settings import settings as core_settings
+    from narranexus.platform.utils.fs import confined_io
 
-    # Same admission rules as the upload route — `skill_archives` has two write
-    # entry points and they used to disagree about what a valid archive is.
-    # This one additionally demands SKILL.md: the caller hands us a path inside
-    # its own workspace, so "you pointed at the wrong file" is the likely error
-    # and is worth saying immediately. The route stays lenient by design (see
-    # `_validate_skill_archive`).
-    validate_skill_archive_path(src, require_skill_md=True)
+    try:
+        root, rel = confined_io.split_under_base(str(src), core_settings.base_working_path)
+        source_file = confined_io.open_read(root, rel)
+    except (OSError, ValueError):
+        raise ValueError(f"file not found: {src}") from None
 
-    out_path = prepare_archive_target(user_id, skill_name)
-    shutil.copy2(src, out_path)
+    # Copy into platform-owned scratch FIRST (nothing is created in the archive
+    # area for a rejected zip), then validate THE COPY: the admission rules (same
+    # as the upload route — `skill_archives` has two write entry points and they
+    # used to disagree about what a valid archive is; this one additionally
+    # demands SKILL.md: the caller hands us a path inside its own workspace, so
+    # "you pointed at the wrong file" is the likely error and is worth saying
+    # immediately) then apply to exactly the bytes we keep, not to a path that
+    # can change underneath us.
+    import tempfile
+
+    fd, scratch = tempfile.mkstemp(suffix=".zip", prefix="skill-local-zip-")
+    try:
+        # fdopen owns the fd only once it returns: close it ourselves if it raises.
+        try:
+            dst_f = os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)
+            source_file.close()
+            raise
+        with source_file, dst_f:
+            shutil.copyfileobj(source_file, dst_f)
+        validate_skill_archive_path(Path(scratch), require_skill_md=True)
+        out_path = prepare_archive_target(user_id, skill_name)
+        shutil.move(scratch, out_path)
+    finally:
+        if os.path.exists(scratch):
+            os.unlink(scratch)
     sha = file_sha256(out_path)
     logger.info(f"Local-zip archive registered for '{skill_name}': {out_path}")
     return out_path, sha
@@ -302,10 +330,19 @@ async def list_unbackedup(user_id: str, agent_id: str) -> List[str]:
     if not ws:
         return []
     skills_dir = ws / "skills"
-    if not skills_dir.is_dir():
+    # Listed through the link-free walk: a swapped `skills` directory lists empty.
+    from narranexus.platform.settings import settings as core_settings
+    from narranexus.platform.utils.fs import confined_io
+
+    try:
+        root, rel = confined_io.split_under_base(str(skills_dir), core_settings.base_working_path)
+        infos = confined_io.list_dir(root, rel)
+    except (OSError, ValueError):
         return []
     installed = [
-        d.name for d in skills_dir.iterdir() if d.is_dir() and not d.name.startswith(".") and not _dir_is_builtin(d)
+        i.name
+        for i in infos
+        if i.is_dir and not i.name.startswith(".") and not _dir_is_builtin(skills_dir / i.name)
     ]
     return sorted([s for s in installed if s not in archived])
 

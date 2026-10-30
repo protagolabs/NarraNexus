@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/artifact/artifact_service.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `split_owned_path(abs_path)`
+
+把 `resolve_owned_entry` 给出的绝对路径还原为 (base_root, base 相对 POSIX 路径)，路由层据此用 `utils/fs/confined_io`
+做受限 I/O（office-asset 上传），不必在路由里重复实现 `confinement.split_under_base`。
 
 ## 2026-10-28 — `resolve_owned_entry(artifact)`
 

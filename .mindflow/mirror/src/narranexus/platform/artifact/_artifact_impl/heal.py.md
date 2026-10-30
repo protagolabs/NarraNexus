@@ -4,6 +4,14 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 候选的 size/mtime 与"指针已有效"探测走受限 fd
+
+`_scan_workspace_for_kind` 原来在 `_confined()` 之后 `os.stat(real)` 按路径取元数据：目录在两步之间被换成链接时，
+返回给用户（并用来按 mtime 排序）的是**受害者**文件的 size/mtime。现在用 `confinement.confined_stat`（逐级
+`O_NOFOLLOW` 打开再 fstat）；**受限打开失败的候选直接丢弃**，绝不以 0/伪造元数据出现（heal 按 mtime 排序，伪造值会
+改变排名）。`_confined_is_file` 取代 `os.path.isfile(existing_abs)` 做"指针已有效"判断，同样受限。`os.walk` 只列名字，
+链接目录既不下降、其名字也会在 `_confined` 处被丢；元数据与内容读取全部受限。
+
 ## 2026-10-30（auto-review #429）— 边界日志补上 actor
 
 heal 路由只允许属主调用，所以 actor 与 owner 是同一账号，两者都写上，签名覆盖四个字段。

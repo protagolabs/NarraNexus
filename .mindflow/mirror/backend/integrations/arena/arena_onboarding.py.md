@@ -1,8 +1,13 @@
 ---
 code_file: backend/integrations/arena/arena_onboarding.py
-last_verified: 2026-06-23
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 技能目录创建与写入走受限 fd
+
+`install_skill` 用 `make_dirs` + `write_atomic`（`credentials.json` 以 0600 **创建**，不再先宽后收）；`skills` 目录被换成链接 → `ConfinedPathError`，什么都不写
+（该技能含 agent 的 Arena 凭据）。`skills_dir` 必须在 `settings.base_working_path` 之下。
 
 # arena_onboarding.py — register an Agent on Arena + lay the skill into a workspace
 

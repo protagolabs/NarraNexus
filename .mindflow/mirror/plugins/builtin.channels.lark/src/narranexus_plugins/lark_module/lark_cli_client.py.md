@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.channels.lark/src/narranexus_plugins/lark_module/lark_cli_client.py
 stub: false
-last_verified: 2026-09-10
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30（复审 2）— 更正：它既碰 lark_workspaces，也把**租户 workspace** 当子进程 cwd
+
+此前 [[utils/fs/confined_io]] 的 mirror 声称 `lark_cli_client` 只作用于 `~/.narranexus/lark_workspaces/<agent>`——不准确。命令的 HOME / 配置在 `lark_workspaces`（平台自有，不在租户挂载），
+但下载类命令的 **cwd** 取自 `resolve_agent_workspace_cwd`（~:293），即租户可写的 agent workspace。cwd 由 `workspace_cwd.py` 经受限 `make_dirs` 创建（被换成链接 → 返回 None → 继承父 cwd），
+但**路径本身是交给另一个进程（lark-cli 子进程）的**，无法传 fd——与 office_watch 同类，列入 confined_io 的例外清单。
+
 ## 2026-09-09 — 未知 +shortcut 翻译成「该域合法 shortcut 列表」
 
 Agent 会编造不存在的 +shortcut（`docs +get`、`calendar +events-list`）。lark-cli 只回一句

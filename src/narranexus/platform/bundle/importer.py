@@ -1329,9 +1329,9 @@ async def _confirm_inner(
             from narranexus.platform.settings import settings as core_settings
             from narranexus.platform.utils.workspace_paths import agent_workspace_path
             target = agent_workspace_path(new_aid, user_id, base=core_settings.base_working_path)
-            target.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(_extract_tar_safely, ws_tar, target)
-            await asyncio.to_thread(_rewrite_workspace_text_files, target, id_map, user_id)
+            await asyncio.to_thread(
+                _import_workspace_tar, ws_tar, target, core_settings.base_working_path, id_map, user_id
+            )
             ws_extracted = True
             ws_target = target
 
@@ -2030,29 +2030,69 @@ def copy_skill_into_agent(
 
     Module-level (not a closure) so the symlink behaviour is testable: the
     name is sanitised and confined, an existing target is replaced, and the
-    copy never dereferences links (see :func:`copy_skill_dir`).
+    copy never dereferences links (see ``confined_io.copy_tree``).
     """
     from narranexus.platform.utils.file_safety import ensure_within_directory, sanitize_filename
     from narranexus.platform.utils.workspace_paths import agent_workspace_path
     skills_base = agent_workspace_path(target_aid, user_id, base=base) / "skills"
-    skills_base.mkdir(parents=True, exist_ok=True)
     safe_name = sanitize_filename(skill_name, label="skill name")
     target = ensure_within_directory(skills_base, safe_name, label="skill name")
-    if target.exists():
-        shutil.rmtree(target)
-    copy_skill_dir(src_skill_dir, target)
+    # Everything below is fd-relative under the base (``utils/fs/confined_io``):
+    # ``skills`` sits in the owner's own mount and can be swapped for a link to
+    # another tenant's tree, which a by-path rmtree / mkdir / copytree would
+    # follow (deleting there and writing there). Paths are LEXICAL
+    # (``skills_base / safe_name``): ``ensure_within_directory`` resolve()s its
+    # result, which would turn a swapped link into the victim's real path.
+    # ConfinedPathError (a ValueError) propagates — the import fails closed.
+    # SOURCE: ``src_skill_dir`` is an installed skill of the SAME tenant (or
+    # platform staging) — never another tenant's tree; it is walked O_NOFOLLOW
+    # too and links inside it are copied as links, never dereferenced.
+    from narranexus.platform.utils.fs import confined_io
+
+    root, skills_rel = confined_io.split_under_base(str(skills_base), base)
+    confined_io.make_dirs(root, skills_rel)
+    target_rel = f"{skills_rel}/{safe_name}"
+    try:
+        confined_io.remove_tree(root, target_rel)
+    except FileNotFoundError:
+        pass
+    src_root, src_rel = confined_io.split_source(str(src_skill_dir), base)
+    confined_io.copy_tree(src_root, src_rel, root, target_rel)
     return target
 
 
-def copy_skill_dir(src: Path, dst: Path) -> None:
-    """Copy an installed skill dir WITHOUT dereferencing symlinks.
+def _import_workspace_tar(
+    tar_path: Path, target: Path, base: str, id_map: Dict[str, str], user_id: str
+) -> None:
+    """Land an exported workspace tar in the agent's workspace WITHOUT ever
+    letting attacker-influenced bytes touch a tenant-writable path by name.
 
-    ``copytree`` defaults to following links, which turns a link planted in a
-    cloned repo (``leak.txt -> /etc/passwd``) into a real file in the target
-    workspace. Links are copied as links; the executor's workspace confinement
-    then decides whether they resolve.
+    The per-user executor mounts all of ``{base}/{user}``, so a tenant can
+    pre-create ``{user}/{new_agent_id}`` as a symlink into another tenant's tree
+    before this runs; extracting with ``extractall(target)`` (whose ``data``
+    filter uses ``realpath(target)`` as the destination) or rewriting files with
+    ``open(path, "w")`` would then write the bundle's contents there. So: extract
+    and rewrite inside PLATFORM-OWNED staging (``mkdtemp`` in the system temp
+    dir, outside every tenant mount), then merge the result into the LEXICAL
+    target through ``confined_io.merge_tree`` — every component below the base
+    is walked O_NOFOLLOW (a link anywhere refuses, nothing is written), files are
+    written through a private temp + rename. Raises ConfinedPathError (a
+    ValueError) when the target path crosses a link. Sync — caller wraps in
+    asyncio.to_thread().
     """
-    shutil.copytree(src, dst, symlinks=True)
+    import tempfile
+
+    from narranexus.platform.utils.fs import confined_io
+
+    staging = tempfile.mkdtemp(prefix="nx-ws-import-")
+    try:
+        staged = Path(staging)
+        _extract_tar_safely(tar_path, staged)
+        _rewrite_workspace_text_files(staged, id_map, user_id)
+        root, rel = confined_io.split_under_base(str(target), base)
+        confined_io.merge_tree(staging, "", root, rel)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _extract_tar_safely(tar_path: Path, target: Path) -> None:

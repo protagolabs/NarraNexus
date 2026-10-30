@@ -29,6 +29,7 @@ def _skill_md(name: str) -> str:
 @pytest.fixture
 def module(tmp_path) -> SkillModule:
     sm = SkillModule(agent_id="agent_test", user_id="test_user")
+    sm.base_path = tmp_path  # skill removal is confined below the workspace base
     sm.skills_dir = tmp_path / "skills"
     sm.skills_dir.mkdir(parents=True)
     return sm

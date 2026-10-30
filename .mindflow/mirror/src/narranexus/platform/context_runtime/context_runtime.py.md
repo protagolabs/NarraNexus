@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/context_runtime/context_runtime.py
-last_verified: 2026-09-22
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — Bootstrap.md 自动删除走受限 unlink
+
+`_settle_bootstrap` 删除超阈值的 `Bootstrap.md` 改为 `confined_io.split_under_base` + `unlink`（词法路径）。
+`bootstrap_file_present` 的检查只是检查，删除前 agent 目录可能已被换成指向别的租户的链接；按路径
+`os.remove` 会删掉对方的文件。已不存在视为已删，其它失败只记 warning。
 
 ## 2026-09-22 - Runtime conversation scopes for MCP permissions
 

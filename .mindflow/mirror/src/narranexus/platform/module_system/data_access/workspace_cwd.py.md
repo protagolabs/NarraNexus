@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/module_system/data_access/workspace_cwd.py
 stub: false
-last_verified: 2026-08-14
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — CLI 工作目录创建走 `make_dirs`
+
+被换成链接的 user/agent 目录 → 返回 None（调用方本就必须容忍 None），不会在别的租户的目录里 `mkdir`。
 
 ## 2026-08-14 — 新建（channel-CLI 共享 CWD 解析，PR#308）
 

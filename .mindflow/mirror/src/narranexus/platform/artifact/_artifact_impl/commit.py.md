@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/commit.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审）— 量不出大小不再让提交半途而废
+
+用户编辑先写字节、后提交行：`entry_size_bytes` 失败（目录过深 / 不可读 / 越界）会让文件已变而行没跟上。现在失败降级为**沿用旧 size 并记日志**，hash / history / event 照常落库。
+
+## 2026-10-30 — `entry_size_bytes` 的"顶层单文件"条件终于会命中
+
+旧实现用 `dirname(file_path)`（**相对 base** 的存储指针，形如 `<user>/<agent>/x.md`）判断 entry 是否在 workspace
+顶层，结果永远非空——顶层 entry 在编辑/外部变更提交时被记成整个 workspace 的大小。现在签名改为
+`entry_size_bytes(abs_entry, artifact)`，以 entry 的真实目录是否落在 `owner_roots`（workspace 各形态 + team 目录，
+与 [[raw_access]]/注册同一集合）判定；顶层 → 只量文件本身（受限 fd），否则 `_dir_size`（只数常规文件）。
 
 # commit.py — 内容变更提交尾巴的唯一 owner
 

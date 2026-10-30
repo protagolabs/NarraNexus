@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/raw_access.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 服务的字节从受限 fd 读，不再按路径串重开
+
+`resolve_raw_file` 仍是"检查"，但存在性现在用受限打开证明（链接 → 404，缺失/非常规 → 410），
+`ResolvedRawFile.open()` 给路由一个经 [[confinement]] 逐级 `O_NOFOLLOW` 打开的文件对象；
+路由（[[public.py]]）从它出字节。原先 `FileResponse(path=resolved.path)` 在发送第一个字节时按字符串重开，
+resolve 与发送之间把目录换成链接就能读到别的租户的文件。`path` 字段现在只是标签，**不要**再拿它去 open。
+`realpath` 遇到 NUL 抛 ValueError 现在映射成 404。
 
 ## 2026-10-28（PR #421 复审 I4）— 单文件模式的容器根 = `owner_roots`
 

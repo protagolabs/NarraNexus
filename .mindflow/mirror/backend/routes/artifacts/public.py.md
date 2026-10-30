@@ -1,8 +1,20 @@
 ---
 code_file: backend/routes/artifacts/public.py
-last_verified: 2026-08-20
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审）— `ConfinedFileResponse` 移到 `backend/routes/_confined_response.py`
+
+响应类与 `open_tenant_file` 现在是各路由共享的 helper（见 [[_confined_response]]），本文件只改 import。
+
+## 2026-10-30 — 从受限 fd 出字节（`ConfinedFileResponse`）
+
+路由原来把 `resolved.path` 交给 `FileResponse`，Starlette 在发送时按字符串重开——resolve 与发送之间目录被换成链接就
+能服务别的租户的文件。现在 `resolved.open()`（逐级 `O_NOFOLLOW`，[[raw_access]]）打开一次，`ConfinedFileResponse`
+（[[_confined_response]]）从该文件对象服务；链接 → 404，缺失 → 410。edit_bridge 分支读同一个已打开的文件，
+严格解码失败时 `seek(0)` 后回落到同一个 fd 的 `ConfinedFileResponse`（字节原样、不可编辑）。
+头部/HEAD/Range/416 行为沿用 Starlette（见 `tests/artifact/test_confined_io_sites.py`）。
 
 ## 2026-07-21 — path resolution moved to ArtifactService.resolve_raw_file
 

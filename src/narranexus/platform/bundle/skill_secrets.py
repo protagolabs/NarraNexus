@@ -41,12 +41,18 @@ def dir_is_builtin(skill_dir: Path) -> bool:
     the backup path (``skill_backup``) and the export builder; ``skill_module``
     imports it too so the flag semantics can't drift across the three callers.
     """
-    meta_file = skill_dir / SKILL_META_FILENAME
-    if not meta_file.exists():
-        return False
+    # The skill dir sits in the owner's own mount: the meta is read through the
+    # link-free walk (a link on the way reads as "not built-in", never as a peek
+    # into another tenant's tree). Paths outside the workspace base are platform
+    # staging: parent trusted, leaf still O_NOFOLLOW.
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils.fs import confined_io
+
     try:
-        return bool(json.loads(meta_file.read_text(encoding="utf-8")).get("builtin"))
-    except Exception:
+        root, rel = confined_io.split_source(str(skill_dir / SKILL_META_FILENAME), settings.base_working_path)
+        with confined_io.open_read(root, rel) as f:
+            return bool(json.loads(f.read().decode("utf-8")).get("builtin"))
+    except Exception:  # noqa: BLE001 — missing / refused / corrupt: not built-in
         return False
 
 

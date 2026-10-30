@@ -25,6 +25,7 @@ from narranexus_plugins.skill_module.skill_module import SkillModule
 def skill_module(tmp_path):
     """SkillModule whose skills_dir is a fresh tmp directory."""
     module = SkillModule(agent_id="agent_test", user_id="test_user")
+    module.base_path = tmp_path  # skill removal is confined below the workspace base
     module.skills_dir = tmp_path / "skills"
     module.skills_dir.mkdir(parents=True, exist_ok=True)
     return module

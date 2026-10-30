@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_matrix_send.py
 stub: false
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — 出站媒体读取走受限 fd
+
+`resolve_workspace_file` 返回**词法**路径（workspace + 已证明的尾段）并用受限 lstat 判常规文件；`send_media_impl` 用 `open_read` 一次拿到 fstat 大小与字节
+（原 `target.stat()` + `read_bytes()` 按路径两次）。检查与读取之间目录被换成链接 → `not_found`，不会把别的租户的文件发到 Matrix 房间。
 
 ## 2026-10-28（二审）— 拒绝符号链接 workspace
 

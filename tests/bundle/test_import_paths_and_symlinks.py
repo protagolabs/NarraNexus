@@ -106,7 +106,7 @@ def test_artifact_relpath_accepts_workspace_relative(ok):
     assert importer.artifact_relpath_or_raise(ok) == ok.lstrip("/")
 
 
-def test_copy_skill_dir_keeps_symlinks_as_links(tmp_path):
+def test_copy_tree_keeps_symlinks_as_links(tmp_path):
     outside = tmp_path / "outside.txt"
     outside.write_text("host-secret", encoding="utf-8")
     src = tmp_path / "src_skill"
@@ -114,7 +114,9 @@ def test_copy_skill_dir_keeps_symlinks_as_links(tmp_path):
     (src / "SKILL.md").write_text("# s", encoding="utf-8")
     os.symlink(outside, src / "leak.txt")
     dst = tmp_path / "dst_skill"
-    importer.copy_skill_dir(src, dst)
+    from narranexus.platform.utils.fs import confined_io
+
+    confined_io.copy_tree(str(tmp_path), "src_skill", str(tmp_path), "dst_skill")
     assert (dst / "SKILL.md").read_text(encoding="utf-8") == "# s"
     assert (dst / "leak.txt").is_symlink()
     assert os.readlink(dst / "leak.txt") == str(outside)

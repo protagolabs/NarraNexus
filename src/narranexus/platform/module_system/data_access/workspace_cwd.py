@@ -61,8 +61,14 @@ async def resolve_agent_workspace_cwd(
     try:
         from narranexus.platform.utils.attachment_storage import get_workspace_path
 
+        from narranexus.platform.settings import settings as core_settings
+        from narranexus.platform.utils.fs import confined_io
+
         ws = get_workspace_path(agent_id, user_id)
-        ws.mkdir(parents=True, exist_ok=True)
+        # Created through the link-free walk below the base: a swapped
+        # user/agent directory is refused (-> no CWD) instead of followed.
+        croot, crel = confined_io.split_under_base(str(ws), core_settings.base_working_path)
+        confined_io.make_dirs(croot, crel)
         return ws
     except Exception as e:  # noqa: BLE001 — CWD is optional by contract
         logger.debug(f"[{log_tag}] workspace path resolution failed for {agent_id}: {e}")
