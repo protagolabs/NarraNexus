@@ -7,7 +7,9 @@ stub: false
 ## 2026-10-30 — `ACCOUNT_SUSPENDED_CODE`
 
 与 `backend/auth_errors.py` 的 `ACCOUNT_SUSPENDED` 同值（`'account_suspended'`）：已认证、但账号不能再操作，
-每个请求 403。由 [[api]] 用来识别并触发退出登录。
+每个请求 403。`noteAccountSuspended(response)`：403 且 body `code` 为该值时派发
+`narranexus:account-suspended`（读 clone，不消费调用方的 body；非 JSON 不抛错）。由 [[guardedFetch]]（每个响应，
+读写都过）和 [[sessionGuard]] 的探测（WebSocket AuthError 走到这里）调用。
 
 # authFailure.ts — 判断"这个 401 是不是会话死了"
 

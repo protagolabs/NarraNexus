@@ -24,11 +24,17 @@ export function useAccountSuspendedSignOut(): [boolean, () => void] {
       const { isLoggedIn, logout } = useConfigStore.getState();
       if (!isLoggedIn) return;
       console.warn('[auth] account not available — signing out to stop requests');
+      // Pending WS reconnects would keep running otherwise. Imported on demand:
+      // the WS client is not part of the first-load bundle, and if it was never
+      // loaded there is nothing to close.
+      void import('@/services/wsManager').then(({ wsManager }) => wsManager.closeAll());
       logout();
       setSuspended(true);
     };
     window.addEventListener('narranexus:account-suspended', handler);
     return () => window.removeEventListener('narranexus:account-suspended', handler);
   }, []);
-  return [suspended, () => setSuspended(false)];
+  // A later sign-in on this tab must not inherit the notice.
+  const isLoggedIn = useConfigStore((s) => s.isLoggedIn);
+  return [suspended && !isLoggedIn, () => setSuspended(false)];
 }

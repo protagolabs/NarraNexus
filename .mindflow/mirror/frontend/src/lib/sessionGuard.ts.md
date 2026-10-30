@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/sessionGuard.ts
-last_verified: 2026-08-06
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 探测遇到 403 `account_suspended` 也触发退出
+
+WebSocket 的 AuthError（含封号）走 `confirmSessionDeath` → 探测 `/api/auth/session`；封号账号这里拿到 403，原本
+被当成 "unknown"、不登出，于是 WS 不停重连。现在探测对响应调 `noteAccountSuspended`，封号即派发退出事件。
 
 # sessionGuard.ts — 强制登出前的第二意见
 

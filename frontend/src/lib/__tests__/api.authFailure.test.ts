@@ -109,12 +109,14 @@ describe('ApiClient.request 403 account_suspended', () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
       jsonResponse(403, { detail: 'Account is not available', code: 'account_suspended' })));
     await expect(api.getJobs('agent_1')).rejects.toBeInstanceOf(ApiError);
+    await new Promise((r) => setTimeout(r, 0));
     expect(suspended).toHaveLength(1);
   });
 
   test("an ordinary 403 (someone else's agent) does not sign anyone out", async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(403, { detail: 'Forbidden' })));
     await expect(api.getJobs('agent_1')).rejects.toBeInstanceOf(ApiError);
+    await new Promise((r) => setTimeout(r, 0));
     expect(suspended).toHaveLength(0);
   });
 });

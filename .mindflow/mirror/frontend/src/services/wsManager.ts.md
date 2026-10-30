@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `closeAll()` 同时取消所有待执行的重连
+
+原来 `closeAll()` 只关现有连接，`_scheduleReconnect` 排好的定时器还在，退出登录后会继续对已失效的会话重连。
+现在一并 `clearTimeout` 并清空重连计数。由 [[useAccountSuspendedSignOut]] 在封号退出时调用。
+
 ## 2026-10-30 — `MOCK_ENABLED` 改从 `lib/mock/flag` 读
 
 只为不把 mock fixtures 拉进生产首屏（见 [[flag]]）；mock 模式行为不变。

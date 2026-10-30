@@ -27,11 +27,33 @@ export const SESSION_DEAD_CODES: ReadonlySet<string> = new Set([
   'identity_missing', // local mode: frontend has no X-User-Id to send
 ]);
 
-/** Pull the `code` out of a parsed 401 body; null when absent or malformed. */
 /** backend/auth_errors.py ACCOUNT_SUSPENDED: authenticated, but the account
  * may not transact (403 on every request). */
 export const ACCOUNT_SUSPENDED_CODE = 'account_suspended';
 
+/**
+ * If `response` is the backend saying this account is suspended, raise
+ * `narranexus:account-suspended` (useAccountSuspendedSignOut signs out, which
+ * stops every poll). Reads a clone, never the caller's body, and never throws.
+ * Called for every response by guardedFetch and by the session probe, so no
+ * request path can keep a suspended tab polling into 403s.
+ */
+export function noteAccountSuspended(response: Response): void {
+  if (response.status !== 403) return;
+  let copy: Response;
+  try {
+    copy = response.clone();
+  } catch {
+    return; // body already used: nothing to read
+  }
+  void copy.json().then((body: unknown) => {
+    if (readAuthCode(body) === ACCOUNT_SUSPENDED_CODE) {
+      window.dispatchEvent(new CustomEvent('narranexus:account-suspended'));
+    }
+  }, () => undefined);
+}
+
+/** Pull the `code` out of a parsed 401 body; null when absent or malformed. */
 export function readAuthCode(body: unknown): string | null {
   if (!body || typeof body !== 'object') return null;
   const code = (body as { code?: unknown }).code;

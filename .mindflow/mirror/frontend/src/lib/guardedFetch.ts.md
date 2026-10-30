@@ -4,6 +4,12 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 每个响应都检查封号（`noteAccountSuspended`）
+
+封号账号的每个请求都回 403 `account_suspended`；只在 `api.request` 里认这个码会漏掉直接用 guardedFetch 的
+所有服务。现在读写两条路径拿到响应后都调 [[authFailure]] `noteAccountSuspended`，派发事件由
+[[useAccountSuspendedSignOut]] 退出登录，任何路径都不会让封号标签页继续轮询出 403（边缘按失败数封 IP）。
+
 # guardedFetch.ts — the app's HTTP calls, behind the request-loop guard
 
 ## Why it exists

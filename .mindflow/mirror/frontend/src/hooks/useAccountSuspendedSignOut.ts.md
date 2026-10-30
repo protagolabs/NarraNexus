@@ -15,7 +15,11 @@ stub: false
 
 ## 做什么
 
-[[api]] 遇到 403 `account_suspended` 派发 `narranexus:account-suspended`；本 hook 在已登录时 `logout()`
+[[guardedFetch]]（每个 HTTP 响应）和 [[sessionGuard]] 探测（WebSocket AuthError 走到这里）遇到 403
+`account_suspended` 派发 `narranexus:account-suspended`；本 hook 在已登录时 `logout()`，并按需 `import()` wsManager
+调 `closeAll()`（关掉 WS 并取消待执行的重连；动态导入是为了不把 WS 客户端拉进首屏——静态导入会让入口多约
+11KB，没加载过说明本来就没有连接）
 （轮询全部以 userId 为前提，随之停止；之后的请求不带凭据，回 401，边缘不计数），并返回
 `[显示提示, 关闭]` 给 [[App]] 渲染「账号不可用，已退出登录」横幅。未登录时忽略。重新登录会被登录闸门拒绝，
-所以退出是终态，不是会被立刻撤销的状态。
+所以退出是终态，不是会被立刻撤销的状态。同一标签页之后有人重新登录时提示自动隐藏（返回值按 `isLoggedIn`
+派生，不另起 effect）。
