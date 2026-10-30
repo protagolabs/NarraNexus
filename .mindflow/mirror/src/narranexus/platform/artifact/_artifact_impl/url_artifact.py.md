@@ -4,6 +4,16 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 收掉解析差异，并说清这个守卫管不到什么
+
+`_origin_tuple` 先按浏览器规则去掉首尾 C0 和空格（`open_url` 存的也是这个值），再拒绝 urlparse 和浏览器可能读出不同 host 的写法：`?#` 之前含反斜杠（`https://ours\\@evil` 浏览器读成 ours）、authority 里 ≤0x20 的字符、任意位置的 tab/CR/LF（浏览器和 urlparse 都静默删）；路径里的空格和 query 里的反斜杠是合法的、
+netloc 含 `%`（浏览器解码 host）、无 host（`https:/ours` urlparse 无 netloc，浏览器有 host）。host 过 IDNA 再比较，全角字母和全角句点折叠成浏览器看到的样子。
+`_reject_self_origin` 对判不了的 URL 直接抛 ArtifactError，本地部署也一样；原来是放行给后面的 SSRF 闸门。
+
+**它只判写下来的 URL。** 第三方页面仍可把 iframe 重定向到我们的源，那一步靠公共内容路由响应头里的 `Content-Security-Policy: sandbox`（见 [[public.py]]）。
+**`_read_doc` 不是唯一闸门**：浏览器经 raw 路由直接读 `page.url.json`，不走这里；agent 能在创建后改这个文件，所以 [[UrlRenderer.tsx]] 每次渲染前重新检查。
+`set_embed_mode` 也复查一次，防止 override 接口重写被改过的 doc，但它只有 `public_base_url` 可比，没有请求推出的 origin。
+
 ## 2026-10-30 — 新建 tab 先证明目录无链接再写；读写全部受限
 
 `open_url` 原来 `os.makedirs` + 按串写：workspace 下的 `tabs` 若是指向别人目录的链接，doc 与 content.md 直接落到

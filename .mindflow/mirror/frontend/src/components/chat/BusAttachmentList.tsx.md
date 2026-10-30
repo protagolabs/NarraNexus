@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/chat/BusAttachmentList.tsx
-last_verified: 2026-07-20
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 只有位图能点开
+
+缩略图的 `<a href=blob:>` 与 [[AttachmentImage.tsx]] 同一规则。下载按钮不受影响：`<a download>` 不会把 blob 当文档打开。
 
 # BusAttachmentList.tsx — render files attached to bus messages
 

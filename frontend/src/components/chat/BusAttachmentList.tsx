@@ -13,6 +13,7 @@
 import { Download, FileText, Image as ImageIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
+import { canOpenAttachmentBlob } from '@/hooks/useAttachmentBlobUrl';
 import { useBusAttachmentBlobUrl } from '@/hooks/useBusAttachmentBlobUrl';
 import { VoiceTranscript } from './VoiceTranscript';
 import type { BusAttachment } from '@/types';
@@ -30,21 +31,26 @@ async function downloadBusAttachment(att: BusAttachment): Promise<void> {
 }
 
 function BusAttachmentImageThumb({ att }: { att: BusAttachment }) {
-  const blobUrl = useBusAttachmentBlobUrl(att.rel_path);
-  if (!blobUrl) {
+  const blob = useBusAttachmentBlobUrl(att.rel_path);
+  if (!blob) {
     return (
       <div className="flex h-24 w-24 items-center justify-center rounded border border-[var(--rule)] bg-[var(--bg-secondary)]">
         <ImageIcon className="h-5 w-5 text-[var(--text-tertiary)]" />
       </div>
     );
   }
+  const img = (
+    <img
+      src={blob.url}
+      alt={att.original_name}
+      className="max-h-48 max-w-[280px] rounded border border-[var(--rule)] object-cover"
+    />
+  );
+  // Raster types only: an SVG opened from a blob: URL runs on the app origin.
+  if (!canOpenAttachmentBlob(blob.type)) return img;
   return (
-    <a href={blobUrl} target="_blank" rel="noopener noreferrer" title={att.original_name} className="block">
-      <img
-        src={blobUrl}
-        alt={att.original_name}
-        className="max-h-48 max-w-[280px] rounded border border-[var(--rule)] object-cover"
-      />
+    <a href={blob.url} target="_blank" rel="noopener noreferrer" title={att.original_name} className="block">
+      {img}
     </a>
   );
 }

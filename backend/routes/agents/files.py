@@ -29,7 +29,7 @@ from loguru import logger
 
 from backend.config import settings as backend_settings
 from backend.routes._confined_response import ConfinedFileResponse, open_tenant_file
-from backend.routes._ownership import require_owned_workspace_agent
+from backend.routes._ownership import is_service_caller, require_owned_workspace_agent
 from narranexus.platform.schema import (
     FileInfo,
     FileListResponse,
@@ -191,7 +191,26 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
     return tree, budget["truncated"]
 
 
-def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> Path:
+def _refused_path_surface(rel_path: str, *, service: bool) -> str:
+    """The boundary surface for a refused path, decided from the raw value.
+
+    ``agent_files.path`` bans the account on its first signed line, so it may
+    only mean the owner typed a traversal. A name holding a backslash needs no
+    human: an injected agent can create ``a\\..\\b`` as one POSIX file name, the
+    file browser lists it and sends it back verbatim, and only the desktop
+    backslash handling turns it into traversal. Such a value has no `..` segment
+    and no leading `/` of its own, which is what separates the two.
+    """
+    if service:
+        return "service_files.path"
+    raw = PurePosixPath(rel_path)
+    typed = "\x00" in rel_path or raw.is_absolute() or ".." in raw.parts
+    return "agent_files.path" if typed else "agent_files.listed_name"
+
+
+def _resolve_within_workspace(
+    workspace: Path, rel_path: str, *, actor: str, service: bool
+) -> Path:
     """Resolve a workspace-relative path to an absolute path, refusing escape.
 
     Rejects:
@@ -210,19 +229,26 @@ def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> 
     (a policy — hidden files are not served) and a link leaving the shared
     base altogether (an agent's own `venv/bin/python -> /usr/bin/python3`, which
     an honest owner can hit by typing the path).
+
+    ``service`` marks a caller that is not a person (see
+    ``is_service_caller``). The surface for each refusal comes from
+    ``_refused_path_surface``; a link is ``agent_files.link_escape``, because an
+    injected agent can plant one. Only a person's typed path counts against the
+    person.
     """
     if not rel_path:
         raise HTTPException(400, "invalid path")
+    surface = _refused_path_surface(rel_path, service=service)
     if "\x00" in rel_path:
-        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
+        log_boundary_violation(surface, actor=actor, detail=rel_path)
         raise HTTPException(400, "invalid path")
     posix = PurePosixPath(rel_path.replace("\\", "/"))
     parts = posix.parts
     if posix.is_absolute():
-        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
+        log_boundary_violation(surface, actor=actor, detail=rel_path)
         raise HTTPException(400, "invalid path: outside the agent workspace")
     if any(part == ".." for part in parts):
-        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
+        log_boundary_violation(surface, actor=actor, detail=rel_path)
         raise HTTPException(400, "invalid path: dotfolders and traversal are not allowed")
     if any(part in ("", ".") or part.startswith(".") for part in parts):
         raise HTTPException(400, "invalid path: dotfolders and traversal are not allowed")
@@ -240,7 +266,11 @@ def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> 
         # shared base — no honest workspace links there.
         base = Path(os.path.realpath(platform_settings.base_working_path))
         if candidate.is_relative_to(base):
-            log_boundary_violation("agent_files.path", actor=actor, detail=f"{rel_path} -> {candidate}")
+            log_boundary_violation(
+                "service_files.path" if service else "agent_files.link_escape",
+                actor=actor,
+                detail=f"{rel_path} -> {candidate}",
+            )
         raise HTTPException(400, "invalid path: outside the agent workspace")
     return candidate
 
@@ -298,7 +328,9 @@ async def fetch_workspace_file(
     """
     user_id = await require_owned_workspace_agent(request, agent_id)
     workspace = Path(_get_workspace_path(agent_id, user_id))
-    target = _resolve_within_workspace(workspace, path, actor=user_id)
+    target = _resolve_within_workspace(
+        workspace, path, actor=user_id, service=is_service_caller(request)
+    )
     # Open through the link-free walk and serve from that file object: the
     # resolution above is only a check, and FileResponse(path=...) would
     # re-open the string after a directory on it may have been swapped for a
@@ -381,7 +413,9 @@ async def delete_file(
     logger.info(f"Deleting workspace path '{path}' for agent: {agent_id}, user: {user_id}")
     try:
         workspace = Path(_get_workspace_path(agent_id, user_id))
-        target = _resolve_within_workspace(workspace, path, actor=user_id)
+        target = _resolve_within_workspace(
+            workspace, path, actor=user_id, service=is_service_caller(request)
+        )
         try:
             root, rel = confined_io.split_under_base(
                 str(target), platform_settings.base_working_path

@@ -76,6 +76,9 @@ class ConfinedFileResponse(FileResponse):
 
     The response owns ``file`` and closes it when the ASGI call ends — on
     success, on error, and for HEAD (which never reads it).
+
+    Tenant bytes are never sniffed: ``X-Content-Type-Options: nosniff`` is the
+    default, merged under the caller's headers, so a caller's own value wins.
     """
 
     def __init__(
@@ -93,12 +96,15 @@ class ConfinedFileResponse(FileResponse):
         except BaseException:
             file.close()
             raise
+        merged = dict(headers or {})
+        if not any(name.lower() == "x-content-type-options" for name in merged):
+            merged["X-Content-Type-Options"] = "nosniff"
         # ``path`` is only a label here: with stat_result given, Starlette never
         # stats or opens it, and the body writers below ignore it.
         super().__init__(
             path=f"<confined-fd:{file.fileno()}>",
             status_code=status_code,
-            headers=headers,
+            headers=merged,
             media_type=media_type,
             stat_result=stat_result,
             filename=filename,

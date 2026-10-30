@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 默认 nosniff
+
+`ConfinedFileResponse` 默认带 `X-Content-Type-Options: nosniff`，按大小写不敏感合并在调用方 headers 之下：调用方写了就用调用方的，不会出现两份。所有租户文件路由都经过这里，
+所以放在类上而不是逐路由加。`backend/main.py`（SPA 静态资源）、`plugins_factory`（插件资产）、`admin/logs`、`marketplace_skills` 的裸 `FileResponse` 服务的不是租户上传内容，未改。
+
 ## 2026-10-30 — `open_tenant_file(path, within=...)`
 
 resolver 常返回**真实路径**（`ensure_within_directory` / `.resolve()`）：租户在 workspace 里预先放好的链接会让 resolver 吐出受害者的真实路径，

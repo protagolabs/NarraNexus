@@ -4,6 +4,15 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 响应本身无害：`_WATCH_HEADERS` 与上游类型白名单
+
+代理在 app 同源上转发文档控制的内容，viewer iframe 的 sandbox 属性只约束那一个框。所有响应（HTML、SSE、资产、POST）都带 `_WATCH_HEADERS`：
+`Content-Security-Policy: sandbox allow-scripts`、nosniff、`Referrer-Policy: no-referrer`、加上原有 CORS。上游类型按 base type 精确匹配（原来是 `"text/html" in`，子串匹配），
+白名单外的（SVG、xhtml 等）变成 `application/octet-stream` + `Content-Disposition: attachment`。POST 响应固定标 `application/json`，上游的类型不进浏览器。
+
+核对 officecli v1.0.135 的 `WatchServer.cs`：它只发 `text/html`、`text/event-stream`、`application/json`、`text/plain`（403/404/405 的错误体），页面的 css/js/图片都内联，其他 GET 路径返回同一份 HTML。
+所以在计划的白名单上加了 `text/plain`（只读文本，nosniff 下不会被当 HTML）。css/js/图片/字体保留在白名单里，给以后拆分资产的版本留路：nosniff 下标错类型的 script/style 会被拒载。
+
 ## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
 
 `file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
@@ -72,7 +81,7 @@ office 文档(pptx/docx/xlsx)作为一种 artifact **实时**渲染。是"office
   挤成一字一行(看着像竖排),直到有东西触发重测。shim 加载后按 `[100,300,700,1500]ms` 补发几次
   `resize`,强制它按稳定后的容器重新缩放。浏览器里无害(重算到同尺寸)。仅在真实 WKWebView 复现,
   Chrome/playwright-WebKit 都正常。
-- **CORS 头(`_CORS_HEADERS = {Access-Control-Allow-Origin: *}`)挂在两个响应上**:
+- **CORS 头(`_CORS_HEADERS = {Access-Control-Allow-Origin: *}`,已并入 `_WATCH_HEADERS`)挂在全部代理响应上**:
   viewer 的 iframe 用 `sandbox="allow-scripts"`(不透明源),页面里的 `EventSource('/events')`
   因此是**跨源**请求 → 不加 CORS 头会被浏览器拦掉,表现为"初始 HTML(第一张幻灯片背景)加载
   了,但 agent 后续每次编辑的 SSE 增量刷不进来,直到最后重挂 iframe 才整体显示"。HTML `Response`

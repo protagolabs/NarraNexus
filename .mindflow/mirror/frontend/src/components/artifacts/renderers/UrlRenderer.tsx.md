@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/UrlRenderer.tsx
-last_verified: 2026-09-23
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 渲染前复查 doc.url
+
+iframe 带 `allow-same-origin`，所以 doc 里的 URL 必须是别的源。后端 `_reject_self_origin` 只在创建时查，而 `page.url.json` 是 workspace 文件，agent 之后能改，浏览器又经 raw 路由直接读它。
+这里 `new URL(doc.url)` 后只放行 http/https 且 origin 不等于 `location.origin`，否则渲染 `BlockedCard`：没有 iframe、没有打开按钮、没有模式切换，`window.open` 的 `javascript:` 路径也一起堵上。
+文案复用已有的 `artifacts.url.loadFailed`，没有新增 locale 键。重定向不归这里管：第三方页面重定向到我们的源时，靠响应头的 CSP sandbox 让落地文档变成不透明源。
 
 ## 2026-09-23 浏览器支持
 

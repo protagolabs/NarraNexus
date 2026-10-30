@@ -33,6 +33,10 @@ Security:
   * cloud cross-user isolation is automatic: ``ensure_executor(user_id)`` only
     ever returns THAT user's container URL, so a user can never reach another
     user's watch server.
+  * every proxied upstream response is inert on the app origin: a CSP `sandbox allow-scripts`
+    header (the viewer's iframe attribute only binds that one frame), nosniff,
+    and an upstream type allowlist. Watch content is whatever the document
+    holds; a type outside the list is served as a download.
 """
 
 from __future__ import annotations
@@ -145,6 +149,53 @@ def _rewrite_watch_html(html: str, prefix: str) -> str:
 # renders once but never live-refreshes. `*` is safe here: auth is the signed
 # token in the URL path, not a cookie, and EventSource is non-credentialed.
 _CORS_HEADERS = {"Access-Control-Allow-Origin": "*"}
+
+# On every proxied response. The sandbox matches the viewer's iframe attribute
+# and holds when the URL is reached any other way (it is on the app's origin),
+# and allow-scripts stays: the watch page is a script-driven document. Never add
+# allow-same-origin.
+_WATCH_HEADERS = {
+    **_CORS_HEADERS,
+    "Content-Security-Policy": "sandbox allow-scripts",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+# What a watch server may hand the browser as itself. officecli v1.0.135 itself
+# serves only text/html, text/event-stream, application/json and text/plain (its
+# 403/404/405 bodies): pages inline their css/js and images, and any other path
+# gets the html page. The asset types stay allowed so a later officecli that
+# splits them out still previews under nosniff, which refuses a mislabeled
+# stylesheet or script.
+_ALLOWED_UPSTREAM_TYPES = frozenset({
+    "text/html",
+    "text/event-stream",
+    "text/plain",
+    "text/css",
+    "text/javascript",
+    "application/javascript",
+    "application/x-javascript",
+    "application/json",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "font/woff",
+    "font/woff2",
+    "font/ttf",
+    "font/otf",
+    "application/font-woff",
+    "application/font-woff2",
+})
+
+
+def _base_media_type(content_type: str) -> str:
+    """``text/HTML; charset=x`` -> ``text/html``."""
+    return content_type.split(";", 1)[0].strip().lower()
+
+
+def _is_allowed_upstream_type(base_type: str) -> bool:
+    return base_type in _ALLOWED_UPSTREAM_TYPES or base_type.startswith("font/")
 
 # Request headers worth forwarding upstream (SSE negotiation + conditional
 # reload). We deliberately do NOT forward Host/Authorization/Cookie.
@@ -501,7 +552,8 @@ async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: 
     _log_if_token_rejected(resp.status, user_id, "watch passthrough GET")
 
     media_type = resp.headers.get("Content-Type", "application/octet-stream")
-    if "text/html" in media_type.lower():
+    base_type = _base_media_type(media_type)
+    if base_type == "text/html":
         try:
             raw = await resp.text()
         finally:
@@ -511,13 +563,13 @@ async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: 
             content=_rewrite_watch_html(raw, prefix),
             status_code=resp.status,
             media_type=media_type,
-            headers={"X-Accel-Buffering": "no", **_CORS_HEADERS},
+            headers={"X-Accel-Buffering": "no", **_WATCH_HEADERS},
         )
 
     # Only long-lived SSE streams count toward the per-user cap; asset requests
     # are short and finish on their own. Register (maybe evicting the user's
     # oldest) before streaming; unregister when the body ends.
-    is_sse = "text/event-stream" in media_type.lower()
+    is_sse = base_type == "text/event-stream"
     stream_id = await _register_sse_stream(user_id, session) if is_sse else None
 
     async def _body():
@@ -532,10 +584,13 @@ async def _proxy_stream(user_id: str, port: int, path: str, query: str, prefix: 
             if stream_id is not None:
                 _unregister_sse_stream(stream_id)
 
-    headers = {"X-Accel-Buffering": "no", **_CORS_HEADERS}
+    headers = {"X-Accel-Buffering": "no", **_WATCH_HEADERS}
     for h in _COPY_RESPONSE_HEADERS:
         if h in resp.headers and h != "content-type":
             headers[h] = resp.headers[h]
+    if not _is_allowed_upstream_type(base_type):
+        media_type = "application/octet-stream"
+        headers["Content-Disposition"] = "attachment"
     return StreamingResponse(_body(), status_code=resp.status, media_type=media_type, headers=headers)
 
 
@@ -594,7 +649,10 @@ async def proxy_office_watch_post(token: str, port: int, path: str, request: Req
         chunks.append(chunk)
     body = b"".join(chunks)
 
-    status, media_type, payload = await _post_upstream(
+    # The only forwarded POST is a selection report, answered with JSON or an
+    # empty body. The label is ours: the upstream's type never reaches the
+    # browser, so a text/html answer cannot render on the app origin.
+    status, _, payload = await _post_upstream(
         claims.user_id,
         port,
         path,
@@ -602,7 +660,9 @@ async def proxy_office_watch_post(token: str, port: int, path: str, request: Req
         body,
         request.headers.get("Content-Type", "application/json"),
     )
-    return Response(content=payload, status_code=status, media_type=media_type, headers=_CORS_HEADERS)
+    return Response(
+        content=payload, status_code=status, media_type="application/json", headers=_WATCH_HEADERS
+    )
 
 
 @public_router.get("/office-watch-proxy/{token}/{port}/{path:path}")

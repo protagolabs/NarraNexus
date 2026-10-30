@@ -58,6 +58,15 @@ interface MarkdownProps {
 // render, and chat surfaces re-render on every WebSocket delta. All props
 // are primitives, so shallow equality skips the re-parse for content that
 // didn't change (e.g. earlier segments while the last one streams).
+function isExternalHref(href: string | undefined): boolean {
+  if (!href || href.startsWith('#')) return false;
+  try {
+    return new URL(href, window.location.href).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export const Markdown = memo(function Markdown({
   content,
   className,
@@ -79,7 +88,9 @@ export const Markdown = memo(function Markdown({
           // comes first: target/rel are computed here and must win, or a link
           // carrying rel="opener" hands the new tab window.opener (tabnabbing).
           a: ({ href, children, ...props }) => {
-            const isExternal = href?.startsWith('http');
+            // Resolved, not string-matched: //evil.example and HTTP://evil.example
+            // are external too, and would otherwise replace the app in this tab.
+            const isExternal = isExternalHref(href);
             return (
               <a
                 {...props}

@@ -4,6 +4,12 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 自报的 agent id 不是一个路径段就算无效（`is_invalid_agent_id`）
+
+header 和 bearer 由持有 MCP 连接的进程设置，参数由模型填写，都是自报的。`.x/files#` 这样的值往下会拼进 backend URL，被拒的段会写一条针对主人的边界日志，等于被注入的 agent 替主人写封号证据。
+`caller_agent_id_from_request` 的两条通道、`resolve_caller_agent_id` 的参数判断、`_still_placeholder` 的守卫都改用 `is_invalid_agent_id`（占位符或 `safe_id_segment` 不通过）：无效 header 视同没有，无效参数让位给注入身份，没有注入时走原有可纠正的错误返回，工具体不运行。
+规则只看路径安全，含空格等老 id 仍有效。
+
 ## 2026-10-30 — user_id 不一致时以回合所有者为准；`external_user_id` 豁免
 
 工具上的 `user_id` 指本平台账号（其 workspace / 技能 / job / 产物），产物和技能工具会拿它

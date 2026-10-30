@@ -1069,11 +1069,13 @@ class ApiClient {
   }
 
   async deleteFile(agentId: string, path: string): Promise<FileDeleteResponse> {
-    // Path may contain slashes (nested workspace path). encodeURI preserves
-    // them while still encoding spaces / unicode. The `{path:path}` route
-    // pattern on the backend accepts the full sub-path as one segment.
+    // Path may contain slashes (nested workspace path); the `{path:path}` route
+    // on the backend takes the full sub-path. Encode per segment, not with
+    // encodeURI: that leaves `?` and `#` alone, so a file named `a#b` would
+    // delete `a`.
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
     return this.request<FileDeleteResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/files/${encodeURI(path)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/files/${encodedPath}`,
       { method: 'DELETE' }
     );
   }

@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `deleteFile` 按段编码
+
+`encodeURI` 不编码 `?` 和 `#`，文件名 `a#b` 的请求路径到 `a` 就结束，删的是另一个文件。文件名来自 workspace 列表，agent 能放置。现在按 `/` 切开逐段 `encodeURIComponent`。
+
 ## 2026-10-30 — `getSession` 注释：sessionGuard 走 guardedFetch 的不受守卫通道
 
 仅注释：sessionGuard 探测 `/api/auth/session` 现在用 guardedFetch 导出的 raw 通道（全局 fetch 已被

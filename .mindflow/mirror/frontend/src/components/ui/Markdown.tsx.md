@@ -65,3 +65,5 @@ Central point for Markdown rendering so every surface (chat bubbles, awareness t
 ## Gotcha / 边界情况
 
 `MarkdownPreview` truncates at `maxLength` characters of the raw Markdown string, not rendered length — the truncation point may fall in the middle of a Markdown construct and produce broken rendering.
+
+Sanitize 的取舍：`video`、`audio`、`u`、`mark`、`center`、`font` 以及 `style`、普通 `class`、`data-*` 都不再生效，`form` 里的 `input` 变成禁用复选框。外链判断用 `new URL(href, location.href).origin`，所以 `//evil` 和 `HTTP://` 也算外链。

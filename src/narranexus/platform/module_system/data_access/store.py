@@ -60,17 +60,22 @@ from loguru import logger
 
 def _seg(value: str) -> str:
     """Percent-encode an id used as a URL PATH SEGMENT. LLM-supplied ids
-    (narrative_id / event_id / job_id) may contain ``?`` ``#`` ``..`` — without
-    encoding those would retarget the request (httpx dot-segment normalization)
-    and hit a DIFFERENT resource. Encoding keeps them inside one path segment so
-    the route matches its handler and returns DirectStore's same 'not found'.
+    (agent_id / creator_agent_id / narrative_id / event_id / job_id) may contain
+    ``?`` ``#`` ``..`` — without encoding those would retarget the request (httpx
+    dot-segment normalization) and hit a DIFFERENT resource. Encoding keeps them
+    inside one path segment so the route matches its handler and returns
+    DirectStore's same 'not found'. ``quote`` never touches a dot, so a segment
+    that IS ``.`` or ``..`` is spelled out by hand: left alone httpx collapses it.
 
     ``/`` is the residual case: ``%2F`` is percent-decoded at the ASGI layer, so
     ``.../jobs/a%2Fb`` still route-misses to a 404 (HttpStore degrades to
     'backend rejected (404)') while DirectStore says 'not found: a/b' — a known
     parity seam, but a safe one (404, not a cross-resource retarget). ``safe=""``
     encodes everything including slashes."""
-    return quote(str(value), safe="")
+    text = str(value)
+    if text in (".", ".."):
+        return text.replace(".", "%2E")
+    return quote(text, safe="")
 
 
 class AgentDataStore(Protocol):
@@ -593,7 +598,7 @@ class HttpStore:
     async def update_awareness(self, agent_id: str, awareness: str) -> str:
         r = await self._send(
             "PUT",
-            f"/api/agents/{agent_id}/awareness",
+            f"/api/agents/{_seg(agent_id)}/awareness",
             params={"create_missing": "false"},
             json={"awareness": awareness},
         )
@@ -628,7 +633,7 @@ class HttpStore:
         # must never surface a dict or raise.
         r = await self._send(
             "POST",
-            f"/api/agents/{agent_id}/profile/update",
+            f"/api/agents/{_seg(agent_id)}/profile/update",
             json={"new_name": new_name, "new_description": new_description},
         )
         if r is None:
@@ -659,7 +664,7 @@ class HttpStore:
             return reject
         limit = _clamp_limit(limit)
         return await self._get_dict(
-            f"/api/agents/{agent_id}/memory/remember",
+            f"/api/agents/{_seg(agent_id)}/memory/remember",
             params={"query": query, "limit": limit},
             failure_extra={"memories": []},
         )
@@ -676,7 +681,7 @@ class HttpStore:
             return reject
         limit = _clamp_grep_limit(limit)
         return await self._get_dict(
-            f"/api/agents/{agent_id}/memory/grep",
+            f"/api/agents/{_seg(agent_id)}/memory/grep",
             params={"pattern": pattern, "regex": str(bool(regex)).lower(), "limit": limit},
             failure_extra={"matches": []},
         )
@@ -686,7 +691,7 @@ class HttpStore:
         if reject is not None:
             return reject
         return await self._post_dict(
-            f"/api/agents/{agent_id}/memory/retain",
+            f"/api/agents/{_seg(agent_id)}/memory/retain",
             json={"content": content, "source": source},
             failure_extra={},
         )
@@ -704,7 +709,7 @@ class HttpStore:
         if reject is not None:
             return reject
         return _write_message_key(await self._post_dict(
-            f"/api/agents/{agent_id}/social-network/extract",
+            f"/api/agents/{_seg(agent_id)}/social-network/extract",
             json={"entity_id": entity_id, "updates": updates, "update_mode": update_mode},
             failure_extra={},
         ))
@@ -716,7 +721,7 @@ class HttpStore:
         if reject is not None:
             return reject
         return _write_message_key(await self._post_dict(
-            f"/api/agents/{agent_id}/social-network/merge",
+            f"/api/agents/{_seg(agent_id)}/social-network/merge",
             json={
                 "source_entity_id": source_entity_id,
                 "target_entity_id": target_entity_id,
@@ -730,7 +735,7 @@ class HttpStore:
         if reject is not None:
             return reject
         return _write_message_key(await self._post_dict(
-            f"/api/agents/{agent_id}/social-network/delete-entity",
+            f"/api/agents/{_seg(agent_id)}/social-network/delete-entity",
             json={"entity_id": entity_id},
             failure_extra={},
         ))
@@ -748,7 +753,7 @@ class HttpStore:
             return reject
         top_k = _clamp_limit(top_k)
         return _write_message_key(await self._post_dict(
-            f"/api/agents/{agent_id}/social-network/recall",
+            f"/api/agents/{_seg(agent_id)}/social-network/recall",
             json={"search_keyword": search_keyword, "search_type": search_type, "top_k": top_k},
             failure_extra={"results": []},
         ))
@@ -758,7 +763,7 @@ class HttpStore:
         if reject is not None:
             return reject
         return _write_message_key(await self._post_dict(
-            f"/api/agents/{agent_id}/social-network/contact",
+            f"/api/agents/{_seg(agent_id)}/social-network/contact",
             json={"entity_id": entity_id},
             failure_extra={},
         ))
@@ -768,7 +773,7 @@ class HttpStore:
     ) -> dict:
         top_k = _clamp_limit(top_k)
         return _write_message_key(await self._post_dict(
-            f"/api/agents/{agent_id}/social-network/stats",
+            f"/api/agents/{_seg(agent_id)}/social-network/stats",
             json={"sort_by": sort_by, "top_k": top_k, "filter_tags": filter_tags},
             failure_extra={"results": []},
         ))
@@ -783,7 +788,7 @@ class HttpStore:
         # error-keyed failures (and transport degradations) back to the tool's
         # message key.
         return _write_message_key(await self._post_dict(
-            f"/api/agents/{creator_agent_id}/social-network/create-agent",
+            f"/api/agents/{_seg(creator_agent_id)}/social-network/create-agent",
             json={
                 "new_agent_id": new_agent_id,
                 "agent_name": agent_name,
@@ -800,17 +805,17 @@ class HttpStore:
     # straight through.
     async def view_narrative(self, agent_id: str, narrative_id: str) -> dict:
         return await self._get_dict(
-            f"/api/agents/{agent_id}/narratives/{_seg(narrative_id)}", params={}, failure_extra={},
+            f"/api/agents/{_seg(agent_id)}/narratives/{_seg(narrative_id)}", params={}, failure_extra={},
         )
 
     async def view_event(self, agent_id: str, event_id: str) -> dict:
         return await self._get_dict(
-            f"/api/agents/{agent_id}/events/{_seg(event_id)}", params={}, failure_extra={},
+            f"/api/agents/{_seg(agent_id)}/events/{_seg(event_id)}", params={}, failure_extra={},
         )
 
     async def switch_narrative(self, agent_id: str, narrative_id: str) -> dict:
         return await self._post_dict(
-            f"/api/agents/{agent_id}/narratives/{_seg(narrative_id)}/switch", json={}, failure_extra={},
+            f"/api/agents/{_seg(agent_id)}/narratives/{_seg(narrative_id)}/switch", json={}, failure_extra={},
         )
 
     # Job reads: the routes return the tool dict shape verbatim (success/error
@@ -818,7 +823,7 @@ class HttpStore:
     # pass straight through and no remap is needed. limit clamped to the route
     # bound so an over-limit never becomes a 422.
     async def job_retrieval_by_id(self, agent_id: str, job_id: str) -> dict:
-        return await self._get_dict(f"/api/agents/{agent_id}/jobs/{_seg(job_id)}", params={}, failure_extra={})
+        return await self._get_dict(f"/api/agents/{_seg(agent_id)}/jobs/{_seg(job_id)}", params={}, failure_extra={})
 
     async def job_retrieval_semantic(
         self, agent_id: str, query: str, user_id: Optional[str], status: Optional[str], limit: int
@@ -827,7 +832,7 @@ class HttpStore:
         if reject is not None:
             return reject
         return await self._post_dict(
-            f"/api/agents/{agent_id}/jobs/search-semantic",
+            f"/api/agents/{_seg(agent_id)}/jobs/search-semantic",
             json={"query": query, "user_id": user_id, "status": status, "limit": _clamp_limit(limit)},
             failure_extra={},
         )
@@ -839,7 +844,7 @@ class HttpStore:
         if reject is not None:
             return reject
         return await self._post_dict(
-            f"/api/agents/{agent_id}/jobs/search-keywords",
+            f"/api/agents/{_seg(agent_id)}/jobs/search-keywords",
             json={"keywords": keywords, "user_id": user_id, "status": status, "limit": _clamp_limit(limit)},
             failure_extra={},
         )
@@ -851,7 +856,7 @@ class HttpStore:
         # transport degradation (_parse_dict's `error`) is remapped back to
         # `message` (with job_id) via _write_message_key.
         return _write_message_key(await self._post_dict(
-            f"/api/agents/{agent_id}/jobs/{_seg(job_id)}/update",
+            f"/api/agents/{_seg(agent_id)}/jobs/{_seg(job_id)}/update",
             json=fields,
             failure_extra={"job_id": job_id},
         ))
@@ -862,7 +867,7 @@ class HttpStore:
         # failure contract is the `error` key (like the reads), so a transport
         # degradation stays under `error` — no _write_message_key remap.
         return await self._post_dict(
-            f"/api/agents/{agent_id}/jobs",
+            f"/api/agents/{_seg(agent_id)}/jobs",
             json=fields,
             failure_extra={},
         )
@@ -871,13 +876,13 @@ class HttpStore:
         # pause's contract is the `message` key (never `error`), like job_update,
         # so a transport degradation is remapped back to `message` (with job_id).
         return _write_message_key(await self._put_dict(
-            f"/api/agents/{agent_id}/jobs/{_seg(job_id)}/pause",
+            f"/api/agents/{_seg(agent_id)}/jobs/{_seg(job_id)}/pause",
             failure_extra={"job_id": job_id},
         ))
 
     async def job_cancel(self, agent_id: str, job_id: str) -> dict:
         return _write_message_key(await self._put_dict(
-            f"/api/agents/{agent_id}/jobs/{_seg(job_id)}/cancel",
+            f"/api/agents/{_seg(agent_id)}/jobs/{_seg(job_id)}/cancel",
             failure_extra={"job_id": job_id},
         ))
 
@@ -887,7 +892,7 @@ class HttpStore:
         # tool's own failure shape (never an exception). instance_id travels in
         # the body, not the path, so no percent-encoding is needed.
         return await self._post_dict(
-            f"/api/agents/{agent_id}/chat-history/by-instance",
+            f"/api/agents/{_seg(agent_id)}/chat-history/by-instance",
             json={"instance_id": instance_id, "limit": limit},
             failure_extra={"instance_id": instance_id, "total_messages": 0, "messages": []},
         )

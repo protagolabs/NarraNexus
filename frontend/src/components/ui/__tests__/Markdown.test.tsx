@@ -205,3 +205,21 @@ describe('Markdown: what the app legitimately renders survives', () => {
     expect(container.querySelector('[data-testid="mention-all"]')).not.toBeNull();
   });
 });
+
+describe('external links', () => {
+  test.each(['//evil.example/login', 'https://evil.example/'])(
+    '%s opens in a new tab without an opener',
+    (href) => {
+      const { container } = render(<Markdown content={`<a href="${href}">x</a>`} />);
+      const a = container.querySelector('a') as HTMLAnchorElement;
+      expect(a.target).toBe('_blank');
+      expect(a.rel).toContain('noopener');
+    },
+  );
+
+  test('a same-origin link stays in this tab', () => {
+    const { container } = render(<Markdown content={'[x](/app/chat)'} />);
+    expect((container.querySelector('a') as HTMLAnchorElement).target).toBe('');
+  });
+});
+

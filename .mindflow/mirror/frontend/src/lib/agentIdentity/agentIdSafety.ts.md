@@ -16,10 +16,9 @@ stub: false
 
 The backend refuses an agent id that is not exactly one path segment
 (`workspace_paths.safe_id_segment`: empty, NUL, `/`, `\`, or dot-led such as
-`..`) and logs it as a signed tenant-boundary violation. Since monitoring v2
-the edge monitor escalates when one verified account sends two or more
-*different* such values within ten minutes: it suspends the account and bans
-the IPs only that account uses. That is right for a prober, but a crafted link
+`..`) and logs it as a signed tenant-boundary violation. The edge monitor
+suspends the account on the FIRST such line from a person's session and bans
+the IPs it was recently active from. That is right for a prober, but a crafted link
 (`/app/agents/.x`, `?agents=..,.y`) or a stale persisted selection would make
 an innocent user's own browser send them. So the frontend drops such ids at
 the places they enter: the profile route param, the config store's active

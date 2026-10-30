@@ -37,6 +37,15 @@ function decodeOAuthPayload(
   }
 }
 
+/** Origin of the NetMind accounts site, or '' when it is not configured. */
+function accountsOrigin(): string {
+  try {
+    return new URL(getNetmindConfig().accountsUrl).origin;
+  } catch {
+    return '';
+  }
+}
+
 type OAuthType = 'GOOGLE' | 'MICROSOFT' | 'GITHUB';
 
 interface NetmindLoginPayload { loginToken?: string; user?: NetmindUser }
@@ -57,6 +66,8 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
   >(null);
   // Guards the desktop OAuth poll interval so a second click doesn't stack loops.
   const oauthPollRef = useRef<number | null>(null);
+  // The browser popup this page opened; the only window whose `auth` message counts.
+  const oauthPopupRef = useRef<Window | null>(null);
 
   const exchange = useCallback(
     async (loginToken: string) => {
@@ -126,7 +137,7 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
     // Browser: WKWebView blocks window.open + cross-window postMessage, so this
     // path is browser-only — keep the popup + `message` listener below.
     if (!isTauri()) {
-      window.open(url, '', 'popup=1,width=600,height=650');
+      oauthPopupRef.current = window.open(url, '', 'popup=1,width=600,height=650');
       return;
     }
     // Desktop: the Rust bridge opens auth.html in a child webview and buffers
@@ -298,7 +309,17 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
   useEffect(() => {
     // Browser popup path: auth.html postMessages the result to window.opener.
     // (Desktop uses the Rust bridge + poll set up in startOAuth instead.)
+    // Any window can post here, and an accepted code signs the user in as whoever
+    // it belongs to (login CSRF), so both the window and its origin must match.
+    // `state` cannot be checked here: NetMind's backend mints it for the provider
+    // redirect and the page first sees it in this message, with nothing to compare.
+    // auth.html posts and closes itself in one tick, and a browser may deliver the
+    // message after the window is gone, with a null source. That case still needs
+    // our popup to be the one that closed, and the right origin.
     const onMessage = (e: MessageEvent) => {
+      const popup = oauthPopupRef.current;
+      if (!popup || e.origin !== accountsOrigin()) return;
+      if (e.source !== popup && !(e.source === null && popup.closed)) return;
       if (e.data?.type === 'auth' && e.data.code && e.data.state) {
         void handleAuthCallback(e.data.code, e.data.state);
       }

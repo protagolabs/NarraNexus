@@ -116,6 +116,13 @@ def _csp_for_html(origin: str) -> str:
     (no allow-same-origin) so the document has an opaque origin and cannot
     touch the parent app's DOM/storage/cookies even with scripts.
 
+    The `sandbox` DIRECTIVE repeats that in the response, because the iframe
+    attribute only binds the one frame our renderer builds. This URL is on the
+    app's origin, so anything else that loads it — a top-level navigation, a
+    link, a redirect landing inside a URL tab, whose sandbox DOES carry
+    allow-same-origin — would otherwise run the artifact as first-party code.
+    Never add allow-same-origin here.
+
     Why an explicit `{origin}` host-source and not `'self'`: in a sandboxed
     iframe without `allow-same-origin`, the document origin is opaque, and
     CSP `'self'` matches nothing. A host-source (e.g. `https://app.example`)
@@ -123,6 +130,7 @@ def _csp_for_html(origin: str) -> str:
     """
     ancestors = _frame_ancestors(origin)
     return (
+        f"sandbox allow-scripts; "
         f"default-src 'none'; "
         f"script-src {origin} 'unsafe-inline'; "
         f"style-src {origin} 'unsafe-inline'; "
@@ -133,6 +141,7 @@ def _csp_for_html(origin: str) -> str:
         f"frame-src 'none'; "
         f"object-src 'none'; "
         f"base-uri 'none'; "
+        f"form-action 'none'; "
         # Who is allowed to embed this artifact in an iframe. Replaces the
         # blunt `X-Frame-Options: SAMEORIGIN` removed from SAFE_HEADERS —
         # SAMEORIGIN had no way to express "the dmg's tauri.localhost is
@@ -159,7 +168,10 @@ def _non_html_csp(kind: str, origin: str) -> str:
     """CSP for a non-HTML artifact entry (chart JSON / CSV / markdown / image /
     PDF). Same `frame-ancestors {origin}` allowance as `_csp_for_html` — these
     are also embedded inside the dmg's webview iframe, so without the directive
-    the SAMEORIGIN-style default would block them too. 2026-05-27."""
+    the SAMEORIGIN-style default would block them too. 2026-05-27.
+
+    `sandbox` with no tokens: none of these kinds runs anything, and the renderers
+    fetch the bytes instead of framing this URL, so it only binds a navigation."""
     body = {
         "application/vnd.echarts+json": "default-src 'none'",
         "text/csv": "default-src 'none'",
@@ -168,7 +180,7 @@ def _non_html_csp(kind: str, origin: str) -> str:
         "image/jpeg": "default-src 'none'; img-src 'self'",
         "application/pdf": "default-src 'none'; object-src 'self'",
     }.get(kind, "default-src 'none'")
-    return f"{body}; frame-ancestors {_frame_ancestors(origin)}"
+    return f"sandbox; {body}; frame-ancestors {_frame_ancestors(origin)}"
 
 
 # methods=["GET", "HEAD"]: FastAPI's APIRoute does NOT auto-add HEAD to GET
@@ -221,8 +233,9 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
     else:
         # Asset under an HTML artifact's root. CSP on a sub-resource response
         # doesn't govern further loading (only the document's CSP does), so a
-        # generic safe value is fine.
-        csp = "default-src 'none'"
+        # generic safe value is fine. `sandbox` is for the one case where it does
+        # govern: a sibling opened as a document (./page.html, ./x.svg).
+        csp = "sandbox; default-src 'none'"
 
     headers = {**SAFE_HEADERS, "Content-Security-Policy": csp}
 

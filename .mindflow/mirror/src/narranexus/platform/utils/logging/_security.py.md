@@ -4,6 +4,12 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — surface 分级，文件头跟上实际策略
+
+部署仓哨兵的 `ESCALATING_SURFACES` 只有 `agent_route.agent_id`、`agent_files.path`，这两个 surface 上第一条验签通过的日志就封号，其他只告警（默认拒绝：新 surface 不升级，除非加进哨兵）。
+所以 surface 必须由代码决定，第三方能让主人会话或 agent 触发的情况都走自己的 surface；哨兵从不解析 `detail`。文件头原来写的"只用于告警、绝不自动执法"已过期，改正。
+重放的取舍：签名不覆盖时间，能接受是因为哨兵只信 backend 容器自己的日志流。
+
 # utils/logging/_security.py — 越界拒绝的统一日志行
 
 ## 为什么存在
@@ -25,9 +31,10 @@ stub: false
 - 部署侧从**行首**匹配，连同 loguru 文本格式的行头（时间、级别、
   `..._security:log_boundary_violation:<行号> - `）。改模块名/函数名、包一层 logger、改
   `_setup._TEXT_FORMAT`，告警都会静默失效，必须同步改部署仓 `signatures.py`。JSON 日志模式不支持。
-- `surface` 由代码固定，不来自用户输入。当前 6 个：agent_route.agent_id、agent_files.path、
-  agent_files.workspace_symlink、artifact.heal_symlink、bundle_import.preflight、
-  bundle_import.confirm。
+- `surface` 由代码固定，不来自用户输入。当前 10 个：agent_route.agent_id、agent_files.path、
+  agent_files.listed_name、agent_files.link_escape、agent_files.workspace_symlink、
+  service_route.agent_id、service_files.path、artifact.heal_symlink、
+  bundle_import.preflight、bundle_import.confirm。
 - `tests/utils/test_security_boundary_log.py` 用真实 `_TEXT_FORMAT` 渲染并用哨兵正则的副本
   匹配，契约漂移会变红。
 - actor/owner 含空白、`=` 或控制字符时做百分号编码，保证每个字段是一个 token。

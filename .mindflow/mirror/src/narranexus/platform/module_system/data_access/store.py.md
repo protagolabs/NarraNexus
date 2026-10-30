@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/module_system/data_access/store.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — agent id 也走 `_seg`，且 `_seg` 处理点段
+
+扫描口径：本文件所有 `/api/agents/{agent_id|creator_agent_id}/`，共 23 处（改前只有 narrative/event/job id 走 `_seg`）。模型或 header 给的 id 原样拼接时，`.x/files#` 会把请求改到别的路由。
+`quote` 不编码点，所以 `..` 原来会原样过去再被 httpx 折叠，docstring 声称的保护并不成立；现在 `.`/`..` 手写成 `%2E`。`tests/module/test_http_store_path_segments.py` 用反射驱动每个带 agent id 的方法。
 
 ## 2026-08-19 — `update_awareness` 现在先读后写：保住平台身份记录
 

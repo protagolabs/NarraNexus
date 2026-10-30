@@ -20,11 +20,17 @@
  * third-party content: allow-same-origin keeps the iframe on the TARGET
  * site's origin, which (being cross-origin) cannot reach our parent DOM/token.
  * A URL tab pointing at OUR OWN origin would instead become a same-origin
- * scriptable iframe able to read the app token — so the backend
+ * scriptable iframe able to read the app token. The backend
  * (`url_artifact._reject_self_origin`, browser-accurate origin comparison +
- * the request-derived app origin) refuses to open such a tab. The safety of
- * this sandbox depends on that guard; do NOT copy this sandbox to a renderer
- * that can load first-party (same-origin) content.
+ * the request-derived app origin) refuses to open such a tab, and this renderer
+ * repeats the check (`isCrossOriginWebUrl`) because the doc is a workspace file:
+ * an agent can edit its url afterwards, and the browser reads it through the raw
+ * route, past that backend check. Neither is a redirect defence: a third-party
+ * page can still redirect the iframe to our origin, and what holds there is the
+ * `Content-Security-Policy: sandbox` response header on our public content
+ * routes, which makes the landed document opaque whatever this iframe grants.
+ * Do NOT copy this sandbox to a renderer that can load first-party
+ * (same-origin) content.
  *
  * NAVIGATION — the hard iframe reality: a cross-origin page's link clicks are
  * invisible to us (same-origin policy), so we can NEITHER read the target URL
@@ -117,6 +123,12 @@ export default function UrlRenderer({ artifact }: Props) {
 
   const mode = effectiveEmbedMode(doc.embed);
   const host = safeHost(doc.url);
+
+  // No iframe, no open-in-browser, no override: `javascript:` in window.open or
+  // our own origin in this sandbox are exactly what the doc must not reach.
+  if (!isCrossOriginWebUrl(doc.url)) {
+    return <BlockedCard title={doc.title} host={host} />;
+  }
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -252,6 +264,32 @@ function FallbackCard({
       </div>
     </div>
   );
+}
+
+function BlockedCard({ title, host }: { title: string; host: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center h-full">
+      <SquareArrowOutUpRight className="w-10 h-10 opacity-40" />
+      <div>
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-xs opacity-60 mt-1 break-all">{host}</div>
+      </div>
+      <p className="text-xs opacity-70 max-w-sm">
+        {t('artifacts.url.loadFailed', 'Could not load this URL tab.')}
+      </p>
+    </div>
+  );
+}
+
+/** http(s) on another origin: the only thing this tab may frame or open. */
+function isCrossOriginWebUrl(url: string): boolean {
+  try {
+    const { protocol, origin } = new URL(url);
+    return (protocol === 'http:' || protocol === 'https:') && origin !== window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 function safeHost(url: string): string {
