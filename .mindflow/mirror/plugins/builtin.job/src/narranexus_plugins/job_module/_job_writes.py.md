@@ -1,6 +1,6 @@
 ---
 code_file: plugins/builtin.job/src/narranexus_plugins/job_module/_job_writes.py
-last_verified: 2026-08-14
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -11,11 +11,10 @@ stub: false
 名下——一个不存在的 owner。owner 的 Jobs 列表永远空着，执行时加载的是没有主人的
 上下文，而 agent 报告成功。
 
-**不在 [[_mcp_identity]] 的 `resolve_caller_user_id` 里修**：那条路只覆盖占位
-符，并且注释写明多用户流里「看似真实但不匹配」的值可能是合法的。那是关于通用身
-份策略的判断，保持不动。「这个 job 是谁的」是个**更窄且库里有答案**的问题
-（`agents.created_by`），所以在写入点回答——一个点同时覆盖本地 MCP 进程和云端
-seam 路由。
+**写入点仍然保留**：2026-10-30 起 [[_mcp_identity]] 的 `resolve_caller_user_id`
+在有注入身份时会把不一致的值改成回合所有者，但没有注入的路径（直连客户端、云端
+seam 路由）不经过它。「这个 job 是谁的」是**库里有答案**的问题（`agents.created_by`），
+在写入点回答，一个点覆盖所有调用方。
 
 **fail open**：`resolve_owner` 用 ""(不存在)/None(查询失败) 区分两种情况，两者都
 不构成「调用方错了」的证据，而把字段清空会直接丢掉这个 job。差异只**记日志不静

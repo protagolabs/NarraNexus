@@ -211,6 +211,15 @@ async def skill_save_config(agent_id: str, user_id: str, skill_name: str, ...):
 当时的表述是"运行时是可信的"）。没有注入时（未来某个不带 header 的适配器、
 直连 MCP 客户端）回落到旧行为：信任参数。
 
+**`user_id` 同样以注入的回合所有者为准**（2026-10-30 起）：工具参数里的
+`user_id` 默认指本平台账号（它的 workspace / 技能 / job / 产物），模型填的占位符
+或别人的 id 都会被替换；`None` 不动（检索工具用它表示"不过滤"）。如果你的工具的
+`user_id` 指的是**第三方平台的用户**（IM 用户 id 之类），必须在 `@mcp.tool()` 下面加
+`@external_user_id`（从 `narranexus.platform.module_system` 导入），否则参数会被静默
+改成 agent 属主。`tests/module/test_mcp_caller_user_identity.py` 的
+`test_every_user_id_tool_is_classified` 钉死了所有 `user_id` 工具的分类：新增任何声明
+`user_id` 的工具都会让它变红，必须把工具名加进账号集合，或加标注并加进外部集合。
+
 **端口分配：**
 
 | 端口 | 模块 |

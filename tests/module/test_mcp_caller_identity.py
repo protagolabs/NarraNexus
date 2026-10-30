@@ -321,27 +321,18 @@ def test_every_registered_module_resolves_caller_identity():
     goes through. A new module gets it by declaring ``agent_id``; the only
     way to regress is to bypass that wrapper, which this test would catch.
     """
-    import inspect as _inspect
+    from tests.module._tool_surface import served_tools
 
-    from narranexus.platform.module_system import module_registry
-
+    tools, failed = served_tools(agent_id=REAL, user_id="u")
+    assert not failed, f"modules failed to build: {failed}"
     gaps: list[str] = []
     total = 0
-    for name, cls in sorted(module_registry.items()):
-        module = cls(agent_id=REAL, user_id="u", database_client=None)
-        server = module.build_instrumented_mcp_server()
-        if server is None:
+    for t in tools:
+        if "agent_id" not in t.params:
             continue
-        for tool in server._tool_manager.list_tools():
-            try:
-                params = _inspect.signature(tool.fn).parameters
-            except (TypeError, ValueError):
-                continue
-            if "agent_id" not in params:
-                continue
-            total += 1
-            if not getattr(tool.fn, "_nx_identity_wrapped", False):
-                gaps.append(f"{name}.{tool.name}")
+        total += 1
+        if not getattr(t.fn, "_nx_identity_wrapped", False):
+            gaps.append(f"{t.module}.{t.name}")
 
     assert gaps == [], f"tools still trusting the model's agent_id: {gaps}"
     # Guard against the assertion silently passing on an empty sweep.

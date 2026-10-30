@@ -26,6 +26,7 @@ from typing import Any
 from loguru import logger
 
 from narranexus.platform.channel.channel_reactions import best_effort_react
+from narranexus.platform.module_system import external_user_id
 from narranexus.platform.module_system.data_access import get_channel_credential_store
 
 from ._discord_credential_manager import _cred_from_raw
@@ -234,6 +235,7 @@ def register_discord_mcp_tools(mcp: Any) -> None:
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
+    @external_user_id  # a Discord snowflake, not a NarraNexus account
     async def discord_dm(agent_id: str, user_id: str, text: str) -> dict:
         """Proactively send a direct message to a Discord user by numeric id.
 
