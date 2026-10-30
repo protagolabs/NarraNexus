@@ -224,6 +224,10 @@ function RootRedirect() {
   return <Navigate to="/app/chat" replace />;
 }
 
+/** The amber top banner shared by the account / session notices. */
+const AMBER_TOP_BANNER =
+  'fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]';
+
 function App() {
   const { t } = useTranslation();
   const { effectiveTheme } = useTheme();
@@ -326,7 +330,6 @@ function App() {
     window.addEventListener('narranexus:auth-expired', handler);
     return () => window.removeEventListener('narranexus:auth-expired', handler);
   }, []);
-
 
   // Pre-expiry warning. The JWT lasts 7 days and cannot be refreshed, so
   // without this the session simply stops working mid-click. Warning a day
@@ -492,7 +495,7 @@ function App() {
       <ArenaProvisioningModal />
       {accountSuspended && (
         <div
-          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
+          className={AMBER_TOP_BANNER}
           onClick={dismissAccountSuspended}
           role="alert"
         >
@@ -501,7 +504,7 @@ function App() {
       )}
       {!accountSuspended && sessionExpired && (
         <div
-          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
+          className={AMBER_TOP_BANNER}
           onClick={() => setSessionExpired(false)}
           role="alert"
         >
@@ -512,7 +515,7 @@ function App() {
         expiresInMs !== null &&
         shouldShowExpiryWarning(expiresInMs, expiryDismissedAt) && (
           <div
-            className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
+            className={AMBER_TOP_BANNER}
             onClick={() => setExpiryDismissedAt(expiresInMs)}
             role="status"
           >

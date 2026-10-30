@@ -1,7 +1,11 @@
 /**
- * A suspended account's open tab must stop polling: every request would 403,
- * and the edge monitor bans an IP on a stream of 403s (taking down everyone
- * behind that address). The hook signs out, which stops every poll.
+ * @file_name: useAccountSuspendedSignOut.test.ts
+ * @author: Bin Liang
+ * @date: 2026-10-30
+ * @description: A suspended account's open tab signs out and closes its WebSockets, so it stops polling into 403s.
+ *
+ * Every request of a suspended account would 403, and the edge monitor bans an
+ * IP on a stream of 403s (taking down everyone behind that address).
  */
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';

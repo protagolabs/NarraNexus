@@ -66,7 +66,7 @@ describe('account_suspended detection', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     await confirmSessionDeath({ endpoint: 'ws', code: 'account_suspended' });
     await flush();
-    expect(events.length).toBeGreaterThanOrEqual(1);
+    expect(events).toHaveLength(1);
     useConfigStore.getState().logout();
   });
 });

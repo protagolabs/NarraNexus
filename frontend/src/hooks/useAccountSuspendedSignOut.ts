@@ -7,8 +7,10 @@
  * A suspended account gets 403 `account_suspended` on every request (backend
  * account-state gate). Left alone, each open tab keeps polling into a stream of
  * 403s — the failures the edge monitor bans an IP on, which also takes down
- * everyone else behind that address (an office NAT). api.ts raises
- * `narranexus:account-suspended`; this signs out (polls stop, later requests
+ * everyone else behind that address (an office NAT).
+ * `noteAccountSuspended()` (lib/authFailure.ts) raises
+ * `narranexus:account-suspended` from guardedFetch (every response) and from
+ * sessionGuard's probe (where the WebSocket AuthError lands); this signs out (polls stop, later requests
  * carry no credential and answer 401, which the edge does not count) and
  * reports it so App can show why. Signing in again is refused by the login
  * gate, so the sign-out is final.
