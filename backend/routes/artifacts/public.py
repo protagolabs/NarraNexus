@@ -40,7 +40,7 @@ from narranexus.platform.artifact import (
 from narranexus.platform.settings import settings
 from narranexus.platform.utils.db.db_factory import get_db_client
 
-from backend.routes.artifacts._confined_response import ConfinedFileResponse
+from backend.routes._confined_response import ConfinedFileResponse
 from backend.routes.artifacts._token import TokenError, verify
 
 

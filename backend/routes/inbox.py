@@ -38,9 +38,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from loguru import logger
 
+from backend.routes._confined_response import ConfinedFileResponse, open_tenant_file
 from backend.routes._ownership import assert_owned
 from narranexus.platform.channel.inbox_recorder import OUTBOUND
 
@@ -302,14 +303,17 @@ async def get_bus_attachment_raw(request: Request, path: str = Query(...)):
 
     user_id = await resolve_current_user_id(request)
     resolved = resolve_shared_file_for_user(user_id, path)
-    if resolved is None:
+    # Serve from a file object opened through the link-free walk; the resolver
+    # above is only a check (FileResponse(path=...) re-opened the string).
+    served = open_tenant_file(resolved) if resolved is not None else None
+    if served is None:
         return JSONResponse(
             status_code=404,
             content={"success": False, "error": "Attachment not found"},
         )
     mime, _ = mimetypes.guess_type(str(resolved))
-    return FileResponse(
-        path=str(resolved),
+    return ConfinedFileResponse(
+        served,
         media_type=mime or "application/octet-stream",
         filename=Path(resolved).name,
     )

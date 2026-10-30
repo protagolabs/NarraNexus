@@ -102,6 +102,9 @@ def _signer_settings(monkeypatch):
 def public_app(monkeypatch, tmp_path):
     """Wire just the public audio route, with attachment_storage's
     ``resolve_attachment_path`` redirected to a tmp directory we control."""
+    # The route serves through the link-free walk below base_working_path.
+    from narranexus.platform.settings import settings as platform_settings
+    monkeypatch.setattr(platform_settings, "base_working_path", str(tmp_path), raising=False)
     storage = tmp_path / "attachments"
     storage.mkdir()
 

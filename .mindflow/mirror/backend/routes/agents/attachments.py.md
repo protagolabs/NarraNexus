@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/agents/attachments.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审 I2）— raw 下载从受限 fd 出字节
+
+`resolve_attachment_path` 之后 `FileResponse(path=...)` 会按字符串重开；现在 `open_tenant_file(path)` 逐级 `O_NOFOLLOW`
+打开，`ConfinedFileResponse` 从该对象服务；失败仍返回原来的 404 JSON。
 
 ## 2026-10-28 — 与 files 路由同批：agent_id 先确权
 

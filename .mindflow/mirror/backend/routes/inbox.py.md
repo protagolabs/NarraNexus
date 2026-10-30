@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/inbox.py
-last_verified: 2026-08-21
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审 I2）— `/attachments/raw` 从受限 fd 出字节
+
+同 [[agents/attachments.py]]：`resolve_shared_file_for_user` 只是检查，`open_tenant_file` + `ConfinedFileResponse` 取代
+`FileResponse(path=...)`；失败仍返回原来的 404 JSON。
 
 ## 2026-08-21 — 消息卡 outbound `sender_name` 用解析出的显示名
 

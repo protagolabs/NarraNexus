@@ -654,3 +654,140 @@ async def test_set_embed_mode_normal_path_rewrites_the_doc(url_env):
     doc = json.loads((url_env["base"] / row.file_path).read_text(encoding="utf-8"))
     assert doc["embed"]["user_override"] == "newtab"
     assert sorted(os.listdir((url_env["base"] / row.file_path).parent)) == ["content.md", "page.url.json"]
+
+
+# ── heal: candidates and the "pointer already valid" probe ───────────────────
+
+
+def test_heal_scan_drops_a_candidate_whose_directory_is_swapped_after_confinement(env, monkeypatch):
+    """size/mtime used to come from os.stat(real) by path: a directory swapped
+    for a link after _confined() returned the VICTIM's size/mtime (and heal
+    ranks by mtime). A candidate whose confined open fails is DROPPED."""
+    from narranexus.platform.artifact._artifact_impl import heal as heal_mod
+
+    search_root = str(env["own_ws"])
+    real = heal_mod._confined
+    fired = []
+
+    def swapping(path, root):
+        out = real(path, root)
+        if out is not None and not fired:
+            fired.append(True)
+            _swap_dir_for_link(env["own"], env["vic"])
+        return out
+
+    monkeypatch.setattr(heal_mod, "_confined", swapping)
+    assert heal_mod._scan_workspace_for_kind(search_root, "text/html") == []
+
+
+def test_heal_scan_reports_the_owners_candidates_with_their_own_metadata(env):
+    from narranexus.platform.artifact._artifact_impl import heal as heal_mod
+
+    found = heal_mod._scan_workspace_for_kind(str(env["own_ws"]), "text/html")
+    assert [(c.workspace_path, c.size_bytes) for c in found] == [("report/index.html", len(MINE))]
+
+
+async def test_heal_pointer_already_valid_probe_is_not_fooled_by_a_swap(env, monkeypatch):
+    from narranexus.platform.artifact._artifact_impl import heal as heal_mod
+
+    rel = agent_workspace_relpath(A_OWN, OWNER)
+    await env["repo"].create(_row(f"{rel}/report/index.html"))
+    real = heal_mod._confined
+    fired = []
+
+    def swapping(path, root):
+        out = real(path, root)
+        if out is not None and not fired:
+            fired.append(True)
+            _swap_dir_for_link(env["own"], env["vic"])
+        return out
+
+    monkeypatch.setattr(heal_mod, "_confined", swapping)
+    res = await heal_mod.heal_artifact(
+        repo=env["repo"], db=env["db"], agent_id=A_OWN, user_id=OWNER, artifact_id="art_test0001"
+    )
+    assert "already valid" not in res.message
+
+
+async def test_heal_pointer_already_valid_for_an_intact_file(env):
+    from narranexus.platform.artifact._artifact_impl import heal as heal_mod
+
+    rel = agent_workspace_relpath(A_OWN, OWNER)
+    await env["repo"].create(_row(f"{rel}/report/index.html"))
+    res = await heal_mod.heal_artifact(
+        repo=env["repo"], db=env["db"], agent_id=A_OWN, user_id=OWNER, artifact_id="art_test0001"
+    )
+    assert res.recovered is True
+    assert "already valid" in res.message
+
+
+# ── base spellings (relative / symlinked BASE_WORKING_PATH) ──────────────────
+
+
+def _lock_fixture(tmp_path):
+    real = tmp_path / "real"
+    d = real / "u" / "a"
+    d.mkdir(parents=True)
+    (d / "deck.pptx").write_bytes(b"pk")
+    (d / "~$deck.pptx").write_bytes(b"lock")
+    return real, d
+
+
+def test_office_lock_probe_works_with_a_symlinked_base(tmp_path, monkeypatch):
+    real, _ = _lock_fixture(tmp_path)
+    link = tmp_path / "link"
+    os.symlink(real, link)
+    from narranexus.platform.settings import settings as sa
+
+    monkeypatch.setattr(sa, "base_working_path", str(link), raising=False)
+    # the entry path keeps the configured (symlinked) spelling, as the office
+    # watch proxy builds it lexically
+    assert office_lock_present(str(link / "u" / "a" / "deck.pptx")) is True
+    assert confinement.confined_stat(str(link / "u" / "a" / "deck.pptx")).st_size == 2
+
+
+def test_office_lock_probe_works_with_a_relative_base(tmp_path, monkeypatch):
+    real, _ = _lock_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    from narranexus.platform.settings import settings as sa
+
+    monkeypatch.setattr(sa, "base_working_path", "real", raising=False)
+    assert office_lock_present(str(real / "u" / "a" / "deck.pptx")) is True
+
+
+# ── fail-closed size scan reaches registration ───────────────────────────────
+
+
+async def test_register_refuses_an_artifact_dir_deeper_than_the_scan_cap(env, monkeypatch):
+    from narranexus.platform.utils import confined_io
+
+    monkeypatch.setattr(confined_io, "_MAX_SCAN_DEPTH", 3)
+    deep = env["own"]
+    for _ in range(6):
+        deep = deep / "d"
+    deep.mkdir(parents=True)
+    (deep / "hidden.bin").write_bytes(b"x" * 1000)
+    with pytest.raises(ArtifactPathEscape):
+        await env["svc"].register(
+            agent_id=A_OWN, user_id=OWNER, session_id=None, kind="text/html",
+            entry_path="report/index.html", title="t", description=None, target_artifact_id=None,
+        )
+
+
+# ── office-asset upload: cleanup only after a successful create ──────────────
+
+
+def test_asset_upload_name_collision_does_not_unlink_the_existing_file(office, monkeypatch):
+    import types
+
+    import backend.routes.agents.artifacts as agents_mod
+
+    monkeypatch.setattr(agents_mod.uuid, "uuid4", lambda: types.SimpleNamespace(hex="a" * 32))
+    existing = office["own"] / "aaaaaaaa_logo.png"
+    existing.write_bytes(b"precious")
+    with pytest.raises(FileExistsError):  # surfaces as a 500; the point is below
+        office["client"].post(
+            f"/api/agents/{A_OWN}/artifacts/art_deck0001/office-asset",
+            files={"file": ("logo.png", b"PNGBYTES", "image/png")},
+        )
+    assert existing.read_bytes() == b"precious"

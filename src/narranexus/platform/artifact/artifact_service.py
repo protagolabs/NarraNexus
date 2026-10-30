@@ -254,6 +254,13 @@ class ArtifactService:
             settings.base_working_path, team_id=artifact.team_id,
         )
 
+    def split_owned_path(self, abs_path: str) -> tuple[str, str]:
+        """(base_root, base-relative POSIX path) for a path ``resolve_owned_entry``
+        produced, so callers can do their I/O through ``utils/confined_io``
+        (O_NOFOLLOW walk) instead of re-opening the string. Raises
+        ArtifactPathEscape when the path is not below the workspace base."""
+        return confinement.split_under_base(abs_path)
+
     async def commit_office_user_edit(self, *, agent_id: str, artifact_id: str) -> Artifact:
         """Refresh the registry after a watch-page user edit on an office
         artifact (hash + history "user_edited" + event). Idempotent on an

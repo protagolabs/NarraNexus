@@ -309,3 +309,155 @@ def test_no_fd_leak_on_any_path(tree):
         cio.write_atomic(tree["root"], "a/b/f.txt", b"inside")
         cio.dir_regular_bytes(tree["root"], "a")
     assert _open_fd_count() == before
+
+
+# ── split_under_base (lexical; relative / symlinked base spellings) ──────────
+
+
+def test_split_under_base_returns_real_root_and_relative_tail(tree):
+    root, rel = cio.split_under_base(os.path.join(tree["root"], "a", "b", "f.txt"), tree["root"])
+    assert root == os.path.realpath(tree["root"])
+    assert rel == "a/b/f.txt"
+
+
+def test_split_under_base_refuses_a_path_outside_or_equal_to_the_base(tree):
+    for bad in (str(tree["outside"] / "secret.txt"), tree["root"], tree["root"] + "-sibling/x"):
+        with pytest.raises(cio.ConfinedPathError):
+            cio.split_under_base(bad, tree["root"])
+
+
+def test_split_under_base_collapses_dotdot_lexically(tree):
+    # ".." collapses before the prefix test, so it cannot smuggle a path out
+    with pytest.raises(cio.ConfinedPathError):
+        cio.split_under_base(os.path.join(tree["root"], "a", "..", "..", "outside", "secret.txt"), tree["root"])
+
+
+def test_split_under_base_accepts_a_symlinked_base_spelling(tree):
+    link = tree["tmp"] / "baselink"
+    os.symlink(tree["root"], link)
+    root, rel = cio.split_under_base(str(link / "a" / "b" / "f.txt"), str(link))
+    assert root == os.path.realpath(tree["root"])
+    assert rel == "a/b/f.txt"
+    assert _read(root, rel) == b"inside"
+
+
+def test_split_under_base_accepts_a_relative_base(tree, monkeypatch):
+    monkeypatch.chdir(tree["tmp"])
+    root, rel = cio.split_under_base(os.path.join(tree["tmp"], "root", "a", "b", "f.txt"), "root")
+    assert root == os.path.realpath(tree["root"])
+    assert rel == "a/b/f.txt"
+
+
+# ── remove_tree ──────────────────────────────────────────────────────────────
+
+
+def test_remove_tree_deletes_a_nested_directory(tree):
+    os.makedirs(os.path.join(tree["root"], "a", "b", "c", "d"))
+    cio.remove_tree(tree["root"], "a")
+    assert not os.path.exists(os.path.join(tree["root"], "a"))
+    assert os.path.isdir(tree["root"])
+
+
+def test_remove_tree_deletes_a_single_file(tree):
+    cio.remove_tree(tree["root"], "a/b/f.txt")
+    assert not os.path.exists(os.path.join(tree["root"], "a", "b", "f.txt"))
+    assert os.path.isdir(os.path.join(tree["root"], "a", "b"))
+
+
+def test_remove_tree_missing_leaf_is_file_not_found(tree):
+    with pytest.raises(FileNotFoundError):
+        cio.remove_tree(tree["root"], "a/nope")
+
+
+def test_remove_tree_unlinks_links_inside_the_tree_without_touching_targets(tree):
+    (tree["outside"] / "keep.txt").write_bytes(b"keep")
+    os.symlink(tree["outside"], os.path.join(tree["root"], "a", "b", "dirlink"))
+    os.symlink(tree["outside"] / "secret.txt", os.path.join(tree["root"], "a", "filelink"))
+    cio.remove_tree(tree["root"], "a")
+    assert not os.path.exists(os.path.join(tree["root"], "a"))
+    assert sorted(os.listdir(tree["outside"])) == ["keep.txt", "secret.txt"]
+
+
+def test_remove_tree_leaf_link_removes_only_the_link(tree):
+    os.symlink(tree["outside"], os.path.join(tree["root"], "a", "lnk"))
+    cio.remove_tree(tree["root"], "a/lnk")
+    assert not os.path.lexists(os.path.join(tree["root"], "a", "lnk"))
+    assert sorted(os.listdir(tree["outside"])) == ["secret.txt"]
+
+
+def test_remove_tree_refuses_a_symlinked_intermediate_directory(tree):
+    """The delete race: a directory on the way is a link to another tenant's
+    tree. A by-path rmtree/unlink would delete the victim's data."""
+    victim = tree["outside"] / "sub"
+    victim.mkdir()
+    (victim / "f.txt").write_bytes(b"victim")
+    os.symlink(tree["outside"], os.path.join(tree["root"], "a", "evil"))
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.remove_tree(tree["root"], "a/evil/sub")
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.remove_tree(tree["root"], "a/evil/secret.txt")
+    assert (victim / "f.txt").read_bytes() == b"victim"
+    assert (tree["outside"] / "secret.txt").exists()
+
+
+def test_remove_tree_too_deep_fails_closed(tree):
+    p = os.path.join(tree["root"], "deep")
+    for _ in range(12):
+        p = os.path.join(p, "d")
+    os.makedirs(p)
+    with pytest.raises(cio.ConfinedScanError):
+        cio.remove_tree(tree["root"], "deep", max_depth=5)
+
+
+# ── minors: mode mask, fail-closed scan, fdopen failure ──────────────────────
+
+
+def test_write_atomic_does_not_carry_setuid_bits(tree):
+    p = os.path.join(tree["root"], "a", "b", "f.txt")
+    os.chmod(p, 0o4755)
+    cio.write_atomic(tree["root"], "a/b/f.txt", b"new")
+    assert os.stat(p).st_mode & 0o7000 == 0
+    assert os.stat(p).st_mode & 0o777 == 0o755
+
+
+def test_dir_regular_bytes_over_depth_fails_closed(tree, monkeypatch):
+    """A silent skip below the cap lets a tenant hide bytes from a size limit."""
+    monkeypatch.setattr(cio, "_MAX_SCAN_DEPTH", 3)
+    p = os.path.join(tree["root"], "deep")
+    for _ in range(6):
+        p = os.path.join(p, "d")
+    os.makedirs(p)
+    with open(os.path.join(p, "big.bin"), "wb") as f:
+        f.write(b"x" * 100)
+    with pytest.raises(cio.ConfinedScanError):
+        cio.dir_regular_bytes(tree["root"], "deep")
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_dir_regular_bytes_unreadable_directory_fails_closed(tree):
+    locked = os.path.join(tree["root"], "a", "locked")
+    os.mkdir(locked)
+    with open(os.path.join(locked, "hidden.bin"), "wb") as f:
+        f.write(b"x" * 100)
+    os.chmod(locked, 0)
+    try:
+        with pytest.raises(cio.ConfinedScanError):
+            cio.dir_regular_bytes(tree["root"], "a")
+    finally:
+        os.chmod(locked, 0o755)
+
+
+def test_write_atomic_closes_the_temp_fd_when_fdopen_fails(tree, monkeypatch):
+    before = _open_fd_count()
+    if before is None:
+        pytest.skip("needs /proc/self/fd")
+
+    def boom(*a, **k):
+        raise OSError("fdopen failed")
+
+    monkeypatch.setattr(cio.os, "fdopen", boom)
+    for _ in range(5):
+        with pytest.raises(OSError):
+            cio.write_atomic(tree["root"], "a/b/f.txt", b"new")
+    assert _open_fd_count() == before
+    assert sorted(os.listdir(os.path.join(tree["root"], "a", "b"))) == ["f.txt"]

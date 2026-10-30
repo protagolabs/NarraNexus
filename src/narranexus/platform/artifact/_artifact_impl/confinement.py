@@ -100,15 +100,20 @@ def confine_entry(
 
 
 def split_under_base(abs_path: str, base: Optional[str] = None) -> tuple[str, str]:
-    """(realpath(base), POSIX path of ``abs_path`` below it). ArtifactPathEscape
-    when ``abs_path`` is not strictly below the base."""
+    """(realpath(base), POSIX path of ``abs_path`` below it), computed lexically.
+
+    ``abs_path`` may spell the base either by its real path or as configured
+    (relative / symlinked ``BASE_WORKING_PATH`` in local and desktop runs); the
+    tenant tail is never resolved here. ArtifactPathEscape when ``abs_path`` is
+    not strictly below the base.
+    """
     if base is None:
         from narranexus.platform.settings import settings
         base = settings.base_working_path
-    base_real = os.path.realpath(base)
-    if not abs_path.startswith(base_real + os.sep):
-        raise ArtifactPathEscape(f"path is outside the workspace base: {abs_path!r}")
-    return base_real, abs_path[len(base_real) + 1:]
+    try:
+        return confined_io.split_under_base(abs_path, base)
+    except confined_io.ConfinedPathError as e:
+        raise ArtifactPathEscape(str(e)) from e
 
 
 def open_confined_read(abs_path: str, base: Optional[str] = None) -> BinaryIO:
@@ -120,10 +125,16 @@ def open_confined_read(abs_path: str, base: Optional[str] = None) -> BinaryIO:
         raise ArtifactPathEscape(str(e)) from e
 
 
+def confined_stat(abs_path: str, base: Optional[str] = None) -> os.stat_result:
+    """fstat of one confined regular file (size / mtime of the inode that was
+    opened through the link-free walk)."""
+    with open_confined_read(abs_path, base) as f:
+        return os.fstat(f.fileno())
+
+
 def confined_file_size(abs_path: str, base: Optional[str] = None) -> int:
     """Size of one confined regular file, measured on the fd it was opened as."""
-    with open_confined_read(abs_path, base) as f:
-        return os.fstat(f.fileno()).st_size
+    return confined_stat(abs_path, base).st_size
 
 
 def sha256_of_confined(abs_path: str, base: Optional[str] = None) -> str:

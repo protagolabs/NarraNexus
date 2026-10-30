@@ -4,6 +4,13 @@ stub: false
 last_verified: 2026-10-30
 ---
 
+## 2026-10-30（复审）— `split_under_base` 改为词法，新增 `confined_stat`
+
+`split_under_base(abs, base)` 现在只做词法归一（`abspath`，绝不 `realpath` 租户尾段），并同时接受 base 的真实路径与配置拼写
+（相对路径或符号链接的 `BASE_WORKING_PATH`，本地 `run.sh` / DMG 常见）；委托给 [[utils/confined_io]] 的同名函数。
+**不要**在这里对 entry 做 realpath 再去打开——realpath 会在"较晚的时刻"穿过租户已放好的链接，再 NOFOLLOW 打开就成了
+对受害者树的合法访问。`confined_stat(abs)` 给出受限 fd 上的 fstat（heal 候选、office 版本轮询用），由 artifact 包公共口导出。
+
 ## 2026-10-30 — 检查与打开合为一个操作（`*_confined` 一族）
 
 `confine_entry` 只是**检查**：返回 realpath 之后，调用方若再按字符串重新打开，检查与打开之间路径上的

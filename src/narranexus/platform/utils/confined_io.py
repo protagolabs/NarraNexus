@@ -50,6 +50,11 @@ class ConfinedIOUnsupported(ConfinedPathError):
     """The platform lacks the primitives needed to confine safely."""
 
 
+class ConfinedScanError(ConfinedPathError):
+    """A recursive scan could not be completed (too deep / unreadable
+    directory). Callers that enforce a size limit must refuse, not undercount."""
+
+
 class NotARegularFileError(OSError):
     """The leaf exists but is a directory, FIFO, device, ... — not servable."""
 
@@ -59,7 +64,7 @@ def _require_support() -> None:
         if not hasattr(os, name):
             raise ConfinedIOUnsupported(f"os.{name} is unavailable on this platform")
     # os.replace shares os.rename's dir_fd support (it is not listed on its own).
-    for fn in (os.open, os.mkdir, os.unlink, os.rename, os.stat):
+    for fn in (os.open, os.mkdir, os.unlink, os.rmdir, os.rename, os.stat):
         if fn not in os.supports_dir_fd:
             raise ConfinedIOUnsupported(f"{fn.__name__} does not support dir_fd here")
     if os.stat not in os.supports_follow_symlinks:
@@ -82,6 +87,27 @@ def _split(rel: str, *, allow_empty: bool = False) -> list[str]:
         if p in ("", ".", ".."):
             raise ConfinedPathError(f"illegal path segment in {rel!r}")
     return parts
+
+
+def split_under_base(path: str, base: str) -> tuple[str, str]:
+    """(root, rel) for ``path`` strictly below ``base``, computed LEXICALLY.
+
+    ``root`` is ``realpath(base)`` — the platform-owned trust anchor handed to
+    the other functions here. ``path`` is only normalised with ``abspath``
+    (collapses ``..`` and relative prefixes; never follows a link) and may name
+    the base either by its real path or by the configured spelling (relative or
+    symlinked ``BASE_WORKING_PATH`` in local / desktop runs). The tenant tail is
+    never resolved here — it is walked O_NOFOLLOW by the callers. Raises
+    ConfinedPathError when ``path`` is not strictly below the base.
+    """
+    if not isinstance(path, str) or not isinstance(base, str) or "\x00" in path:
+        raise ConfinedPathError("invalid path")
+    root = os.path.realpath(base)
+    p = os.path.abspath(path)
+    for prefix in (root, os.path.abspath(base)):
+        if p.startswith(prefix + os.sep):
+            return root, p[len(prefix) + 1:]
+    raise ConfinedPathError(f"path is outside the workspace base: {path!r}")
 
 
 def _refuse_if_link(name: str, parent_fd: Optional[int], err: OSError, label: str) -> None:
@@ -245,7 +271,9 @@ def write_atomic(
             try:
                 st = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
                 if stat_mod.S_ISREG(st.st_mode):
-                    mode = stat_mod.S_IMODE(st.st_mode)
+                    # Permission bits only: never carry setuid/setgid/sticky
+                    # onto the replacement.
+                    mode = stat_mod.S_IMODE(st.st_mode) & 0o777
             except FileNotFoundError:
                 pass
         fd = os.open(
@@ -255,12 +283,17 @@ def write_atomic(
             dir_fd=parent_fd,
         )
         created = True
-        with os.fdopen(fd, "wb") as f:
+        try:
+            f = os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)  # fdopen owns the fd only once it returns
+            raise
+        with f:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
             try:
-                os.fchmod(f.fileno(), mode)  # undo the umask so the bits are exact
+                os.fchmod(f.fileno(), mode & 0o777)  # undo the umask so the bits are exact
             except OSError:
                 pass
         os.replace(tmp_name, parts[-1], src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
@@ -303,7 +336,12 @@ def dir_regular_bytes(root: str, rel: str) -> int:
     Symlinks (to files or directories) contribute nothing and are never
     followed — ``getsize`` on a link reports the target's size, which would let
     a tenant read another tenant's file sizes through its own artifact row.
-    Unreadable entries are skipped. Depth is capped.
+
+    Fails closed: a tree deeper than the cap, an unreadable directory, or a
+    directory swapped for a link mid-scan raises ConfinedScanError /
+    SymlinkRefusedError instead of undercounting — callers use the total to
+    enforce a size limit, and a silent skip would let a tenant hide bytes below
+    a deep or unreadable directory. Entries that vanish mid-scan are skipped.
     """
     start_fd = open_dir_fd(root, rel)
 
@@ -312,26 +350,32 @@ def dir_regular_bytes(root: str, rel: str) -> int:
         try:
             with os.scandir(fd) as it:
                 entries = list(it)
-        except OSError:
-            return 0
+        except OSError as e:
+            raise ConfinedScanError(f"directory not readable during size scan: {e}") from e
         for entry in entries:
             try:
                 if entry.is_symlink():
                     continue
                 if entry.is_dir(follow_symlinks=False):
                     if depth >= _MAX_SCAN_DEPTH:
-                        continue
+                        raise ConfinedScanError(
+                            f"directory tree deeper than {_MAX_SCAN_DEPTH} levels"
+                        )
                     try:
-                        child = os.open(entry.name, _DIR_FLAGS, dir_fd=fd)
-                    except OSError:
+                        child = _open_dir_at(fd, entry.name, create=False)
+                    except FileNotFoundError:
                         continue
+                    except SymlinkRefusedError:
+                        raise
+                    except OSError as e:
+                        raise ConfinedScanError(f"directory not readable during size scan: {e}") from e
                     try:
                         total += scan(child, depth + 1)
                     finally:
                         os.close(child)
                 elif entry.is_file(follow_symlinks=False):
                     total += entry.stat(follow_symlinks=False).st_size
-            except OSError:
+            except FileNotFoundError:
                 continue
         return total
 
@@ -339,3 +383,57 @@ def dir_regular_bytes(root: str, rel: str) -> int:
         return scan(start_fd, 0)
     finally:
         os.close(start_fd)
+
+
+def remove_tree(root: str, rel: str, *, max_depth: int = 256) -> None:
+    """Delete the file, link or directory tree at ``root/rel`` without ever
+    following a link.
+
+    Every directory on the way to the parent is opened O_NOFOLLOW; below it the
+    tree is removed with ``unlink`` / ``rmdir`` relative to directory fds. A
+    symlink ANYWHERE inside the tree (or as the leaf) is unlinked itself — its
+    target is never touched, so a link planted to another tenant's tree costs
+    that tenant nothing. A tree deeper than ``max_depth`` raises
+    ConfinedScanError and is left partially intact rather than recursing without
+    bound. Missing leaf → FileNotFoundError.
+    """
+    parts = _split(rel)
+    parent_fd = _walk(root, parts[:-1])
+
+    def rm_dir_contents(dir_fd: int, depth: int) -> None:
+        if depth > max_depth:
+            raise ConfinedScanError(f"directory tree deeper than {max_depth} levels")
+        with os.scandir(dir_fd) as it:
+            entries = list(it)
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                try:
+                    child = _open_dir_at(dir_fd, entry.name, create=False)
+                except FileNotFoundError:
+                    continue
+                except SymlinkRefusedError:
+                    # swapped for a link since the listing: remove the link itself
+                    os.unlink(entry.name, dir_fd=dir_fd)
+                    continue
+                try:
+                    rm_dir_contents(child, depth + 1)
+                finally:
+                    os.close(child)
+                os.rmdir(entry.name, dir_fd=dir_fd)
+            else:
+                os.unlink(entry.name, dir_fd=dir_fd)  # file, or the link itself
+
+    try:
+        name = parts[-1]
+        st = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if stat_mod.S_ISDIR(st.st_mode):
+            child = _open_dir_at(parent_fd, name, create=False)
+            try:
+                rm_dir_contents(child, 1)
+            finally:
+                os.close(child)
+            os.rmdir(name, dir_fd=parent_fd)
+        else:
+            os.unlink(name, dir_fd=parent_fd)
+    finally:
+        os.close(parent_fd)

@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审）— 只在创建成功后才清理；目录还原走服务公共口
+
+上传文件的清理（`unlink`）现在只在 `open_new` 成功之后才会发生：`FileExistsError`（名字撞车）不会再把**别人已有的文件**删掉。
+(base, rel) 来自 `ArtifactService.split_owned_path`，不再在路由里复制 `split_under_base` 逻辑。
+
 ## 2026-10-30 — office-asset 经受限 fd 创建
 
 `resolve_owned_entry` 之后用 `open(dest, "wb")` 按串写，目录被换成链接就落进别人的目录。现在先用

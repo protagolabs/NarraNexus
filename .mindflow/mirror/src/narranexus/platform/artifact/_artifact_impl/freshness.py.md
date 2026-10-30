@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审）— 注释口径修正
+
+此前写"mtime 与随后读 hash 的是同一个 inode"并不成立：mtime 来自一次受限打开的 fstat，hash 由 `compute_entry_hash` 再做一次
+受限打开。两次之间若目录被换成链接，第二次被拒（→ `"missing"`），但不保证是同一个 inode。保证的是：两次读取都不穿过链接。
+
 ## 2026-10-30 — mtime、hash、office 锁探测都走受限路径
 
 确权后的 `os.stat(abs_entry)` 改为对受限打开的 fd 做 `fstat`（mtime 与随后读 hash 的是同一个 inode）；hash 经

@@ -85,8 +85,10 @@ async def refresh_external_state(
     except ArtifactPathEscape:
         return "missing"
     try:
-        # fstat on the fd the confined open returned: the mtime belongs to the
-        # same inode the hash below will read.
+        # fstat on the fd of a confined (link-free) open: the mtime is never
+        # read through another tenant's tree. The hash below re-opens through
+        # the same confined walk, so a swap between the two reads is refused
+        # (-> "missing"); it is not guaranteed to be the very same inode.
         with open_confined_read(abs_entry) as entry_file:
             stat = os.fstat(entry_file.fileno())
     except (OSError, ArtifactPathEscape):

@@ -124,7 +124,6 @@ def test_office_lock_present(tmp_path, monkeypatch):
     # only ever called on a confined entry), so the doc must live under it.
     from narranexus.platform.settings import settings as sa
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
-    tmp_path = tmp_path.resolve()
     doc = tmp_path / "Q3 deck.pptx"
     doc.write_bytes(b"pk")
     assert office_lock_present(str(doc)) is False

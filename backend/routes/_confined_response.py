@@ -2,15 +2,16 @@
 @file_name: _confined_response.py
 @author: Bin Liang
 @date: 2026-10-30
-@description: A Starlette ``FileResponse`` that serves an ALREADY-OPEN file
-object instead of re-opening a path.
+@description: Shared route helpers for serving tenant files without a
+check-then-open-by-path window: ``open_tenant_file`` and a Starlette
+``FileResponse`` that serves an ALREADY-OPEN file object.
 
-The raw artifact route used to hand ``FileResponse`` the resolved path string,
-and Starlette opens it again when the first byte is sent. A tenant who swaps a
-directory on that path for a symlink between resolution and sending made the
-backend serve another tenant's file. The route now opens the file through
-``utils/confined_io`` (every component O_NOFOLLOW) and gives this class the
-resulting file object; headers (Content-Length / Last-Modified / ETag /
+Routes used to hand ``FileResponse`` the resolved path string, and Starlette
+opens it again when the first byte is sent. A tenant who swaps a directory on
+that path for a symlink between resolution and sending made the backend serve
+another tenant's file. Routes now open the file through ``utils/confined_io``
+(every component below the workspace base O_NOFOLLOW) and give the response
+class the resulting file object; headers (Content-Length / Last-Modified / ETag /
 Accept-Ranges), HEAD, single and multi Range, If-Range and 416 behave exactly
 as Starlette's because the framing logic is inherited — only the three body
 writers that touch the file are replaced to read from the held object.
@@ -18,11 +19,38 @@ writers that touch the file are replaced to read from the held object.
 from __future__ import annotations
 
 import os
-from typing import BinaryIO, Mapping, Optional
+from pathlib import Path
+from typing import BinaryIO, Mapping, Optional, Union
 
 import anyio
+from loguru import logger
 from starlette.responses import FileResponse
 from starlette.types import Receive, Scope, Send
+
+from narranexus.platform.settings import settings
+from narranexus.platform.utils import confined_io
+
+
+def open_tenant_file(path: Union[str, Path]) -> Optional[BinaryIO]:
+    """Open a resolved tenant-tree file for reading through the link-free walk.
+
+    ``path`` is what a resolver (``resolve_attachment_path``,
+    ``resolve_shared_file_for_user``, workspace ``_resolve_within_workspace``)
+    already proved to be inside the caller\'s tree; it is only a LABEL here: the
+    base-relative tail is re-derived lexically and every component below
+    ``base_working_path`` is opened O_NOFOLLOW, so a directory swapped for a
+    link after the check is refused. Returns None when the file is missing, not
+    a regular file, outside the base, or the path crosses a link — callers map
+    that to their own 404 shape.
+    """
+    try:
+        root, rel = confined_io.split_under_base(str(path), settings.base_working_path)
+        return confined_io.open_read(root, rel)
+    except confined_io.ConfinedPathError as e:
+        logger.warning(f"tenant file refused (link or outside base): {path!s}: {e}")
+        return None
+    except OSError:
+        return None
 
 
 class ConfinedFileResponse(FileResponse):
@@ -39,6 +67,7 @@ class ConfinedFileResponse(FileResponse):
         media_type: Optional[str] = None,
         headers: Optional[Mapping[str, str]] = None,
         status_code: int = 200,
+        filename: Optional[str] = None,
     ) -> None:
         self._file = file
         try:
@@ -54,7 +83,17 @@ class ConfinedFileResponse(FileResponse):
             headers=headers,
             media_type=media_type,
             stat_result=stat_result,
+            filename=filename,
         )
+
+    def __del__(self) -> None:
+        # A response that was built but never awaited (handler raised after
+        # constructing it, client gone before the app was invoked) must not
+        # hold its fd until some later GC pass.
+        try:
+            self._file.close()
+        except Exception:  # noqa: BLE001 — finalizer: nothing useful to do
+            pass
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # Never let the server open the label by path (http.response.pathsend).

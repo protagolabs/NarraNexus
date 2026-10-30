@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/agents/files.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审 I2）— 下载/上传/删除全部走受限 fd
+
+三个 handler 的"检查"（`_resolve_within_workspace`、`ensure_within_directory`）之后原来都按字符串重开：
+- 下载 `FileResponse(path=...)` → `open_tenant_file` + `ConfinedFileResponse`（链接/缺失/目录 → 404）。
+- 上传 `open(filepath,"wb")` → `confined_io.make_dirs` + `write_atomic`（逐级 `O_NOFOLLOW`，叶子是链接时替换链接本身）。
+- **删除** `shutil.rmtree`/`unlink` → `confined_io.remove_tree`：dir_fd 逐级、`unlink`/`rmdir` 相对 fd；树内任何链接只删链接本身、
+  绝不跟随；中间目录被换成链接 → 拒绝（404），受害者的树分毫不动。树深超过 256 → `ConfinedScanError`（404，已删部分不回滚）。
+**未转换**：`_build_tree` 的目录列表（`os.scandir(path)` 按串递归，目录在 `is_dir` 与递归之间被换成链接会泄漏受害者的
+文件名/大小）——只读元数据，另行处理。
 
 ## 2026-10-28（复审后）— workspace 根字面化、拒绝符号链接、目录树上限
 

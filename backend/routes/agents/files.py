@@ -20,15 +20,14 @@ download / preview / remove anything in the tree.
 
 import mimetypes
 import os
-import shutil
 from pathlib import Path, PurePosixPath
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
-from fastapi.responses import FileResponse
 from loguru import logger
 
 from backend.config import settings as backend_settings
+from backend.routes._confined_response import ConfinedFileResponse, open_tenant_file
 from backend.routes._ownership import require_owned_workspace_agent
 from narranexus.platform.schema import (
     FileInfo,
@@ -36,6 +35,8 @@ from narranexus.platform.schema import (
     FileUploadResponse,
     FileDeleteResponse,
 )
+from narranexus.platform.settings import settings as platform_settings
+from narranexus.platform.utils import confined_io
 from narranexus.platform.utils.file_safety import (
     enforce_max_bytes,
     ensure_within_directory,
@@ -244,10 +245,15 @@ async def fetch_workspace_file(
     user_id = await require_owned_workspace_agent(request, agent_id)
     workspace = Path(_get_workspace_path(agent_id, user_id))
     target = _resolve_within_workspace(workspace, path)
-    if not target.is_file():
+    # Open through the link-free walk and serve from that file object: the
+    # resolution above is only a check, and FileResponse(path=...) would
+    # re-open the string after a directory on it may have been swapped for a
+    # link into another tenant's tree.
+    served = open_tenant_file(target)
+    if served is None:
         raise HTTPException(404, "file not found")
     media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
-    return FileResponse(path=str(target), media_type=media_type, filename=target.name)
+    return ConfinedFileResponse(served, media_type=media_type, filename=target.name)
 
 
 @router.post("/{agent_id}/files", response_model=FileUploadResponse)
@@ -266,16 +272,24 @@ async def upload_file(
         safe_filename = sanitize_filename(file.filename or "", label="filename")
         workspace_path = _get_workspace_path(agent_id, user_id)
         workspace_dir = Path(workspace_path)
-        if not workspace_dir.exists():
-            workspace_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Created workspace directory: {workspace_path}")
 
         content = await file.read()
         enforce_max_bytes(len(content), backend_settings.max_upload_bytes, label="File")
         filepath = ensure_within_directory(workspace_dir, safe_filename, label="filename")
 
-        with open(filepath, "wb") as f:
-            f.write(content)
+        # Create the workspace (if absent) and write the file THROUGH the
+        # link-free walk below the base: every component O_NOFOLLOW, temp file
+        # + rename via the parent's fd (a link at the leaf is replaced, not
+        # written through). `open(filepath, "wb")` by string followed a
+        # directory swapped for a link into another tenant's tree.
+        try:
+            root, rel_dir = confined_io.split_under_base(
+                str(workspace_dir), platform_settings.base_working_path
+            )
+            confined_io.make_dirs(root, rel_dir)
+            confined_io.write_atomic(root, f"{rel_dir}/{safe_filename}", content)
+        except confined_io.ConfinedPathError:
+            raise HTTPException(404, "agent not found")
 
         logger.info(f"File saved: {filepath} ({len(content)} bytes)")
         return FileUploadResponse(
@@ -302,8 +316,10 @@ async def delete_file(
     """Delete a file or a directory (recursively) from the workspace.
 
     Accepts nested paths (e.g. ``report/index.html`` or ``report``). When the
-    resolved path is a directory, ``shutil.rmtree`` removes it and everything
-    under it — confine yourself; this is destructive.
+    resolved path is a directory it is removed with everything under it —
+    destructive, so the removal runs fd-relative below the base
+    (``confined_io.remove_tree``): no link is ever followed, a link inside the
+    tree is unlinked itself and its target left alone.
 
     Identity comes from auth_middleware, not the URL.
     """
@@ -312,12 +328,17 @@ async def delete_file(
     try:
         workspace = Path(_get_workspace_path(agent_id, user_id))
         target = _resolve_within_workspace(workspace, path)
-        if not target.exists():
+        try:
+            root, rel = confined_io.split_under_base(
+                str(target), platform_settings.base_working_path
+            )
+            confined_io.remove_tree(root, rel)
+        except FileNotFoundError:
             return FileDeleteResponse(success=False, error=f"path not found: {path}")
-        if target.is_dir():
-            shutil.rmtree(target)
-        else:
-            target.unlink()
+        except confined_io.ConfinedPathError:
+            # A link on the way (or too deep to remove safely): nothing outside
+            # the owner's tree was touched.
+            raise HTTPException(404, "file not found")
         logger.info(f"Workspace path deleted: {target}")
         return FileDeleteResponse(success=True, path=path)
     except HTTPException:

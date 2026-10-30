@@ -28,6 +28,7 @@ Auth: same gateway-token middleware as the rest of ``/manyfold/...``.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -37,7 +38,9 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from backend.routes._confined_response import open_tenant_file
 from narranexus.platform.settings import settings as core_settings
+from narranexus.platform.utils import confined_io
 from narranexus.platform.utils.db.db_factory import get_db_client
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
@@ -301,18 +304,24 @@ async def read_file(
     _require_manyfold_auth(request)
     workspace, _ = await _resolve_workspace_root(agent_id)
     target = _safe_resolve(workspace, path)
-    if not target.exists():
+    # Open through the link-free walk below the workspace base and stream from
+    # THAT file object: _safe_resolve is only a check, and target.open() by
+    # string would follow a directory swapped for a link in the meantime into
+    # another tenant's tree.
+    served = open_tenant_file(target)
+    if served is None:
+        if target.is_dir():
+            raise HTTPException(
+                status_code=400,
+                detail=f"path is a directory: {path!r}",
+            )
         raise HTTPException(
             status_code=404,
             detail=f"path does not exist: {path!r}",
         )
-    if target.is_dir():
-        raise HTTPException(
-            status_code=400,
-            detail=f"path is a directory: {path!r}",
-        )
-    stat = target.stat()
+    stat = os.fstat(served.fileno())
     if stat.st_size > _MAX_READ_BYTES:
+        served.close()
         raise HTTPException(
             status_code=413,
             detail=(
@@ -322,7 +331,7 @@ async def read_file(
         )
 
     def iterfile():
-        with target.open("rb") as fh:
+        with served as fh:
             while True:
                 chunk = fh.read(_READ_CHUNK_BYTES)
                 if not chunk:
@@ -420,8 +429,17 @@ async def write_file(
                 detail=f"file exists and overwrite=false: {path!r}",
             )
         def _write() -> None:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(body)
+            # Parents + file through the link-free walk below the base (every
+            # component O_NOFOLLOW, temp file + rename via the parent's fd): the
+            # checks above are only advice, and mkdir/write_bytes by string
+            # followed a directory swapped for a link into another tenant's tree.
+            try:
+                base_root, rel_target = confined_io.split_under_base(
+                    str(target), str(core_settings.base_working_path)
+                )
+                confined_io.write_atomic(base_root, rel_target, body, make_parents=True)
+            except confined_io.ConfinedPathError:
+                raise HTTPException(status_code=403, detail="path escapes the agent workspace")
 
         await asyncio.to_thread(_write)
         rel = str(target.relative_to(root))

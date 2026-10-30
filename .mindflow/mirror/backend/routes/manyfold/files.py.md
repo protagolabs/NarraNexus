@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/manyfold/files.py
-last_verified: 2026-08-10
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审 I2）— read / write 走受限 fd
+
+`read`：`_safe_resolve` 之后 `open_tenant_file` 打开一次，size 取自 fstat，流式从同一个对象读（目录 400 / 缺失 404 / 过大 413 不变）。
+`write`：`mkdir(parents)` + `write_bytes` 按串执行会穿过被换成链接的目录；现在 `confined_io.write_atomic(..., make_parents=True)`，
+链接 → 403。**未转换**：`stat` 与 `list` 两个只读元数据端点（`target.stat()` / `os.scandir` 按串），属于元数据泄漏面，另行处理。
 
 ## 2026-08-10 — write 端点每次尝试落审计行(batch-2 §B)
 

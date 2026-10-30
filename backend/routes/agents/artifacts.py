@@ -473,13 +473,10 @@ async def upload_office_asset(
     # component below the base, O_EXCL on the file): resolve_owned_entry above
     # is only a check, and `open(dest)` by string would follow a directory
     # swapped for a link in the meantime into another tenant's tree.
-    base_real = os.path.realpath(settings.base_working_path)
-    entry_dir_rel = os.path.relpath(entry_dir, base_real)
     try:
-        if entry_dir_rel.startswith(".."):  # resolve_owned_entry guarantees below-base
-            raise confined_io.ConfinedPathError("entry directory is outside the base")
+        base_real, entry_dir_rel = ArtifactService(db).split_owned_path(entry_dir)
         os.close(confined_io.open_dir_fd(base_real, entry_dir_rel))
-    except confined_io.ConfinedPathError:
+    except (ArtifactPathEscape, confined_io.ConfinedPathError):
         raise HTTPException(404, "artifact not found")
     except OSError:
         raise HTTPException(410, "entry directory is gone")
@@ -513,7 +510,14 @@ async def upload_office_asset(
     dest_rel = f"{entry_dir_rel}/{dest_name}"
     received = 0
     try:
-        with confined_io.open_new(base_real, dest_rel) as out:
+        out = confined_io.open_new(base_real, dest_rel)
+    except confined_io.ConfinedPathError:
+        # A link appeared on the path after the check: nothing was created.
+        raise HTTPException(404, "artifact not found")
+    # Only now does a file of OURS exist, so only now is cleanup ours to do —
+    # a failed create (e.g. FileExistsError) must never unlink another file.
+    try:
+        with out:
             while chunk := await file.read(1024 * 1024):
                 received += len(chunk)
                 if received > MAX_OFFICE_ASSET_BYTES:
@@ -523,9 +527,6 @@ async def upload_office_asset(
                         f"({MAX_OFFICE_ASSET_BYTES // (1024 * 1024)} MB max)",
                     )
                 out.write(chunk)
-    except confined_io.ConfinedPathError:
-        # A link appeared on the path after the check: nothing was created.
-        raise HTTPException(404, "artifact not found")
     except BaseException:
         # Never leave a partial file: the entry dir is served by the raw
         # route and counted by _dir_size.

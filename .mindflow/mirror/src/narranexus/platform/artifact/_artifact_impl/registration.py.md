@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审）— `_dir_size` fail closed
+
+`dir_regular_bytes` 超过深度上限或遇到不可读目录时现在抛 `ConfinedScanError`（映射为 `ArtifactPathEscape`，注册被拒），
+而不是少算：这个总数用来执行 `MAX_ARTIFACT_BYTES`，静默跳过会让租户把字节藏在深层/不可读目录下绕过上限。
+
 ## 2026-10-30 — hash 与 size 不再被链接带偏
 
 `compute_entry_hash` 经 `sha256_of_confined` 读（链接 → 返回 None，不是别人的 hash）；`_dir_size` 现在 fd 相对遍历，

@@ -1040,6 +1040,9 @@ import backend.routes.manyfold.files as files_mod  # noqa: E402
 
 @pytest.fixture
 def files_app(monkeypatch, tmp_path):
+    # File I/O runs through the link-free walk below base_working_path, so the
+    # fake workspace must live under it.
+    monkeypatch.setattr(files_mod.core_settings, "base_working_path", str(tmp_path), raising=False)
     workspace = tmp_path / "agent_x_u1"
     workspace.mkdir()
 

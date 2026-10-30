@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审）— `ConfinedFileResponse` 移到 `backend/routes/_confined_response.py`
+
+响应类与 `open_tenant_file` 现在是各路由共享的 helper（见 [[_confined_response]]），本文件只改 import。
+
 ## 2026-10-30 — 从受限 fd 出字节（`ConfinedFileResponse`）
 
 路由原来把 `resolved.path` 交给 `FileResponse`，Starlette 在发送时按字符串重开——resolve 与发送之间目录被换成链接就
