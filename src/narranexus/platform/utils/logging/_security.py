@@ -21,6 +21,9 @@ freshness pass, so it would alert continuously on honest data.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import os
 from typing import Optional
 from urllib.parse import quote
 
@@ -33,6 +36,29 @@ BOUNDARY_MARKER = "[security.boundary]"
 # Renaming the module or the function, wrapping the logger call, or changing
 # the line format (_setup._TEXT_FORMAT) silently stops the alert — update the
 # sentinel's signatures.py in the same breath.
+#
+# The line is SIGNED. A log stream mixes text the platform does not control
+# (exception messages, uvicorn's own handler, print, subprocess output), so
+# "this line starts with the right head" cannot prove the app wrote it. With
+# NX_BOUNDARY_LOG_KEY set (the same value in the sentinel's environment), the
+# line carries sig = HMAC-SHA256(key, surface|actor|owner|detail) truncated to
+# 32 hex chars, and the sentinel attributes the alert to an account only when
+# the signature verifies. Unset key -> `sig=-` (the sentinel then never names
+# an account from the line).
+BOUNDARY_KEY_ENV = "NX_BOUNDARY_LOG_KEY"
+_SIG_HEX = 32
+
+
+def boundary_signature(surface: str, actor: str, owner: str, detail: str) -> str:
+    """The `sig=` value for already-rendered fields; "-" without a key.
+
+    Inputs are the exact tokens written to the line, so the verifier can
+    recompute it from the line alone."""
+    key = os.environ.get(BOUNDARY_KEY_ENV, "")
+    if not key:
+        return "-"
+    msg = "|".join((surface, actor, owner, detail)).encode("utf-8")
+    return hmac.new(key.encode("utf-8"), msg, hashlib.sha256).hexdigest()[:_SIG_HEX]
 
 # The detail is caller-supplied and usually attacker-controlled (a path, an id).
 # repr() keeps it on one line (newlines/control chars escaped, so a crafted
@@ -80,7 +106,9 @@ def log_boundary_violation(
             is owned by whoever registered its bad pointer.
         detail: The refused value or reason; sanitised to one bounded line.
     """
+    actor_f, owner_f, detail_f = _id_field(actor), _id_field(owner), _one_line(detail)
+    sig = boundary_signature(surface, actor_f, owner_f, detail_f)
     logger.warning(
-        f"{BOUNDARY_MARKER} surface={surface} actor={_id_field(actor)} "
-        f"owner={_id_field(owner)} detail={_one_line(detail)}"
+        f"{BOUNDARY_MARKER} surface={surface} actor={actor_f} "
+        f"owner={owner_f} sig={sig} detail={detail_f}"
     )

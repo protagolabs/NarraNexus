@@ -155,15 +155,18 @@ def _ensure_audit_level() -> None:
 
 
 def _escape_line_breaks(record) -> None:
-    """One record = one physical line: escape CR/LF inside the message.
+    """Escape CR/LF inside the message so a message is one physical line.
 
     Several call sites log user text verbatim (chat input, agent names,
-    request fields). An embedded newline would let that text start a fresh
-    line with any head it likes — a forged entry indistinguishable from a
-    real one to anything that reads the log line by line (the sentinel's
-    boundary rule, the ship backfill, a human grep). Tracebacks are rendered
-    from ``record["exception"]`` by the sink, not from the message, so they
-    keep their lines.
+    request fields); an embedded newline would let that text start a fresh
+    line with any head it likes and read as a separate, genuine-looking
+    entry to a human grep or a line-based tool. This is log hygiene, NOT a
+    forgery boundary: exception text rendered by ``{exception}`` (tracebacks
+    keep their lines), uvicorn's own handler, ``print`` and subprocess output
+    all reach the same stream unescaped, and processes that never call
+    ``setup_logging`` are not covered. Anything that must trust a log line
+    has to verify it on its own — the boundary line is signed for that
+    reason (see _security.py).
     """
     message = record["message"]
     if "\n" in message or "\r" in message:

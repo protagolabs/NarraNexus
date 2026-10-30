@@ -42,11 +42,13 @@ def _reset_logger() -> Any:
     # logger.configure(extra=...). Otherwise tests that bind/unbind
     # event_id will see the default placeholder leftover from earlier
     # setup_logging calls and false-fail on "key not in extra" asserts.
-    logger.configure(extra={})
+    # configure(patcher=None) is a no-op in loguru, so the setup_logging
+    # patcher must be replaced explicitly or it outlives this module's tests.
+    logger.configure(extra={}, patcher=lambda _record: None)
     _reset_for_tests()
     yield
     logger.remove()
-    logger.configure(extra={})
+    logger.configure(extra={}, patcher=lambda _record: None)
     _reset_for_tests()
 
 

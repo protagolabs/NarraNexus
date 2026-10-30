@@ -6,10 +6,12 @@ stub: false
 
 ## 2026-10-30 — 消息里的换行一律转义；`_TEXT_FORMAT` 成为与部署侧哨兵的契约
 
-`logger.configure(patcher=_escape_line_breaks)`：消息里的 `\n`/`\r` 转成字面 `\\n`/`\\r`，
-一条记录永远一行。原因：多处会原样记录用户文本（聊天输入、agent 名），内嵌换行就能另起一
-行、伪造任意行头，按行读日志的东西（哨兵、ship 回填、人工 grep）分辨不出来。异常栈由 sink
-从 `record["exception"]` 渲染，不受影响。代价：本来就想打多行的消息现在显示为一行带 `\n`。
+`logger.configure(patcher=_escape_line_breaks)`：消息里的 `\n`/`\r` 转成字面 `\\n`/`\\r`。
+原因：多处会原样记录用户文本（聊天输入、agent 名），内嵌换行会另起一行、看上去像一条独立
+的真实日志。**这是日志卫生，不是防伪边界**：`{exception}` 渲染的异常文本、uvicorn 自带
+handler、`print`、子进程输出照样原样进同一个流，不调 `setup_logging` 的进程（executor、
+model_sync 等）也不覆盖。需要信任某行日志的地方必须自己验证——越界日志行因此带 HMAC 签名
+（见 `_security.py.md`）。异常栈保持多行。代价：本来就想打多行的消息现在显示为一行带 `\n`。
 
 ### 契约
 

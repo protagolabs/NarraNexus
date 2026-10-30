@@ -15,6 +15,11 @@ from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.utils.logging._security import BOUNDARY_MARKER
 
 
+@pytest.fixture(autouse=True)
+def _no_key(monkeypatch):
+    monkeypatch.delenv("NX_BOUNDARY_LOG_KEY", raising=False)
+
+
 @pytest.fixture
 def lines():
     captured: list[str] = []
@@ -27,7 +32,7 @@ def test_line_shape_is_stable(lines):
     log_boundary_violation("bundle_import.preflight", actor="u1", detail="../x")
     assert len(lines) == 1
     assert lines[0].strip() == (
-        f"{BOUNDARY_MARKER} surface=bundle_import.preflight actor=u1 owner=- detail='../x'"
+        f"{BOUNDARY_MARKER} surface=bundle_import.preflight actor=u1 owner=- sig=- detail='../x'"
     )
 
 
@@ -47,7 +52,7 @@ def test_detail_cannot_forge_a_second_line(lines):
     assert "\n" not in text
     # The genuine fields always come first; the forged text stays inside the
     # quoted detail, so a watcher reading the first surface= sees the real one.
-    assert text.startswith(f"{BOUNDARY_MARKER} surface=s actor=u1 owner=- detail='")
+    assert text.startswith(f"{BOUNDARY_MARKER} surface=s actor=u1 owner=- sig=- detail='")
 
 
 def test_detail_is_bounded(lines):
@@ -66,12 +71,18 @@ _SENTINEL_RE = __import__("re").compile(
     r"narranexus\.platform\.utils\.logging\._security:log_boundary_violation:\d+ - "
     r"\[security\.boundary\] "
     r"surface=(?P<surface>[a-z][a-z0-9_.]*) actor=(?P<actor>\S+) owner=(?P<owner>\S+) "
+    r"sig=(?P<sig>[0-9a-f]{32}|-) detail=(?P<detail>.*)$"
 )
 
 
 @pytest.mark.parametrize("actor", ["95e155e6088940aa897994a3074f9dff", "legacy user"])
-def test_real_text_format_matches_the_sentinel_contract(actor):
+def test_real_text_format_matches_the_sentinel_contract(actor, monkeypatch):
+    import hashlib
+    import hmac
+
     from narranexus.platform.utils.logging._setup import _TEXT_FORMAT
+
+    monkeypatch.setenv("NX_BOUNDARY_LOG_KEY", "k" * 32)
 
     captured: list[str] = []
     sink_id = logger.add(captured.append, level="WARNING", format=_TEXT_FORMAT)
@@ -85,3 +96,24 @@ def test_real_text_format_matches_the_sentinel_contract(actor):
     assert m, line
     assert m["surface"] == "agent_files.path"
     assert m["owner"] == "-"
+    # The verifier recomputes the signature from the printed tokens alone.
+    msg = "|".join((m["surface"], m["actor"], m["owner"], m["detail"])).encode()
+    expect = hmac.new(b"k" * 32, msg, hashlib.sha256).hexdigest()[:32]
+    assert m["sig"] == expect
+
+
+def test_signature_changes_with_any_field(monkeypatch):
+    from narranexus.platform.utils.logging._security import boundary_signature
+
+    monkeypatch.setenv("NX_BOUNDARY_LOG_KEY", "secret")
+    base = boundary_signature("s", "a", "-", "'d'")
+    assert len(base) == 32
+    assert boundary_signature("s", "b", "-", "'d'") != base
+    assert boundary_signature("s", "a", "-", "'e'") != base
+    monkeypatch.setenv("NX_BOUNDARY_LOG_KEY", "other")
+    assert boundary_signature("s", "a", "-", "'d'") != base
+
+
+def test_no_key_means_unsigned(lines):
+    log_boundary_violation("s", actor="u1", detail="d")
+    assert " sig=- detail=" in lines[0]
