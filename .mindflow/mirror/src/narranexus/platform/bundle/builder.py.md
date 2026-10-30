@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审 2）— 线性遍历，过深直接报错
+
+`_walk_confined` 现在包 `confined_io.walk_tree`：每个文件由 `node.open_file()` 相对当前持有的目录 fd 一次 `openat` 打开（原先每个文件都从根重走）。
+超过 `MAX_TREE_DEPTH`（64）抛 `TreeTooDeepError`——**导出绝不静默丢内容**；进不去的子目录记 WARNING 后跳过。
+
 ## 2026-10-30 — 导出打包 fd 相对
 
 `_pack_workspace_sync` / `_zip_dir` / `_builtin_skill_relpaths` 原来 `os.walk` + `tar.add(path)`：islink 检查之后目录被换成链接，就会把受害者的文件打进属主的导出。

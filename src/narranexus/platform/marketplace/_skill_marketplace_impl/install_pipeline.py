@@ -22,6 +22,7 @@ Disk is the single source of truth: a DB audit failure is logged, never
 rolled back onto the filesystem.
 """
 
+import asyncio
 import hashlib
 import json
 import re
@@ -92,8 +93,11 @@ def compute_content_hash(skill_dir: Path) -> str:
     # a directory swapped for a link must not make the hash (and the
     # "modified"/"installed" verdict recorded from it) describe another tenant's
     # files. Links are skipped (never dereferenced); a directory that cannot be
-    # walked raises (ConfinedPathError / OSError) rather than hashing less.
+    # walked, or a tree deeper than ``confined_io.MAX_TREE_DEPTH``, raises
+    # (ConfinedPathError / OSError / TreeTooDeepError) rather than hashing less.
     # Order = the previous ``sorted(rglob)`` order, so recorded hashes stay valid.
+    # Phase 1 lists (linear: one held fd per level); phase 2 reads each file in
+    # the sorted order the digest needs (one bounded walk per file, depth capped).
     root, rel = confined_io.split_source(str(skill_dir), settings.base_working_path)
     files = [
         r
@@ -382,7 +386,8 @@ class InstallPipeline:
         if package_hash:
             meta_fields["hash"] = package_hash
         skill_dir = Path(info.path)
-        meta_fields["content_hash"] = compute_content_hash(skill_dir)
+        # off the event loop: a (tenant-controlled) deep / large tree must not stall it
+        meta_fields["content_hash"] = await asyncio.to_thread(compute_content_hash, skill_dir)
         self.skill_module.merge_skill_meta(info.name, meta_fields)
 
         refreshed = self.skill_module.get_skill(info.name) or info

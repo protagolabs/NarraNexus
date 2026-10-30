@@ -66,7 +66,9 @@ class SkillSyncService:
         # must not make another tenant's skills (names, meta, hash) this agent's.
         for name in self._confined_subdirs(skills_dir):
             if not name.startswith("."):
-                disk_state[name] = self._live_status(module, skills_dir / name)
+                # the content hash walks the whole skill tree: off the event loop (the
+                # periodic reconcile covers every tenant; one deep tree must not stall it)
+                disk_state[name] = await asyncio.to_thread(self._live_status, module, skills_dir / name)
                 disk_meta[name] = module.read_skill_meta(name)
         for name in self._confined_subdirs(skills_dir / ".disabled"):
             disk_state.setdefault(name, "disabled")

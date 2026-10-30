@@ -400,41 +400,13 @@ def test_remove_tree_refuses_a_symlinked_intermediate_directory(tree):
     assert (tree["outside"] / "secret.txt").exists()
 
 
-def test_remove_tree_has_no_depth_cap(tree):
-    """A tenant tree deeper than any fixed cap must still be deleted (agent delete
-    / team wipe), not left behind."""
-    p = os.path.join(tree["root"], "deep")
-    for _ in range(600):
-        p = os.path.join(p, "d")
-    # build with chdir-free relative steps (path length stays under PATH_MAX)
-    fd = os.open(tree["root"], os.O_RDONLY)
+def _build_deep(root: str, name: str, depth: int) -> None:
+    """A chain of ``depth`` nested dirs built via dir fds (path length stays small)."""
+    fd = os.open(root, os.O_RDONLY)
     try:
-        cur = fd
-        os.mkdir("deep", dir_fd=cur)
-        for _ in range(601):
-            nxt = os.open("deep" if cur == fd else "d", os.O_RDONLY | os.O_DIRECTORY, dir_fd=cur)
-            if cur != fd:
-                os.close(cur)
-            cur = nxt
-            os.mkdir("d", dir_fd=cur)
-        if cur != fd:
-            os.close(cur)
-    finally:
-        os.close(fd)
-    cio.remove_tree(tree["root"], "deep")
-    assert not os.path.exists(os.path.join(tree["root"], "deep"))
-
-
-def test_remove_tree_reports_the_fd_budget_as_a_distinct_error(tree):
-    import resource
-
-    if not os.path.isdir("/proc/self/fd"):
-        pytest.skip("needs /proc/self/fd")
-    fd = os.open(tree["root"], os.O_RDONLY)
-    try:
-        os.mkdir("deep", dir_fd=fd)
-        cur = os.open("deep", os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
-        for _ in range(60):
+        os.mkdir(name, dir_fd=fd)
+        cur = os.open(name, os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+        for _ in range(depth):
             os.mkdir("d", dir_fd=cur)
             nxt = os.open("d", os.O_RDONLY | os.O_DIRECTORY, dir_fd=cur)
             os.close(cur)
@@ -442,15 +414,38 @@ def test_remove_tree_reports_the_fd_budget_as_a_distinct_error(tree):
         os.close(cur)
     finally:
         os.close(fd)
-    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    resource.setrlimit(resource.RLIMIT_NOFILE, (len(os.listdir("/proc/self/fd")) + 20, hard))
-    try:
-        with pytest.raises(cio.TreeTooDeepError):
-            cio.remove_tree(tree["root"], "deep")
-    finally:
-        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
-    assert not isinstance(cio.TreeTooDeepError("x"), cio.SymlinkRefusedError)
-    cio.remove_tree(tree["root"], "deep")  # and with the budget back, it completes
+
+
+def test_remove_tree_deletes_a_deep_tree_within_the_cap(tree, monkeypatch):
+    monkeypatch.setattr(cio, "_remove_depth_cap", lambda: 200)
+    _build_deep(tree["root"], "deep", 150)
+    cio.remove_tree(tree["root"], "deep")
+    assert not os.path.exists(os.path.join(tree["root"], "deep"))
+
+
+def test_remove_tree_over_the_cap_raises_before_touching_the_fd_budget(tree, monkeypatch):
+    monkeypatch.setattr(cio, "_remove_depth_cap", lambda: 40)
+    _build_deep(tree["root"], "deep", 100)
+    with pytest.raises(cio.TreeTooDeepError) as ei:
+        cio.remove_tree(tree["root"], "deep")
+    assert "file-descriptor" in str(ei.value) and not isinstance(ei.value, cio.SymlinkRefusedError)
+    assert os.path.isdir(os.path.join(tree["root"], "deep"))  # partially intact, no EMFILE crash
+    monkeypatch.setattr(cio, "_remove_depth_cap", lambda: 200)
+    cio.remove_tree(tree["root"], "deep")  # and a larger budget completes it
+    assert not os.path.exists(os.path.join(tree["root"], "deep"))
+
+
+def test_remove_depth_cap_is_a_quarter_of_the_fd_soft_limit(monkeypatch):
+    import resource
+
+    monkeypatch.setattr(resource, "getrlimit", lambda which: (256, 256))  # macOS default
+    assert cio._remove_depth_cap() == 64
+    monkeypatch.setattr(resource, "getrlimit", lambda which: (1024, 4096))
+    assert cio._remove_depth_cap() == 256
+    monkeypatch.setattr(resource, "getrlimit", lambda which: (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+    assert cio._remove_depth_cap() == 4096
+    monkeypatch.setattr(resource, "getrlimit", lambda which: (16, 16))
+    assert cio._remove_depth_cap() == 8
 
 
 def test_remove_tree_unlinks_a_dir_swapped_for_a_file_or_link_during_the_walk(tree, monkeypatch):
@@ -834,3 +829,100 @@ def test_iter_tree_start_dir_errors_and_swapped_subdirs(tree):
     os.symlink(tree["outside"], os.path.join(root, "evil"))
     with pytest.raises(cio.SymlinkRefusedError):
         list(cio.iter_tree(root, "evil"))
+
+
+# ── walk_tree: linear time, held fds, hard cap, ordering, logging ────────────
+
+
+def test_walk_tree_deep_tree_within_the_cap_is_fast_and_complete(tree):
+    import time
+
+    _build_deep(tree["root"], "deep", 60)
+    start = time.monotonic()
+    nodes = list(cio.walk_tree(tree["root"], "deep"))
+    assert time.monotonic() - start < 2.0
+    assert len(nodes) == 60 and all(n.is_dir for n in nodes)
+    assert nodes[-1].rel.count("/") == 59
+
+
+def test_walk_tree_over_the_cap_raises_a_distinct_error_not_a_silent_skip(tree):
+    _build_deep(tree["root"], "deep", 70)
+    with pytest.raises(cio.TreeTooDeepError) as ei:
+        list(cio.walk_tree(tree["root"], "deep"))
+    assert "deeper than 64" in str(ei.value)
+    assert list(cio.walk_tree(tree["root"], "deep", max_depth=100))  # explicit larger cap works
+
+
+def test_walk_tree_opens_files_relative_to_the_held_dir_fd(tree):
+    got = {}
+    for node in cio.walk_tree(tree["root"], "a"):
+        if node.entry.is_file:
+            with node.open_file() as f:
+                got[node.rel] = f.read()
+    assert got == {"b/f.txt": b"inside"}
+    with pytest.raises(cio.NotARegularFileError):
+        next(n for n in cio.walk_tree(tree["root"], "a") if n.is_dir).open_file()
+
+
+def test_walk_tree_file_swapped_for_a_link_after_listing_is_refused(tree):
+    f = os.path.join(tree["root"], "a", "b", "f.txt")
+    for node in cio.walk_tree(tree["root"], "a"):
+        if node.entry.is_file:
+            os.unlink(f)
+            os.symlink(tree["outside"] / "secret.txt", f)
+            with pytest.raises(cio.SymlinkRefusedError):
+                node.open_file()
+
+
+def test_walk_tree_order_matches_the_previous_path_sorted_depth_first_order(tree):
+    root = tree["root"]
+    for rel in ("z/one.txt", "m/two.txt", "m/sub/three.txt", "a/aa.txt"):
+        os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+        open(os.path.join(root, rel), "wb").close()
+    got = [n.rel for n in cio.walk_tree(root)]
+    # each directory's entries (sorted), then its subdirectories in sorted order, depth first
+    assert got == [
+        "a", "m", "z",
+        "a/aa.txt", "a/b", "a/b/f.txt",
+        "m/sub", "m/two.txt", "m/sub/three.txt",
+        "z/one.txt",
+    ]
+
+
+def test_walk_tree_logs_each_skipped_subdir_and_strict_raises(tree, monkeypatch):
+    from loguru import logger
+
+    messages = []
+    sink = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        real = cio._open_dir_at
+
+        def refusing(parent_fd, name, *, create):
+            if name == "b":
+                raise SymlinkRefusedError_for_test()
+            return real(parent_fd, name, create=create)
+
+        class SymlinkRefusedError_for_test(cio.SymlinkRefusedError):
+            pass
+
+        monkeypatch.setattr(cio, "_open_dir_at", refusing)
+        got = [n.rel for n in cio.walk_tree(tree["root"], "a")]
+        assert got == ["b"]  # listed, but not entered
+        assert any("a/b" in m or "'b'" in m for m in messages), messages
+        with pytest.raises(cio.SymlinkRefusedError):
+            list(cio.walk_tree(tree["root"], "a", strict=True))
+    finally:
+        logger.remove(sink)
+
+
+def test_walk_tree_closes_every_fd_even_when_abandoned(tree):
+    before = _open_fd_count()
+    if before is None:
+        pytest.skip("needs /proc/self/fd")
+    _build_deep(tree["root"], "deep", 30)
+    gen = cio.walk_tree(tree["root"], "deep")
+    for _ in range(10):
+        next(gen)
+    gen.close()
+    list(cio.walk_tree(tree["root"], "deep"))
+    assert _open_fd_count() == before

@@ -383,3 +383,68 @@ def test_arena_install_never_writes_credentials_through_a_swapped_skills_dir(tre
             trees["own"] / "skills", _creds(), skill_md="# Arena\n", owner_user_id="u1"
         )
     assert os.listdir(trees["vic"] / "skills") == []
+
+
+# ── linear time / off the event loop ─────────────────────────────────────────
+
+
+def _deep_skill(path: Path, depth: int) -> None:
+    fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.mkdir(path.name, dir_fd=fd)
+        cur = os.open(path.name, os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+        for _ in range(depth):
+            os.mkdir("d", dir_fd=cur)
+            nxt = os.open("d", os.O_RDONLY | os.O_DIRECTORY, dir_fd=cur)
+            os.close(cur)
+            cur = nxt
+        os.close(cur)
+    finally:
+        os.close(fd)
+
+
+def test_content_hash_of_a_deep_tree_is_fast_within_the_cap_and_refuses_beyond_it(trees):
+    import time
+
+    from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import compute_content_hash
+    from narranexus.platform.utils import confined_io
+
+    skills = trees["own"] / "skills"
+    skills.mkdir()
+    _deep_skill(skills / "ok", 60)
+    start = time.monotonic()
+    assert compute_content_hash(skills / "ok").startswith("sha256:")
+    assert time.monotonic() - start < 2.0
+    _deep_skill(skills / "too_deep", 90)
+    with pytest.raises(confined_io.TreeTooDeepError):
+        compute_content_hash(skills / "too_deep")
+
+
+def test_export_of_a_too_deep_tree_fails_loudly_instead_of_dropping_content(trees):
+    from narranexus.platform.bundle import builder
+    from narranexus.platform.utils import confined_io
+
+    _deep_skill(trees["own"] / "deep", 90)
+    with pytest.raises(confined_io.TreeTooDeepError):
+        builder._pack_workspace_sync(trees["own"], trees["tmp"] / "o.tar.gz", set())
+
+
+@pytest.mark.asyncio
+async def test_reconcile_hashes_skills_off_the_event_loop(trees, db_client, monkeypatch):
+    import threading
+
+    from narranexus.platform.services.skill_sync_service import SkillSyncService
+
+    skill = trees["own"] / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_bytes(b"# demo")
+    seen = []
+    real = SkillSyncService._live_status
+
+    def recording(module, skill_dir):
+        seen.append(threading.current_thread() is threading.main_thread())
+        return real(module, skill_dir)
+
+    monkeypatch.setattr(SkillSyncService, "_live_status", staticmethod(recording))
+    await SkillSyncService(db_client).reconcile_workspace("agent_own", "u1")
+    assert seen == [False]

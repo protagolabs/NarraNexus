@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审 2）— 对账里的哈希在线程里跑
+
+`reconcile_workspace` 对每个技能用 `asyncio.to_thread(self._live_status, …)`：`backend/main.py` 周期性对账覆盖所有租户，一个租户的深目录树不能再阻塞后端事件循环。
+
 ## 2026-10-30 — 对账列表走受限路径
 
 `reconcile_workspace` 的 `skills/` 与 `.disabled/` 列表、`reconcile_all` 的 base → user → agent 三级遍历全部用 `confined_io.list_dir` / `lstat`：租户把 `agent_x` 目录

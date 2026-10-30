@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审 2）— 哈希移出事件循环
+
+`compute_content_hash` 阶段 1 用线性的 `iter_tree` 列文件，阶段 2 按 `PurePosixPath.parts` 排序后逐个读取（每个文件一次深度≤64 的受限遍历）；过深抛 `TreeTooDeepError`。
+异步调用点（`_install_staged`）用 `asyncio.to_thread`，租户可控的深/大目录树不会卡住事件循环。摘要与顺序不变，已存哈希仍有效。
+
 ## 2026-10-30 — `compute_content_hash` fd 相对
 
 遍历与读取走 `confined_io.iter_tree(strict=True)` + `open_read`：目录被换成链接时**抛错**而不是哈希受害者的文件（对账据此得出的 modified/installed 结论不会描述别人的文件）。

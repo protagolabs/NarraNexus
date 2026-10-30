@@ -197,6 +197,32 @@ def make_dirs(root: str, rel: str) -> None:
     os.close(_walk(root, _split(rel), create=True))
 
 
+def _open_regular_at(parent_fd: int, name: str, label: str) -> BinaryIO:
+    """Open the regular file ``name`` relative to the directory fd (O_NOFOLLOW)."""
+    try:
+        fd = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC,
+            dir_fd=parent_fd,
+        )
+    except OSError as e:
+        _refuse_if_link(name, parent_fd, e, "leaf")
+        raise
+    try:
+        st = os.fstat(fd)
+        if not stat_mod.S_ISREG(st.st_mode):
+            raise NotARegularFileError(errno.EINVAL, "not a regular file", label)
+        os.set_blocking(fd, True)
+        return os.fdopen(fd, "rb")
+    except BaseException:
+        # fdopen owns the fd only once it returns; close it ourselves otherwise.
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+
+
 def open_read(root: str, rel: str) -> BinaryIO:
     """Open ``root/rel`` for binary reading; the leaf must be a regular file.
 
@@ -207,30 +233,9 @@ def open_read(root: str, rel: str) -> BinaryIO:
     parts = _split(rel)
     parent_fd = _walk(root, parts[:-1])
     try:
-        try:
-            fd = os.open(
-                parts[-1],
-                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC,
-                dir_fd=parent_fd,
-            )
-        except OSError as e:
-            _refuse_if_link(parts[-1], parent_fd, e, "leaf")
-            raise
+        return _open_regular_at(parent_fd, parts[-1], rel)
     finally:
         os.close(parent_fd)
-    try:
-        st = os.fstat(fd)
-        if not stat_mod.S_ISREG(st.st_mode):
-            raise NotARegularFileError(errno.EINVAL, "not a regular file", rel)
-        os.set_blocking(fd, True)
-        return os.fdopen(fd, "rb")
-    except BaseException:
-        # fdopen owns the fd only once it returns; close it ourselves otherwise.
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        raise
 
 
 def open_new(root: str, rel: str, *, mode: int = 0o644) -> BinaryIO:
@@ -387,6 +392,133 @@ def list_dir(root: str, rel: str = "") -> list[DirEntryInfo]:
         os.close(fd)
 
 
+#: Hard cap on the depth ``walk_tree`` / ``iter_tree`` descend (one held fd per
+#: level). Far below any RLIMIT_NOFILE (macOS soft limit is 256); deeper trees
+#: raise TreeTooDeepError instead of silently dropping content.
+MAX_TREE_DEPTH = 64
+
+
+class TreeNode:
+    """One entry of :func:`walk_tree`. ``open_file()`` opens THIS regular file
+    relative to the directory fd the walk is holding (one ``openat``, no re-walk
+    from the root) and is valid only until the iteration advances."""
+
+    __slots__ = ("rel", "entry", "_dir_fd")
+
+    def __init__(self, rel: str, entry: "DirEntryInfo", dir_fd: int) -> None:
+        self.rel = rel
+        self.entry = entry
+        self._dir_fd = dir_fd
+
+    @property
+    def is_dir(self) -> bool:
+        return self.entry.is_dir
+
+    def open_file(self) -> BinaryIO:
+        if not self.entry.is_file:
+            raise NotARegularFileError(errno.EINVAL, "not a regular file", self.rel)
+        return _open_regular_at(self._dir_fd, self.entry.name, self.rel)
+
+
+def walk_tree(
+    root: str,
+    rel: str = "",
+    *,
+    skip=None,
+    recurse: bool = True,
+    strict: bool = False,
+    max_depth: int = MAX_TREE_DEPTH,
+):
+    """Walk the directory ``root/rel`` fd-relative in LINEAR time, yielding a
+    :class:`TreeNode` for every directory and regular file.
+
+    The start directory is reached once by the link-free walk; below it the walk
+    holds ONE open directory fd per level and opens each child / file relative to
+    its parent's fd (``openat``) — never a re-walk from the root. Links, FIFOs,
+    sockets and devices are never yielded. ``skip(rel, is_dir)`` prunes an entry
+    and, for a directory, its whole subtree. Directories are yielded before
+    their children, names in sorted order; subdirectories are then entered in
+    sorted order. A tree deeper than ``max_depth`` raises TreeTooDeepError —
+    always, never a silent skip, since callers (exports, hashes, size limits) rely
+    on completeness. A subdirectory that cannot be entered (swapped for a link,
+    unreadable) is skipped with a WARNING, or raises with ``strict=True``; the
+    start directory failing always raises.
+    """
+    from loguru import logger
+
+    start_fd = open_dir_fd(root, rel)
+    # frame: (dir fd, rel_dir, pending subdirs (reversed), depth)
+    stack: list = []
+    try:
+        def open_frame(fd: int, rel_dir: str, depth: int, nodes_out: list) -> None:
+            with os.scandir(fd) as it:
+                entries = list(it)
+            infos = []
+            for e in entries:
+                try:
+                    infos.append(DirEntryInfo(e.name, e.stat(follow_symlinks=False)))
+                except OSError:
+                    continue
+            subdirs = []
+            for info in sorted(infos, key=lambda i: i.name):
+                child = f"{rel_dir}/{info.name}" if rel_dir else info.name
+                if info.is_dir:
+                    if skip is not None and skip(child, True):
+                        continue
+                    nodes_out.append(TreeNode(child, info, fd))
+                    subdirs.append((info.name, child))
+                elif info.is_file:
+                    if skip is not None and skip(child, False):
+                        continue
+                    nodes_out.append(TreeNode(child, info, fd))
+            stack.append([fd, subdirs[::-1] if recurse else [], depth])
+
+        nodes: list = []
+        open_frame(start_fd, "", 0, nodes)
+        yield from nodes
+        while stack:
+            frame = stack[-1]
+            fd, pending, depth = frame[0], frame[1], frame[2]
+            if not pending:
+                stack.pop()
+                if fd != start_fd:
+                    os.close(fd)
+                continue
+            name, child_rel = pending.pop()
+            if depth + 1 > max_depth:
+                raise TreeTooDeepError(f"directory tree deeper than {max_depth} levels at {child_rel!r}")
+            try:
+                child_fd = _open_dir_at(fd, name, create=False)
+            except FileNotFoundError:
+                continue
+            except (OSError, ConfinedPathError) as e:
+                if strict:
+                    raise
+                logger.warning(f"tree walk: {child_rel!r} skipped (not enterable): {e}")
+                continue
+            nodes = []
+            try:
+                open_frame(child_fd, child_rel, depth + 1, nodes)
+            except OSError as e:
+                os.close(child_fd)
+                if strict:
+                    raise
+                logger.warning(f"tree walk: {child_rel!r} skipped (unreadable): {e}")
+                continue
+            yield from nodes
+    finally:
+        for frame in stack:
+            if frame[0] != start_fd:
+                try:
+                    os.close(frame[0])
+                except OSError:
+                    pass
+        try:
+            os.close(start_fd)
+        except OSError:
+            pass
+
+
 def iter_tree(
     root: str,
     rel: str = "",
@@ -394,49 +526,12 @@ def iter_tree(
     skip=None,
     recurse: bool = True,
     strict: bool = False,
+    max_depth: int = MAX_TREE_DEPTH,
 ):
-    """Yield ``(rel_in_tree, DirEntryInfo)`` for every directory and regular
-    file under the directory ``root/rel``, walking fd-relative.
-
-    Each directory is listed through :func:`list_dir` (link-free walk from
-    ``root``, per-entry lstat), so a directory swapped for a link after an
-    earlier check lists as absent — or, with ``strict=True``, raises — instead
-    of exposing another tenant's tree. Links, FIFOs, sockets and devices are
-    never yielded. ``skip(rel, is_dir)`` prunes an entry and, for a directory,
-    its whole subtree. Iterative (no recursion), so tree depth cannot exhaust
-    the Python stack. Directories are yielded before their children, names in
-    sorted order. A missing start directory always raises FileNotFoundError.
-    """
-    stack = [""]
-    first = True
-    while stack:
-        rel_dir = stack.pop()
-        abs_rel = "/".join(p for p in (rel, rel_dir) if p)
-        try:
-            entries = list_dir(root, abs_rel)
-        except FileNotFoundError:
-            if first or strict:
-                raise
-            continue
-        except (OSError, ConfinedPathError):
-            if first or strict:
-                raise
-            continue
-        first = False
-        subdirs = []
-        for entry in sorted(entries, key=lambda i: i.name):
-            child = f"{rel_dir}/{entry.name}" if rel_dir else entry.name
-            if entry.is_dir:
-                if skip is not None and skip(child, True):
-                    continue
-                yield child, entry
-                subdirs.append(child)
-            elif entry.is_file:
-                if skip is not None and skip(child, False):
-                    continue
-                yield child, entry
-        if recurse:
-            stack.extend(reversed(subdirs))
+    """``walk_tree`` yielding ``(rel_in_tree, DirEntryInfo)`` — for callers that
+    only need the listing (the file bytes, if needed, are opened afterwards)."""
+    for node in walk_tree(root, rel, skip=skip, recurse=recurse, strict=strict, max_depth=max_depth):
+        yield node.rel, node.entry
 
 
 def dir_regular_bytes(root: str, rel: str) -> int:
@@ -717,6 +812,23 @@ def _copy_dir_fds(src_fd: int, dst_fd: int, depth: int, max_depth: int) -> None:
         # sockets / FIFOs / devices are not part of a skill: skipped
 
 
+def _remove_depth_cap() -> int:
+    """Depth ``remove_tree`` may descend: a quarter of the process's fd soft
+    limit (so macOS's 256 gives 64, Linux's usual 1024 gives 256), never above
+    4096 — decided BEFORE any fd is opened for a level, so the delete stops with
+    TreeTooDeepError well ahead of EMFILE (which would starve every other
+    request in this process)."""
+    try:
+        import resource
+
+        soft = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+        if soft == resource.RLIM_INFINITY or soft < 0:
+            soft = 1 << 16
+    except (ImportError, ValueError, OSError):
+        soft = 256
+    return max(8, min(soft // 4, 4096))
+
+
 def remove_tree(root: str, rel: str) -> None:
     """Delete the file, link or directory tree at ``root/rel`` without ever
     following a link.
@@ -729,10 +841,10 @@ def remove_tree(root: str, rel: str) -> None:
     where it stands: a directory swapped for a link or a regular file between
     the listing and the open is UNLINKED (the link / file itself), at the top
     level and nested alike, so a tenant cannot leave its own tree behind by
-    racing the delete. Iterative (no recursion, no depth cap): one open fd per
-    level, so only the process's fd limit bounds the depth — hitting it raises
-    TreeTooDeepError with the tree left partially intact. Missing leaf →
-    FileNotFoundError.
+    racing the delete. Iterative (no recursion): one open fd per level, so the
+    depth is capped at ``_remove_depth_cap()`` (a quarter of the fd soft limit) —
+    beyond it TreeTooDeepError is raised BEFORE the fd budget is touched, with
+    the tree left partially intact. Missing leaf → FileNotFoundError.
     """
     parts = _split(rel)
     parent_fd = _walk(root, parts[:-1])
@@ -765,6 +877,7 @@ def _remove_dir_contents(top_fd: int) -> None:
         with os.scandir(fd) as it:
             return list(it)
 
+    depth_cap = _remove_depth_cap()
     stack = [(top_fd, _entries(top_fd), None)]
     try:
         while stack:
@@ -782,6 +895,11 @@ def _remove_dir_contents(top_fd: int) -> None:
                 except FileNotFoundError:
                     pass
                 continue
+            if len(stack) >= depth_cap:
+                raise TreeTooDeepError(
+                    f"directory tree deeper than {depth_cap} levels "
+                    "(capped well below the process file-descriptor limit)"
+                )
             try:
                 child = _open_dir_at(fd, entry.name, create=False)
             except FileNotFoundError:

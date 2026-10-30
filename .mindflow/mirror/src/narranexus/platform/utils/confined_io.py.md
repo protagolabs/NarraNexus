@@ -34,14 +34,18 @@ stub: false
 - `rename_within(root, src_rel, dst_rel)`：两个父目录各自逐级 `O_NOFOLLOW`，`renameat` 作用在两个 dir fd 上；链接叶子按链接改名；非空目标目录 →
   `FileExistsError`（不合并、不嵌套）；已存在的**文件**目标被原子替换（源也须是文件，目录覆盖文件 → `NotADirectoryError`）；已存在的**空目录**目标被替换（源须是目录，文件覆盖目录 → `IsADirectoryError`）。
 - `link_or_copy`：两个父目录 fd 上 `linkat`（源必须是常规文件，链接/特殊文件 → `NotARegularFileError`；链接后复核类型，必要时撤销），失败（跨设备等）才字节复制；目标 `O_EXCL`。
-- `iter_tree(root, rel, skip=, recurse=, strict=)`：迭代遍历目录与常规文件，逐层 `list_dir`；链接 / FIFO / socket 不产出；`skip` 剪枝整棵子树；`strict` 时子目录读不了就抛。
+- `walk_tree(root, rel, skip=, recurse=, strict=, max_depth=64)`：**线性时间**的遍历——起点经一次受限遍历到达，之下**每层只持有一个目录 fd**，子目录与文件都相对其父 fd
+  `openat`（`TreeNode.open_file()` 一次 `openat`，无需从根重走；只在迭代停在该条目期间有效）。链接 / FIFO / socket 不产出；`skip` 剪枝整棵子树；
+  顺序仍是"本目录条目按名排序，再按名排序依次进入子目录"的深度优先（内容哈希依赖它）。**深度硬上限 `MAX_TREE_DEPTH=64`**，超过抛 `TreeTooDeepError`（永不静默跳过——导出 / 哈希 / 大小限制都依赖完整性）；
+  进不去的子目录（被换成链接 / 不可读）**记 WARNING 后跳过**，`strict=True` 则抛。`iter_tree` 是只要列表的薄封装。
+  （旧实现每个目录都从根重走，深度 D 是 O(D²)：2000 层 5 秒、1 万层约 2 分钟，且后端周期性对账会被拖住；现已修。）
 - `copy_tree(src_root, src_rel, dst_root, dst_rel)`：把目录复制成**新**目录。**源必须是平台自有 staging 或同一租户的目录，绝不能是别的租户可控的
   路径**；源与目的都经 dir fd 遍历（`split_source`：base 之下从 base 起，之外取 realpath(parent)+叶子），里面的链接按链接复制（`readlink` +
   `symlink`，从不解引用），常规文件保留权限位 `& 0o777`，FIFO/socket/设备跳过；目的端 `mkdir` / `O_CREAT|O_EXCL|O_NOFOLLOW`；深度上限 64
   （`ConfinedScanError`）；任何失败都清掉半成品目的目录。
 - `make_dirs` / `copy_tree(make_parents=True)` 在 `create` 时会先创建缺失的**平台自有**根（首次运行没有 workspace base）。
-- `remove_tree`：fd 相对删除，`unlink`/`rmdir` 走 dir_fd，**从不跟随链接**；树内/叶子的链接只删链接本身；**迭代、无深度上限**（每层一个 fd，
-  只受进程 fd 上限约束，触顶抛 `TreeTooDeepError`、已删部分不回滚）；删除过程中被换成链接 / 常规文件的目录（顶层与嵌套一视同仁）**直接 unlink 那个链接/文件**，租户不能靠竞态把自己的树留下。
+- `remove_tree`：fd 相对删除，`unlink`/`rmdir` 走 dir_fd，**从不跟随链接**；树内/叶子的链接只删链接本身；**迭代**（每层一个 fd），深度上限 = 进程 fd 软上限的 1/4
+  （macOS 的 256 → 64，Linux 常见的 1024 → 256，封顶 4096，`_remove_depth_cap()`），**在为该层打开 fd 之前**就抛 `TreeTooDeepError`，远早于 EMFILE（EMFILE 会饿死本进程的其他请求）；已删部分不回滚；删除过程中被换成链接 / 常规文件的目录（顶层与嵌套一视同仁）**直接 unlink 那个链接/文件**，租户不能靠竞态把自己的树留下。
 - `split_under_base(path, base)`：词法还原 (realpath(base), 相对尾段)，接受 base 的真实路径与配置拼写（相对/符号链接），租户尾段
   永不 resolve——对尾段做 realpath 会在"较晚的时刻"穿过已放好的链接，再 NOFOLLOW 打开就成了对受害者树的合法访问。
 - 所有 fd 在每条路径上都关闭（有 fd 泄漏测试）。
