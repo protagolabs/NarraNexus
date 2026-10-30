@@ -20,7 +20,7 @@ import pytest
 
 from narranexus.platform.settings import settings
 from narranexus.platform.utils import attachment_storage as storage
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 AGENT, USER = "agent_0123456789ab", "u1"
 VICTIM_AGENT, VICTIM_USER = "agent_ba9876543210", "u2"

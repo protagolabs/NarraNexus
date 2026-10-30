@@ -15,9 +15,12 @@ PR #433 review（I3）：`utils/` 根目录已是 30+ 个平铺文件，`confine
 
 ## 现状
 
-- `confined_io.py` — fd 级受限 I/O（见 [[confined_io]]）。
-- `file_safety.py` / `fs_safety.py` / `workspace_paths.py` 仍在 `utils/` 根，按搬迁 SOP（铁律 #24）
-  由独立的机械 PR 收进来；安全修复 PR 里不混入无关搬迁。
+- `confined_io.py` — fd 级受限 I/O（见 [[confined_io]]）：宿主读写/删除租户可重排目录的唯一方式。
+- `workspace_paths.py` — workspace / team 共享目录 / bus 目录的布局与 id 段校验（**构造**路径，不执行 I/O）。
+- `file_safety.py` — 文件名、zip 成员路径、上传大小的校验（**校验**输入，不执行 I/O）。注意 `ensure_within_directory`
+  返回 `resolve()` 过的路径，不能再拿去做受限 I/O——要受限 I/O 用词法路径交给 `confined_io`。
+- `fs_safety.py` — 让平台自有的 `~/.narranexus` 目录可写（修复而非绕过），日志与 SQLite 共用。
 
-`__init__.py` 不做 re-export：调用方显式写 `from narranexus.platform.utils.fs import confined_io`，
-模块名就是它的契约。
+2026-10-30 起四个模块都在这里（后三个由独立的机械 PR 从 `utils/` 根搬入，行为不变）。
+
+`__init__.py` 不做 re-export：调用方显式写 `from narranexus.platform.utils.fs import <模块>`，模块名就是它的契约。

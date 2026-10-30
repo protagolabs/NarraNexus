@@ -200,7 +200,7 @@ def test_upload_rejects_a_decompression_bomb_without_decompressing_it(
     # Patch the single source of truth. If the gate ever goes back to a
     # `from … import MAX_…` copy, this stops taking effect and the test fails —
     # which is how that copy got caught in the first place.
-    from narranexus.platform.utils import file_safety
+    from narranexus.platform.utils.fs import file_safety
 
     monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
 
@@ -227,7 +227,7 @@ def test_upload_rejects_a_decompression_bomb_without_decompressing_it(
 
 
 def test_upload_rejects_too_many_entries(client, archives_root, monkeypatch):
-    from narranexus.platform.utils import file_safety
+    from narranexus.platform.utils.fs import file_safety
 
     monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
     buf = io.BytesIO()

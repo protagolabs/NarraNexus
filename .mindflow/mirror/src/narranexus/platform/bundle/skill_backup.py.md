@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（PR #433 review M6）— 临时 fd 的所有权
 
 `archive_local_zip` 里 `mkstemp` 的 fd 只有在 `os.fdopen` **返回之后**才归文件对象所有；`fdopen` 抛错时自己关 fd（并关源文件），

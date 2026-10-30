@@ -51,7 +51,7 @@ async def _apply(db: "AsyncDatabaseClient") -> Dict:
     import os
 
     from narranexus.platform.settings import settings
-    from narranexus.platform.utils.workspace_paths import migrate_flat_to_nested
+    from narranexus.platform.utils.fs.workspace_paths import migrate_flat_to_nested
 
     base = settings.base_working_path
     if not os.path.isdir(base):

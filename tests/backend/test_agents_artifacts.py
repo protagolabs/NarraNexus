@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema import Artifact
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 # Layout-aware workspace relpath for the test agent (tracks flat vs nested).
 WS_REL = agent_workspace_relpath("agent_x", "user_y")

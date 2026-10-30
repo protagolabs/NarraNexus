@@ -21,7 +21,7 @@ message stores only a small dict per file (metadata + a base-relative path).
 Why the shared area works for delivery without a per-recipient copy: the bus
 forbids cross-user messaging, and the per-user Executor bind-mounts the whole
 ``{base}/{user_id}`` subtree — so every same-user recipient can ``Read`` the
-staged path in both local and cloud mode. See ``utils/workspace_paths.py``.
+staged path in both local and cloud mode. See ``utils/fs/workspace_paths.py``.
 
 Security: ``sender_agent_id`` / ``owner_user_id`` come from authenticated
 runtime context, never from the LLM. Workspace-relative handles are resolved
@@ -52,8 +52,8 @@ from narranexus.platform.utils.attachment_storage import (
     resolve_attachment_path,
 )
 from narranexus.platform.utils.fs import confined_io
-from narranexus.platform.utils.file_safety import sanitize_filename
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.fs.file_safety import sanitize_filename
+from narranexus.platform.utils.fs.workspace_paths import (
     agent_workspace_path,
     bus_files_dir,
     resolve_inside_workspace,

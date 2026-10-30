@@ -1,8 +1,14 @@
 ---
-code_file: src/narranexus/platform/utils/workspace_paths.py
+code_file: src/narranexus/platform/utils/fs/workspace_paths.py
 stub: false
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 ---
+
+# fs/workspace_paths.py
+
+## 2026-10-30 — 搬入 `utils/fs/`
+
+从 `utils/` 根搬入文件系统安全分组（意图见 [[utils/fs/__init__]]），纯搬迁、行为不变。调用方写 `from narranexus.platform.utils.fs import workspace_paths` / `narranexus.platform.utils.fs.workspace_paths`。
 
 ## 2026-10-28（PR #421 复审）— `_candidate_relpaths` 改为公共名 `workspace_candidate_relpaths`
 

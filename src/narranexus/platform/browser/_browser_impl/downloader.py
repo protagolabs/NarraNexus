@@ -46,7 +46,7 @@ from narranexus.platform.browser._browser_impl.locate import (
     platform_key,
     probe_version,
 )
-from narranexus.platform.utils.file_safety import validate_zip_member_path
+from narranexus.platform.utils.fs.file_safety import validate_zip_member_path
 
 CFT_MANIFEST_URL = (
     "https://googlechromelabs.github.io/chrome-for-testing/"

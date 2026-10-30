@@ -27,7 +27,7 @@ from fastapi import APIRouter, Query, Request, UploadFile, File, Form, HTTPExcep
 from loguru import logger
 
 from narranexus.sdk.web import filter_public_mcp_servers, host_settings, require_workspace_agent_owner
-from narranexus.platform.utils.workspace_paths import safe_id_segment
+from narranexus.platform.utils.fs.workspace_paths import safe_id_segment
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus_plugins.skill_module import SkillModule
 from narranexus.platform.schema.skill_schema import (
@@ -37,7 +37,7 @@ from narranexus.platform.schema.skill_schema import (
     SkillStudyResponse,
     SkillEnvConfigResponse,
 )
-from narranexus.platform.utils.file_safety import enforce_max_bytes, sanitize_filename
+from narranexus.platform.utils.fs.file_safety import enforce_max_bytes, sanitize_filename
 
 
 router = APIRouter()

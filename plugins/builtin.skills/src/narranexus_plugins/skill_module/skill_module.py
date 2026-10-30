@@ -11,7 +11,7 @@ Skill Module manages Skills under the user's workspace:
 
 Skills directory:
 - Located at {base}/{agent_workspace_relpath}/skills/ (resolved via
-  utils.workspace_paths; nested {user_id}/{agent_id} under current layout)
+  utils.fs.workspace_paths; nested {user_id}/{agent_id} under current layout)
 - Same as Claude Agent's cwd
 
 MCP Tools:
@@ -38,7 +38,7 @@ import yaml
 from loguru import logger
 
 from narranexus.platform.utils.fs import confined_io
-from narranexus.platform.utils.workspace_paths import safe_id_segment
+from narranexus.platform.utils.fs.workspace_paths import safe_id_segment
 
 from narranexus.platform.module_system.base import XYZBaseModule, mcp_server_url
 from narranexus.platform.schema import (
@@ -50,8 +50,8 @@ from narranexus.contracts.openclaw import OPENCLAW_ALIASES
 from narranexus.platform.schema.skill_schema import SkillInfo
 from narranexus.platform.utils.plugin_contributions import plugin_skills
 from narranexus.platform.utils import DatabaseClient
-from narranexus.platform.utils import file_safety as _file_safety
-from narranexus.platform.utils.file_safety import (
+from narranexus.platform.utils.fs import file_safety as _file_safety
+from narranexus.platform.utils.fs.file_safety import (
     ensure_within_directory,
     sanitize_filename,
     validate_zip_member_path,
@@ -393,7 +393,7 @@ class SkillModule(XYZBaseModule):
         self.base_path = Path(settings.base_working_path)
 
         # Skills directory (same as Claude Agent's cwd)
-        from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+        from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
         self.skills_dir = self.base_path / agent_workspace_relpath(agent_id, user_id) / "skills" if user_id else None
 

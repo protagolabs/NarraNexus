@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（续）— context_runtime 的 auto-delete 也走受限删除
 
 调用方 `context_runtime._settle_bootstrap` 删除 `Bootstrap.md` 不再 `os.remove(status.bootstrap_path)`，改为

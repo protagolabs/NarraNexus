@@ -55,7 +55,7 @@ from narranexus.platform.schema.attachment_schema import (
     category_value,
 )
 from narranexus.platform.utils.fs import confined_io
-from narranexus.platform.utils.file_safety import (
+from narranexus.platform.utils.fs.file_safety import (
     ensure_within_directory,
     sanitize_filename,
 )
@@ -89,7 +89,7 @@ def get_workspace_path(agent_id: str, user_id: str) -> Path:
     Imported lazily so this util has no FastAPI dependency at import time.
     """
     from narranexus.platform.settings import settings as core_settings
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
     return agent_workspace_path(agent_id, user_id, base=core_settings.base_working_path)
 
 

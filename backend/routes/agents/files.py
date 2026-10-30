@@ -39,7 +39,7 @@ from narranexus.platform.schema import (
 from narranexus.platform.settings import settings as platform_settings
 from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.logging import log_boundary_violation
-from narranexus.platform.utils.file_safety import (
+from narranexus.platform.utils.fs.file_safety import (
     enforce_max_bytes,
     ensure_within_directory,
     sanitize_filename,
@@ -62,7 +62,7 @@ def _get_workspace_path(agent_id: str, user_id: str) -> str:
     Only call with an ``agent_id`` that passed
     :func:`backend.routes._ownership.require_owned_workspace_agent`.
     """
-    from narranexus.platform.utils.workspace_paths import (
+    from narranexus.platform.utils.fs.workspace_paths import (
         refuse_symlinked_dir,
         resolve_existing_workspace,
     )

@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（PR #433 review M1，核实后不成立）— 排序与旧算法一致
 
 review 认为旧 `sorted(rglob)` 按整串路径比较、与新的 `.parts` 排序在跨 `/` 时不同。实测不成立：`PurePath.__lt__` 本身逐段比较

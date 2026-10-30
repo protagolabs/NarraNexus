@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-10-30
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（复审）— 度量失败有自己的错误
 
 `confined_dir_size`：过深 / 不可读（`ConfinedScanError`）→ `ArtifactTooLarge("artifact directory cannot be measured, so it is refused: …")`（413），**不再**报成 `ArtifactPathEscape`；

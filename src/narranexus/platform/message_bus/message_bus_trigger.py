@@ -3078,7 +3078,7 @@ class MessageBusTrigger:
         lines += self._team_card_lines(team)
 
         if owner_user_id and team_id:
-            from narranexus.platform.utils.workspace_paths import team_shared_dir
+            from narranexus.platform.utils.fs.workspace_paths import team_shared_dir
             shared = team_shared_dir(owner_user_id, team_id)
             lines.append(
                 f"Team shared folder: {shared} — files placed here (via "

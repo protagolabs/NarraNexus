@@ -1101,7 +1101,7 @@ async def test_files_write_overwrite_semantics(files_app):
 async def test_convert_attachments_persists_via_native_store(monkeypatch, tmp_path):
     import narranexus.platform.repository.agent_repository as agent_repo_mod
     import narranexus.platform.utils.attachment_storage as storage_mod
-    import narranexus.platform.utils.workspace_paths as wsp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wsp_mod
 
     from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)  # confined storage
@@ -1193,7 +1193,7 @@ async def test_convert_attachments_with_a_workspace_link_is_refused_not_resolved
     import os
 
     import narranexus.platform.repository.agent_repository as agent_repo_mod
-    import narranexus.platform.utils.workspace_paths as wsp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wsp_mod
     from narranexus.platform.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)
@@ -1576,7 +1576,7 @@ async def test_silent_ingest_writes_silent_audit(monkeypatch, audit_rows):
 def _fake_workspace_env(monkeypatch, tmp_path):
     import narranexus.platform.repository.agent_repository as agent_repo_mod
     import narranexus.platform.utils.attachment_storage as storage_mod
-    import narranexus.platform.utils.workspace_paths as wsp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wsp_mod
 
     from narranexus.platform.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)  # confined storage

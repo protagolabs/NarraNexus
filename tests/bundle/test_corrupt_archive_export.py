@@ -98,7 +98,7 @@ async def _seed_agent(db, agent_id, agent_name, user_id="test_user"):
 
 
 def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     d = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     d.mkdir(parents=True, exist_ok=True)

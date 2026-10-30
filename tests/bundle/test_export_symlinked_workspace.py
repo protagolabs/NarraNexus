@@ -63,7 +63,7 @@ async def test_a_symlinked_workspace_is_a_per_agent_warning_not_a_failed_export(
     db_client, tmp_workspace_root, tmp_path
 ):
     from narranexus.platform.bundle.builder import ExportSelection, build_bundle
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     uid = "test_user"
     good, linked = "agent_good00001", "agent_link00001"

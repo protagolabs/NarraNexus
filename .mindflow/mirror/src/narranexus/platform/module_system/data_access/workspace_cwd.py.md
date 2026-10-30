@@ -21,7 +21,7 @@ owner 缓存收敛为一份 `resolve_agent_workspace_cwd(agent_id, *, log_tag)`�
 
 ## 为什么在 data_access 而不是 utils/
 
-两个候选家都被 review 议过（PR#308 round-2 Minor-2）：放 `utils/workspace_paths`
+两个候选家都被 review 议过（PR#308 round-2 Minor-2）：放 `utils/fs/workspace_paths`
 会制造全仓第一条 utils→module 反向边，且把代码移出 pyright 闸的 include 范围
 （`src/narranexus/platform/module_system`）；放这里则两个问题都不存在——data_access 不是
 Module（不违反铁律 #3 的 module 互不依赖），本来就是两个 CLI client 的共同依赖。

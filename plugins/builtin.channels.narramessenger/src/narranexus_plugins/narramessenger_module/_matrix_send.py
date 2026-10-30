@@ -35,7 +35,7 @@ from typing import Any, Optional
 import aiohttp
 from loguru import logger
 
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.fs.workspace_paths import (
     agent_workspace_path,
     resolve_inside_workspace,
 )

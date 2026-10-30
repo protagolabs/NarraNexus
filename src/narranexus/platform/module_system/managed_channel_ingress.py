@@ -525,7 +525,7 @@ class ManagedChannelIngress:
                 persist_attachment_bytes,
             )
             from narranexus.platform.utils.mime_sniff import sniff_mime_type
-            from narranexus.platform.utils.workspace_paths import (
+            from narranexus.platform.utils.fs.workspace_paths import (
                 resolve_existing_workspace,
             )
 

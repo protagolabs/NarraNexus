@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-10-30
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30 — 本地技能导入走 `remove_tree` + `copy_tree`
 
 目的是**词法**的 `skills/<safe-name>`，替换与复制都 fd 相对；`skills` 被换成链接 → 拒绝（`ValueError`），不会删/写别的租户的技能。源是导入用户自己的本地目录（任意路径，叶子 `O_NOFOLLOW`）。

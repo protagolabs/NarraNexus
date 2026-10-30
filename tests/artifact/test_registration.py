@@ -29,7 +29,7 @@ from narranexus.platform.artifact import (
     ArtifactService,
 )
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 # Workspace path of the test agent, RELATIVE to base_working_path — routed
 # through the layout helper so these tests track the real layout (flat vs
