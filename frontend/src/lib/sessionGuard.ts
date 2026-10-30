@@ -22,6 +22,7 @@
  */
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 import { getAuthHeaders } from './authHeaders';
+import { noteAccountSuspended } from './authFailure';
 import { rawFetch } from './guardedFetch';
 
 export interface SessionDeathSuspicion {
@@ -53,6 +54,9 @@ async function probe(): Promise<'dead' | 'alive' | 'unknown'> {
     const res = await rawFetch(`${getApiBaseUrl()}/api/auth/session`, {
       headers: getAuthHeaders(),
     });
+    // A suspended account answers the probe with 403 account_suspended too
+    // (the WS AuthError path lands here): sign out rather than keep probing.
+    noteAccountSuspended(res);
     if (res.status === 401) return 'dead';
     if (res.ok) return 'alive';
     // 5xx / 402 / anything else: the backend is unhappy for reasons that

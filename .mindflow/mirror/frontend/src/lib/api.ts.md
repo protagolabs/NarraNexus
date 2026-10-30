@@ -9,6 +9,11 @@ stub: false
 仅注释：sessionGuard 探测 `/api/auth/session` 现在用 guardedFetch 导出的 raw 通道（全局 fetch 已被
 守卫包装，见 [[guardedFetch]]），行为不变。
 
+## 2026-10-30 — 403 `account_suspended`：不在这里处理
+
+封号检测放在 [[guardedFetch]]（所有 HTTP 调用的公共层，读写都过），`request()` 本身不再单独判断——只在这一处
+判断会漏掉直接用 guardedFetch 的服务（artifacts、office-watch、SystemPage 轮询、插件 HostAPI.http 等）。
+
 ## 2026-10-30 — `getChatLatest(agentIds)`
 
 `GET /api/agents/chat-latest`（每个 id 一个 `agent_ids` 查询参数）：一次拿一批 agent（≤200）对话 tab 最新一行的时间戳，供

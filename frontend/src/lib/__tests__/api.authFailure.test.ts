@@ -90,3 +90,33 @@ describe('ApiClient.request 401 handling', () => {
     expect(err.message).toContain('Token expired');
   });
 });
+
+describe('ApiClient.request 403 account_suspended', () => {
+  let suspended: Event[];
+  const onSuspended = (e: Event) => suspended.push(e);
+
+  beforeEach(() => {
+    suspended = [];
+    window.addEventListener('narranexus:account-suspended', onSuspended);
+  });
+
+  afterEach(() => {
+    window.removeEventListener('narranexus:account-suspended', onSuspended);
+    vi.restoreAllMocks();
+  });
+
+  test('a suspended account raises the sign-out event (every poll would 403 otherwise)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse(403, { detail: 'Account is not available', code: 'account_suspended' })));
+    await expect(api.getJobs('agent_1')).rejects.toBeInstanceOf(ApiError);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(suspended).toHaveLength(1);
+  });
+
+  test("an ordinary 403 (someone else's agent) does not sign anyone out", async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(403, { detail: 'Forbidden' })));
+    await expect(api.getJobs('agent_1')).rejects.toBeInstanceOf(ApiError);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(suspended).toHaveLength(0);
+  });
+});

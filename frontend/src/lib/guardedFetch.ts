@@ -44,6 +44,7 @@
  * degrades to per-tab budgets.
  */
 import { RequestLoopBlockedError } from './apiError';
+import { noteAccountSuspended } from './authFailure';
 import { isForcedCloud, isForcedLocal } from './runtimeConfig';
 import { isTauri } from './tauri';
 import { getApiBaseUrl, useRuntimeStore } from '@/stores/runtimeStore';
@@ -185,7 +186,11 @@ export function installGlobalFetchGuard(): void {
 }
 
 export async function guardedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  if (!isGuardedMethod(methodOf(input, init))) return rawFetch(input, init);
+  if (!isGuardedMethod(methodOf(input, init))) {
+    const written = await rawFetch(input, init);
+    noteAccountSuspended(written);
+    return written;
+  }
   const url = urlOf(input);
   const verdict = guard.check(url);
   if (verdict !== 'ok') await refuse(verdict, url, init, input);
@@ -193,6 +198,7 @@ export async function guardedFetch(input: RequestInfo | URL, init?: RequestInit)
   if (typeof release !== 'function') await refuse(release, url, init, input);
   try {
     const response = await rawFetch(input, init);
+    noteAccountSuspended(response);
     if (FAILURE_STATUSES.has(response.status)) guard.recordFailure(url);
     else if (response.status >= 200 && response.status < 400) guard.recordSuccess(url);
     return response;

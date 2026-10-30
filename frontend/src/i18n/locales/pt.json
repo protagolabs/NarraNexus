@@ -2599,6 +2599,7 @@
   },
   "appBanners": {
     "sessionExpired": "Sua sessão expirou. Faça login novamente. (clique para dispensar)",
+    "accountSuspended": "Esta conta não está disponível. Sua sessão foi encerrada. (clique para fechar)",
     "sessionExpiringSoon": "Sua sessão expira em {{time}}. Saia e entre novamente para não perder seu trabalho. (clique para dispensar)",
     "circuitPausedQuota": "Este agente foi pausado após falhas repetidas de cota/saldo. Corrija o provedor e retome.",
     "circuitPausedAuth": "Este agente foi pausado após falhas repetidas de autenticação. Reautentique ou defina um provedor e retome.",

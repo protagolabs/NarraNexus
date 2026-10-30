@@ -73,6 +73,17 @@ describe('wsManager A3 — auto-reconnect on passive disconnect', () => {
     expect(MockWebSocket.instances).toHaveLength(1); // never reconnected
   });
 
+  it('closeAll() cancels a pending reconnect (sign-out must not keep reconnecting)', () => {
+    wsManager.run(AGENT, USER, 'hi');
+    const first = MockWebSocket.instances[0];
+    first.triggerOpen();
+    first.triggerMessage({ type: 'run_started', run_id: 'r1' });
+    first.triggerClose(); // passive disconnect: a reconnect is now scheduled
+    wsManager.closeAll();
+    vi.advanceTimersByTime(60000);
+    expect(MockWebSocket.instances).toHaveLength(1); // never reconnected
+  });
+
   it('does NOT reconnect after an intentional close()', () => {
     wsManager.run(AGENT, USER, 'hi');
     const first = MockWebSocket.instances[0];
