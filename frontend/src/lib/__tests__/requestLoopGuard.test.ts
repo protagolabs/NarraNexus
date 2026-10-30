@@ -2,7 +2,7 @@
  * @file_name: requestLoopGuard.test.ts
  * @author: Bin Liang
  * @date: 2026-10-30
- * @description: The request-loop guard refuses an identical GET repeated past the window limit, keeps a spinning loop at zero network traffic until it goes quiet for a full window, caps the page-wide GET rate, and never touches writes.
+ * @description: The request-loop guard refuses an identical GET repeated past the window limit, keeps a spinning loop at zero network traffic until it goes quiet for a full window, holds failing reads under the edge failure line without freezing reads that work, and never touches writes.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -210,17 +210,51 @@ describe('RequestLoopGuard', () => {
   it('a polling loop on a deleted resource stays far below the edge failure line', () => {
     // 6 URLs each re-read every 2s (a poll, so the per-URL layer never trips),
     // every read failing: the edge bans at 20 failures a minute per IP.
+    // The edge judges each minute on its own, so the bound is on the worst
+    // sliding 60s window, not an average.
     let now = 0;
     const g = new RequestLoopGuard(() => now);
-    let failuresSent = 0;
+    const sentAt: number[] = [];
     while (now < 10 * 60_000) {
       for (let u = 0; u < 6; u++) {
         const url = `/api/agents/gone/x${u}`;
-        if (g.check(url) === 'ok') { failuresSent += 1; g.recordFailure(url); }
+        if (g.check(url) === 'ok') { sentAt.push(now); g.recordFailure(url); }
       }
       now += 2_000;
     }
-    expect(failuresSent / 10).toBeLessThan(20); // per minute, averaged over 10 minutes
+    const worstMinute = Math.max(...sentAt.map((t) => sentAt.filter((u) => u >= t && u < t + 60_000).length));
+    expect(worstMinute).toBeLessThanOrEqual(PAGE_FAIL_MAX);
+  });
+
+  it('while the failure budget is spent, paths that last answered 2xx keep working', () => {
+    let now = 0;
+    const g = new RequestLoopGuard(() => now);
+    expect(g.check('/api/auth/agents')).toBe('ok');
+    g.recordSuccess('/api/auth/agents');
+    for (let i = 0; i < PAGE_FAIL_MAX; i++) {
+      const url = `/api/agents/foreign/capability${i}`;
+      g.check(url);
+      g.recordFailure(url);
+      now += 1_000;
+    }
+    now += 3_000;
+    expect(g.check('/api/auth/agents')).toBe('ok'); // proven path: the app keeps working
+    expect(g.check('/api/agents/foreign/capability0')).toBe('fail_budget'); // last answer a failure
+    expect(g.check('/api/never/seen')).toBe('fail_budget'); // not known to work: fail-closed
+  });
+
+  it('a path that worked once but now fails is refused even when the query changes', () => {
+    let now = 0;
+    const g = new RequestLoopGuard(() => now);
+    g.check('/api/search?q=0');
+    g.recordSuccess('/api/search?q=0');
+    let sent = 0;
+    for (let i = 1; i < 300; i++) {
+      const url = `/api/search?q=${i}`;
+      if (g.check(url) === 'ok') { sent += 1; g.recordFailure(url); }
+      now += 200;
+    }
+    expect(sent).toBe(PAGE_FAIL_MAX);
   });
 
   it('a 404 loop with a changing query is held to the page failure budget', () => {
@@ -475,6 +509,17 @@ describe('guardedFetch reports failing reads', () => {
     await vi.advanceTimersByTimeAsync(LOOP_BLOCK_DELAY_MS);
     await settled;
     expect(fetchSpy).toHaveBeenCalledTimes(FAIL_MAX);
+  });
+
+  it('a read that answered 2xx keeps working while other reads exhaust the failure budget', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      new Response('', { status: String(input).startsWith('/api/auth/agents') ? 200 : 403 }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await guardedFetch('/api/auth/agents');
+    for (let i = 0; i < PAGE_FAIL_MAX; i++) await guardedFetch(`/api/agents/foreign/p${i}`);
+    const res = await guardedFetch('/api/auth/agents');
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(PAGE_FAIL_MAX + 2);
   });
 
   it.each([200, 401, 429, 500])('status %i is not a failure for the guard', async (status) => {

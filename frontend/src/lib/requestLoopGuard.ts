@@ -18,7 +18,10 @@
  *  - failures: a read that keeps failing (FAILURE_STATUSES, reported by
  *    guardedFetch through `recordFailure`) blocks its URL for a minute, and the
  *    page as a whole may fail at most PAGE_FAIL_MAX reads a minute (shared by
- *    tabs) before reads pause for the rest of that minute. The edge monitor
+ *    tabs). Past that, reads of paths not known to work (last answer a failure,
+ *    or never answered 2xx) are refused until the window drains; paths whose
+ *    last answer was a success (`recordSuccess`) keep working, so a burst of
+ *    403s from one panel cannot freeze the agent list or the chat. The edge monitor
  *    (sentinel, monitoring v2) bans an IP at 20 probing-like failures a minute
  *    (400/403/404/405), so a looping client must stay far below that line on
  *    its own — whatever mix of URLs, query strings or tabs the loop uses;
@@ -63,6 +66,12 @@ export const PAGE_RAPID_MAX = 150;
 export const PAGE_FAIL_MAX = 10;
 const REPORT_EVERY_MS = 60_000;
 const MAX_TRACKED_KEYS = 500;
+const MAX_TRACKED_PATHS = 1000;
+
+/** The path part of a guard key (a URL, absolute or relative): query and fragment dropped. */
+function pathOf(key: string): string {
+  return key.split(/[?#]/, 1)[0];
+}
 
 type Clock = () => number;
 
@@ -82,6 +91,8 @@ export class RequestLoopGuard {
   readonly #strikes = new Map<string, { count: number; releasedAt: number }>();
   readonly #failures = new Map<string, number[]>();
   readonly #failBlockedUntil = new Map<string, number>();
+  /** Last outcome per path (true = 2xx, false = failure status); insertion-ordered, capped. */
+  readonly #pathOk = new Map<string, boolean>();
   readonly #budget: Record<BudgetKind, number[]> = { rapid: [], fail: [] };
   readonly #reportedAt = new Map<string, number>();
   readonly #now: Clock;
@@ -101,8 +112,10 @@ export class RequestLoopGuard {
    * attempt pushes the release out to a full LOOP_WINDOW_MS from now.
    *
    * Failing: a URL that `recordFailure` saw fail FAIL_MAX times inside
-   * FAIL_WINDOW_MS is refused until FAIL_BLOCK_MS after the last of them, and
-   * every read is refused while the page's failure budget is spent.
+   * FAIL_WINDOW_MS is refused until FAIL_BLOCK_MS after the last of them.
+   * While the page's failure budget is spent, a read is refused unless the
+   * last answer for its path (query string ignored, so a loop that changes the
+   * query each call is still one path) was a success.
    *
    * Page: a rapid repeat spends the rapid budget; when it is spent the request
    * is refused. A request refused by the budget spends nothing and does not
@@ -124,7 +137,12 @@ export class RequestLoopGuard {
       this.#failBlockedUntil.delete(key);
       this.#failures.delete(key);
     }
-    if (this.#expireBudget('fail', now).length >= PAGE_FAIL_MAX) return 'fail_budget';
+    if (
+      this.#expireBudget('fail', now).length >= PAGE_FAIL_MAX
+      && this.#pathOk.get(pathOf(key)) !== true
+    ) {
+      return 'fail_budget';
+    }
 
     const until = this.#blockedUntil.get(key);
     if (until !== undefined) {
@@ -163,8 +181,14 @@ export class RequestLoopGuard {
     return 'ok';
   }
 
+  /** A read of `key` came back 2xx: its path is known to work. */
+  recordSuccess(key: string): void {
+    this.#setPathOk(pathOf(key), true);
+  }
+
   /** A read of `key` came back with a failure status (FAILURE_STATUSES). */
   recordFailure(key: string): void {
+    this.#setPathOk(pathOf(key), false);
     const now = this.#now();
     const fails = (this.#failures.get(key) ?? []).filter((t) => t > now - FAIL_WINDOW_MS);
     fails.push(now);
@@ -172,6 +196,15 @@ export class RequestLoopGuard {
     if (fails.length >= FAIL_MAX) this.#failBlockedUntil.set(key, now + FAIL_BLOCK_MS);
     this.#expireBudget('fail', now).push(now);
     this.#onSpend?.('fail');
+  }
+
+  #setPathOk(path: string, ok: boolean): void {
+    this.#pathOk.delete(path); // re-insert so the oldest path is evicted first
+    this.#pathOk.set(path, ok);
+    if (this.#pathOk.size > MAX_TRACKED_PATHS) {
+      const oldest = this.#pathOk.keys().next().value;
+      if (oldest !== undefined) this.#pathOk.delete(oldest);
+    }
   }
 
   /** Another tab spent a page budget; count it here too. Capped at the budget:

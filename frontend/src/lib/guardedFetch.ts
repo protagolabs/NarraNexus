@@ -17,13 +17,14 @@
  *
  * A guarded read that comes back with a probing-like failure status (400 /
  * 403 / 404 / 405 — what the edge monitor bans on) is reported to the guard,
- * which blocks a URL that keeps failing and pauses reads once the page (all
- * tabs together) has failed PAGE_FAIL_MAX reads in a minute; a loop on a
- * deleted agent's 404 stays far below the edge's failure line.
+ * which blocks a URL that keeps failing and, once the page (all tabs together)
+ * has failed PAGE_FAIL_MAX reads in a minute, pauses reads of paths not known
+ * to work; a loop on a deleted agent's 404 stays far below the edge's failure
+ * line, while paths that answered 2xx (agent list, chat) keep working.
  *
- * Tabs share the page budgets over a BroadcastChannel because the edge flood
- * rule counts per IP: two tabs each staying under their own budget could still
- * sum past the ban line. Where BroadcastChannel is unavailable the guard
+ * Tabs share the page budgets over a BroadcastChannel because the edge's
+ * failure rule counts per IP: two tabs each staying under their own budget
+ * could still sum past the ban line. Where BroadcastChannel is unavailable the guard
  * degrades to per-tab budgets.
  */
 import { RequestLoopBlockedError } from './apiError';
@@ -95,8 +96,9 @@ export async function guardedFetch(input: RequestInfo | URL, init?: RequestInit)
     }
   }
   const response = await fetch(input, init);
-  if (isGuardedMethod(methodOf(input, init)) && FAILURE_STATUSES.has(response.status)) {
-    guard.recordFailure(urlOf(input));
+  if (isGuardedMethod(methodOf(input, init))) {
+    if (FAILURE_STATUSES.has(response.status)) guard.recordFailure(urlOf(input));
+    else if (response.ok) guard.recordSuccess(urlOf(input));
   }
   return response;
 }

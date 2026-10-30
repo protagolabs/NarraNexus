@@ -75,6 +75,50 @@ describe('refreshAgents', () => {
     expect(spy).toHaveBeenCalled();
   });
 
+  test('a selection the server does not list falls back to the first listed agent', async () => {
+    // A deleted / foreign / crafted-link id must not stay selected: every panel
+    // would keep requesting it (403/404) on every load.
+    useConfigStore.getState().setAgentId('agent_gone');
+    getAgents.mockResolvedValue({
+      success: true,
+      agents: [{ agent_id: 'agent_a', name: 'A' }, { agent_id: 'agent_b', name: 'B' }] as AgentInfo[],
+      count: 2,
+    });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentId).toBe('agent_a');
+  });
+
+  test('a listed selection is kept', async () => {
+    useConfigStore.getState().setAgentId('agent_b');
+    getAgents.mockResolvedValue({
+      success: true,
+      agents: [{ agent_id: 'agent_a', name: 'A' }, { agent_id: 'agent_b', name: 'B' }] as AgentInfo[],
+      count: 2,
+    });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentId).toBe('agent_b');
+  });
+
+  test('a selection made while the request was in flight is not judged by it', async () => {
+    // A just-created agent is selected after this list was read; it must survive.
+    useConfigStore.getState().setAgentId('agent_a');
+    let resolve!: (v: unknown) => void;
+    getAgents.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const pending = useConfigStore.getState().refreshAgents();
+    useConfigStore.getState().setAgentId('agent_new');
+    resolve({ success: true, agents: [{ agent_id: 'agent_a', name: 'A' }] as AgentInfo[], count: 1 });
+    await pending;
+    expect(useConfigStore.getState().agentId).toBe('agent_new');
+  });
+
+  test('a refusal never clears the selection', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    useConfigStore.getState().setAgentId('agent_gone');
+    getAgents.mockResolvedValue({ success: false, agents: [], count: 0, error: 'boom' });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentId).toBe('agent_gone');
+  });
+
   test('does nothing without an identity', async () => {
     useConfigStore.getState().logout();
     await useConfigStore.getState().refreshAgents();

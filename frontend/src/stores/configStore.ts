@@ -119,10 +119,21 @@ export const useConfigStore = create<ConfigState>()(
       refreshAgents: async () => {
         const { userId } = get();
         if (!userId) return;
+        const selectedAtStart = get().agentId;
         try {
           const res = await api.getAgents();
           if (res.success) {
-            set({ agents: res.agents });
+            // A selection the server does not list (deleted, foreign, or from a
+            // crafted link) would otherwise persist and make every panel request
+            // it on every load, a stream of 403/404s. Only a selection that was
+            // already current when this request started is judged: one made
+            // while it was in flight (a just-created agent) may postdate it.
+            const { agentId } = get();
+            const stale = agentId !== '' && agentId === selectedAtStart
+              && !res.agents.some((a) => a.agent_id === agentId);
+            set(stale
+              ? { agents: res.agents, agentId: res.agents[0]?.agent_id ?? '' }
+              : { agents: res.agents });
           } else {
             // Keeping the previous list is deliberate (a backend hiccup must
             // not blank the sidebar) — being SILENT about it was not. The

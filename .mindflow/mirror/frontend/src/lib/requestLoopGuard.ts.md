@@ -40,16 +40,36 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   URL within `FAIL_WINDOW_MS` (10s) block it for `FAIL_BLOCK_MS` (60s), so a
   loop on a deleted agent's 404 leaks at most 3 failures per URL per ~70s.
   Across URLs (a loop whose query changes every call), the page may fail at
-  most `PAGE_FAIL_MAX` (10) reads per minute; past that every read is refused
-  until the oldest failure leaves the window. 401 / 429 / 5xx are not counted:
+  most `PAGE_FAIL_MAX` (10) reads per minute. Past that, a read is refused
+  unless the last answer for its **path** (query and fragment dropped) was a
+  2xx (`recordSuccess`); paths whose last answer was a failure, and paths never
+  seen, are refused until the oldest failure leaves the window. So a burst of
+  403s from one panel (e.g. a non-owner clicking through someone else's public
+  agent) cannot freeze the agent list or the chat, while a loop that changes
+  its query every call is still one failing path and stays held. Never-seen
+  paths are refused on purpose (fail-closed): a loop over freshly built paths
+  is otherwise invisible. The last-outcome map is per tab and capped at 1000
+  paths, oldest evicted first. 401 / 429 / 5xx are not counted:
   they are session/throttle/server conditions, not probing, and the edge
   ignores them too.
+- **In-flight reads are not pre-counted.** Failures are known only when the
+  response arrives, so N concurrent first reads can all fail at once. Capping
+  concurrent never-seen reads would break the first page load (dozens of
+  parallel first reads); the main source of such a burst — a stale or foreign
+  agent selection replayed on every load — is removed at the root instead
+  (`configStore.refreshAgents` drops a selection the server does not list).
+- **Local mode too.** The failure layers also run against a local backend
+  (desktop app, `run.sh`), where no edge bans. That is intended: they hold a
+  failing loop off the local backend as well, and with paths that answered 2xx
+  exempt from the page pause, a normal session cannot be frozen by it.
 - **Rapid budget, shared across same-origin tabs** (`PAGE_WINDOW_MS` = 60s;
   `onSpend` reports each spend, `recordRemote` counts another tab's, because
   the edge counts per IP). A *rapid* repeat (the same URL again within 2s)
   spends it (`PAGE_RAPID_MAX` = 150); it stops loops over a few URLs, each
   under the per-URL limit (6 URLs × 2/s = 720/min). The failure budget is
-  shared the same way. `recordRemote` is capped at the budget, so a burst of
+  shared the same way (during a deploy, an old tab still sends `'total'` and a
+  new one `'fail'`; each ignores the other's message until reloaded, so the
+  budgets are per tab for that overlap). `recordRemote` is capped at the budget, so a burst of
   messages from other tabs can at most spend it, never lock a tab out for
   longer than a window.
 - **No volume budget.** Request volume alone is not judged (Owner decision,

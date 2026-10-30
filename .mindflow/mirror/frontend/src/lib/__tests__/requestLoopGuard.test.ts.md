@@ -16,7 +16,10 @@ Unit tests drive `RequestLoopGuard` with an injected clock:
   first offence again; URLs count independently;
 - failures: a URL that keeps failing is blocked for a minute and then
   released; a polling loop on a deleted resource stays far below the edge's
-  20-a-minute failure line; a 404 loop with a changing query is held to
+  20-a-minute failure line in its **worst sliding minute** (≤ `PAGE_FAIL_MAX`);
+  while the failure budget is spent, a path that last answered 2xx keeps
+  working and failing / never-seen paths are refused; a path that worked once
+  but now fails is held even when its query changes; a 404 loop with a changing query is held to
   `PAGE_FAIL_MAX`; **a real-user failure pace (6 a minute) never pauses
   reads**; occasional spread-out failures never block;
 - page budgets: a loop over 6 URLs at 2/s each is capped by `PAGE_RAPID_MAX`;
@@ -38,6 +41,7 @@ raw-fetch loop is refused with a localized message naming no URL or agent id.
 Cross-tab wiring through a real `BroadcastChannel`: another tab's rapid
 repeats and failures spend this tab's budgets, and this tab's are announced.
 Failure wiring: a read that keeps answering 404 stops reaching the network,
+a read that answered 2xx keeps working while other reads exhaust the budget,
 its failures are announced to other tabs, and failing writes are never
 counted. Each case starts
 from `__resetRequestLoopGuardForTests()`.

@@ -42,6 +42,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import BundleExportPage from '../BundleExportPage';
+import { api } from '@/lib/api';
 
 // Renders the standalone route with markers for the two exit destinations so a
 // real navigate(-1) / navigate('/app/dashboard?tab=export') is observable.
@@ -82,5 +83,19 @@ describe('BundleExportPage standalone exit (#4)', () => {
     renderStandalone(['/app/teams/t1', '/app/bundle/export'], 1);
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(screen.getByText('team-marker')).toBeInTheDocument();
+  });
+});
+
+describe('BundleExportPage ?agents= quick-launch', () => {
+  it('drops ids that cannot be a real agent before anything requests them', async () => {
+    // The query is link-controlled; an unsafe id would be sent as a
+    // tenant-boundary violation (the edge bans on several of them).
+    vi.mocked(api.previewBusChannels).mockClear();
+    vi.mocked(api.previewBusChannels).mockResolvedValue({ success: true, channels: [] } as never);
+    renderStandalone(['/app/bundle/export?agents=..,a%2Fb,.x,agent_1']);
+    await vi.waitFor(() => expect(api.previewBusChannels).toHaveBeenCalled());
+    for (const [ids] of vi.mocked(api.previewBusChannels).mock.calls) {
+      expect(ids).toEqual(['agent_1']);
+    }
   });
 });
