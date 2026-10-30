@@ -194,7 +194,9 @@ async def provision_new_agent(
             ),
         )
         workspace_path = agent_workspace_path(agent_id, user_id, base=settings.base_working_path)
-        bootstrap_active = os.path.isfile(str(workspace_path / "Bootstrap.md"))
+        from narranexus.platform.bootstrap.lifecycle import bootstrap_file_present
+
+        bootstrap_active = bootstrap_file_present(str(workspace_path / "Bootstrap.md"))
         logger.info(f"[provision] bootstrap profile '{profile.name}' applied to {agent_id}")
     except Exception as bootstrap_err:  # noqa: BLE001
         logger.warning(f"[provision] bootstrap profile failed for {agent_id}: {bootstrap_err}")
