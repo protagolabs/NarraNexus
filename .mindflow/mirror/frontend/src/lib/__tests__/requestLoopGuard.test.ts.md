@@ -17,7 +17,7 @@ Unit tests drive `RequestLoopGuard` with an injected clock:
 - failures: a URL that keeps failing is blocked for a minute and then
   released; a polling loop on a deleted resource stays far below the edge's
   20-a-minute failure line in its **worst sliding minute** (≤ `PAGE_FAIL_MAX`);
-  while the failure budget is spent, a path that last answered 2xx keeps
+  while the failure budget is spent, a path whose last answer was a success keeps
   working and failing / never-seen paths are refused; a path that worked once
   but now fails is held even when its query changes; the path key carries
   `agent_id` and agrees across relative / absolute spellings; a 404 loop with a changing query is held to
@@ -42,10 +42,10 @@ raw-fetch loop is refused with a localized message naming no URL or agent id.
 Cross-tab wiring through a real `BroadcastChannel`: another tab's rapid
 repeats and failures spend this tab's budgets, and this tab's are announced.
 Failure wiring: a read that keeps answering 404 stops reaching the network,
-a read that answered 2xx keeps working while other reads exhaust the budget,
+a read that answered with a success keeps working while other reads exhaust the budget,
 once a read has failed 25 concurrent first reads reach the network at most
 `EDGE_FAIL_SAFE` times (< 20), one stray failure still lets an ordinary panel
-switch's 15 first reads all go out, a clean page's burst of 40 2xx first reads all goes out,
+switch's 15 first reads all go out, a clean page's burst of 40 successful first reads all goes out,
 reads settling by network error release their pending slot,
 its failures are announced to other tabs, and failing writes are never
 counted. Each case starts
@@ -61,7 +61,8 @@ sent); a newcomer never overtakes a queued read, even when capacity frees by fai
 expiry rather than a release; a queued read whose URL got fail-blocked meanwhile
 is refused unsent; a queued read is re-judged when served (a path proven
 meanwhile, or edge limits switched off, needs no slot); a status-0 answer does
-not prove a path; a queued read is let through when
+not prove a path; dispose refuses queued reads; a served queued read leaves no
+timer behind and is reported once; a queued read is let through when
 the oldest failure leaves the window even though no slot is ever released; a local backend
 (mode `local`, or no mode on a loopback origin) has no page-wide limits; an
 unknown mode with a non-loopback API keeps them (fail-closed). The file runs

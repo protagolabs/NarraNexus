@@ -254,8 +254,10 @@ export class RequestLoopGuard {
    * for one (up to SLOT_WAIT_MAX_MS) instead of being refused at once — so a burst of first reads, however large,
    * reaches the server at most EDGE_FAIL_SAFE at a time, and even if every one
    * of them fails the page stays under the edge's line. Queued reads are served
-   * first come, first served, re-checked when a slot is released and when the
-   * oldest landed failure leaves the window. Resolves to the release function
+   * first come, first served, re-checked when a slot is released, when the
+   * oldest landed failure leaves the window, when a newcomer joins, and when a
+   * path is proven; each is re-judged when served (a proven path or edge limits
+   * switched off need no slot). Resolves to the release function
    * (call it once the read settles, however it settles), or to a refusal: the
    * page's failure budget filled ('fail_budget'), the read's URL got
    * fail-blocked ('failing'), or no slot freed within SLOT_WAIT_MAX_MS
@@ -372,6 +374,8 @@ export class RequestLoopGuard {
   /** A read of `key` came back with a success (200–399): its path is known to work. */
   recordSuccess(key: string): void {
     this.#setPathOk(pathOf(key), true);
+    // Queued reads of this path no longer need a slot.
+    if (this.#slotQueue.length > 0) this.#drainQueue();
   }
 
   /** A read of `key` came back with a failure status (FAILURE_STATUSES). */

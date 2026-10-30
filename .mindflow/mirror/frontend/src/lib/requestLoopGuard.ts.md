@@ -67,8 +67,8 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   reads all goes out (at most 18 at a time), while a burst of failing reads can
   never put more than 18 failures on the wire. The queue is first come, first
   served and is re-checked when a slot is released, when the oldest landed
-  failure leaves the window (a timer), and when a newcomer joins (capacity may
-  have freed before the timer fired). Each queued read is re-judged when it is
+  failure leaves the window (a timer), when a newcomer joins (capacity may
+  have freed before the timer fired), and when a path is proven (`recordSuccess`). Each queued read is re-judged when it is
   served: a path proven by another read meanwhile, or edge limits switched off
   (mode resolved to local), needs no slot. A queued read is refused — never
   let through — when the failure budget fills (`fail_budget`), when its own URL

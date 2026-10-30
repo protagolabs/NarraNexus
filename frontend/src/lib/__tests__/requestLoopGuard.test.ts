@@ -215,7 +215,32 @@ describe('RequestLoopGuard', () => {
     g.recordSuccess('/api/agents/list?from=another-read'); // its path is proven meanwhile
     held[0]();
     expect(typeof (await queued)).toBe('function'); // served, not refused as fail_budget
-    now += 1;
+  });
+
+  it('dispose refuses queued reads instead of leaving them pending', async () => {
+    const g = new RequestLoopGuard();
+    for (let i = 0; i < EDGE_FAIL_SAFE; i++) await g.acquire(`/api/held/${i}`);
+    const queued = g.acquire('/api/q');
+    g.dispose();
+    expect(await queued).toBe('slot_wait');
+  });
+
+  it('a queued read is reported once and leaves no timer behind once served', async () => {
+    vi.useFakeTimers();
+    const onSlotWait = vi.fn();
+    const g = new RequestLoopGuard({ onSlotWait });
+    const held: Array<() => void> = [];
+    for (let i = 0; i < EDGE_FAIL_SAFE; i++) {
+      const r = await g.acquire(`/api/held/${i}`);
+      if (typeof r === 'function') held.push(r);
+    }
+    expect(onSlotWait).not.toHaveBeenCalled(); // granted at once: no wait report
+    const queued = g.acquire('/api/q');
+    expect(onSlotWait).toHaveBeenCalledTimes(1);
+    held[0]();
+    expect(typeof (await queued)).toBe('function');
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
   });
 
   it('a queued read is served without a slot once the edge limits are switched off', async () => {
@@ -266,7 +291,7 @@ describe('RequestLoopGuard', () => {
     expect(worstMinute).toBeLessThanOrEqual(PAGE_FAIL_MAX);
   });
 
-  it('while the failure budget is spent, paths that last answered 2xx keep working', () => {
+  it('while the failure budget is spent, paths whose last answer was a success keep working', () => {
     let now = 0;
     const g = new RequestLoopGuard(() => now);
     expect(g.check('/api/auth/agents')).toBe('ok');
@@ -681,9 +706,9 @@ describe('guardedFetch in-flight slots and runtime mode', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     const b = guardedFetch('/api/newcomer-b');
     await vi.advanceTimersByTimeAsync(10);
-    await Promise.all([a, b]);
     const tail = order.filter((u) => u === '/api/queued-a' || u === '/api/newcomer-b');
-    expect(tail).toEqual(['/api/queued-a', '/api/newcomer-b']);
+    expect(tail).toEqual(['/api/queued-a', '/api/newcomer-b']); // both out, in order — no wait limit needed
+    await Promise.all([a, b]);
   });
 
   it("a queued read whose URL got fail-blocked meanwhile is refused and never sent", async () => {
@@ -771,7 +796,7 @@ describe('guardedFetch reports failing reads', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(FAIL_MAX);
   });
 
-  it('a read that answered 2xx keeps working while other reads exhaust the failure budget', async () => {
+  it('a read that answered with a success keeps working while other reads exhaust the failure budget', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
       new Response('', { status: String(input).startsWith('/api/auth/agents') ? 200 : 403 }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -811,7 +836,7 @@ describe('guardedFetch reports failing reads', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(16);
   });
 
-  it('on a clean page a burst of 2xx first reads all goes out', async () => {
+  it('on a clean page a burst of successful first reads all goes out', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve(new Response('{}', { status: 200 })), 20)),
     );
