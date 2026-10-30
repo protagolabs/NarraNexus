@@ -410,12 +410,10 @@ def test_owner_use_logs_nothing(setup, boundary_lines):
     assert boundary_lines() == []
 
 
-def test_nul_and_absolute_and_linked_paths_are_logged(setup, boundary_lines):
-    """Every escape branch of _resolve_within_workspace logs exactly once."""
+def test_nul_and_absolute_paths_are_logged(setup, boundary_lines):
+    """Each probe-shaped refusal of _resolve_within_workspace logs exactly once."""
     client = setup["client"]
-    own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
-    (own_ws / "link.json").symlink_to(setup["secret"])
-    for bad in ("nul\x00byte", "/etc/passwd", "link.json"):
+    for bad in ("nul\x00byte", "/etc/passwd"):
         before = len(boundary_lines())
         r = client.get(
             f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": bad}, headers=AS_OWNER
@@ -424,6 +422,19 @@ def test_nul_and_absolute_and_linked_paths_are_logged(setup, boundary_lines):
         assert "victim-secret" not in r.text
         hits = boundary_lines()[before:]
         assert len(hits) == 1 and "surface=agent_files.path" in hits[0], bad
+
+
+def test_link_leaving_the_workspace_is_refused_quietly(setup, boundary_lines):
+    """An agent's own venv-style link pointing outside (python -> /usr/bin/...)
+    is refused, but an honest owner can type that path, so it is not alerted."""
+    own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
+    (own_ws / "link.json").symlink_to(setup["secret"])
+    r = setup["client"].get(
+        f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": "link.json"}, headers=AS_OWNER
+    )
+    assert r.status_code == 400
+    assert "victim-secret" not in r.text
+    assert boundary_lines() == []
 
 
 def test_workspace_swapped_for_a_link_is_logged(setup, boundary_lines):

@@ -173,6 +173,11 @@ def _escape_line_breaks(record) -> None:
         record["message"] = message.replace("\r", "\\r").replace("\n", "\\n")
 
 
+def _no_patch(record) -> None:
+    """Explicit no-op: loguru's configure(patcher=None) leaves a previous
+    patcher in place, so switching formats must replace it."""
+
+
 def setup_logging(
     service_name: str,
     *,
@@ -228,7 +233,9 @@ def setup_logging(
             "run_id": _RUN_ID_PLACEHOLDER,
             "event_id": _EVENT_ID_PLACEHOLDER,
         },
-        patcher=_escape_line_breaks,
+        # Text sinks only: JSON encoding already escapes CR/LF inside the
+        # message field, and escaping again would hand consumers a literal "\\n".
+        patcher=_escape_line_breaks if resolved_fmt != "json" else _no_patch,
     )
 
     log_file = str(resolved_dir / f"{service_name}_{{time:YYYYMMDD}}.log")

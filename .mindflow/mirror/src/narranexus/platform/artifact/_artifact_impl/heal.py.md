@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（auto-review #429）— 边界日志补上 actor
+
+heal 路由只允许属主调用，所以 actor 与 owner 是同一账号，两者都写上，签名覆盖四个字段。
+
 ## 2026-10-30 — 搜索根是符号链接时记边界日志
 
 拒绝符号链接搜索根时额外调用 `log_boundary_violation("artifact.heal_symlink", owner=...)`。

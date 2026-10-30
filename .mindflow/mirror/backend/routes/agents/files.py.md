@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（auto-review #429）— 只对绝对路径和 `..`/NUL 记边界日志
+
+workspace 内部链接指向外部（agent 自己的 `venv/bin/python -> /usr/bin/python3`）的相对路径仍然
+拒绝，但不再记边界日志：诚实的属主手敲这个路径就会触发。绝对路径改为在 `..` 检查处一起拦并记录。
+
 ## 2026-10-30 — 越界路径记边界日志
 
 `_resolve_within_workspace` 新增必填关键字 `actor`。`..` 段、NUL、realpath 落在 workspace

@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（auto-review #429）— JSON 模式不做换行转义
+
+JSON 编码本身已转义 message 里的换行，patcher 再转一次会让消费方拿到字面 `\\n`；JSON 模式
+改装显式的空 patcher（`configure(patcher=None)` 不会清掉上一次的 patcher）。
+
 ## 2026-10-30 — 消息里的换行一律转义；`_TEXT_FORMAT` 成为与部署侧哨兵的契约
 
 `logger.configure(patcher=_escape_line_breaks)`：消息里的 `\n`/`\r` 转成字面 `\\n`/`\\r`。

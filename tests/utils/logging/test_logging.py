@@ -306,6 +306,18 @@ class TestSetupLogging:
         assert "hi\\n2026-01-01" in hits[0] and "forged\\rx" in hits[0]
         assert not any(line.startswith("2026-01-01") for line in lines)
 
+    def test_json_mode_does_not_double_escape(self, tmp_path: Path, monkeypatch) -> None:
+        """JSON encoding already escapes the message; the patcher must not add
+        a second, literal backslash-n."""
+        import json as _json
+
+        setup_logging("svc_json", log_dir=tmp_path, level="INFO", fmt="json")
+        logger.info("a\nb")
+        logger.complete()
+        content = next((tmp_path / "svc_json").glob("svc_json_*.log")).read_text(encoding="utf-8")
+        rec = next(_json.loads(line) for line in content.splitlines() if '"a' in line)
+        assert rec["record"]["message"] == "a\nb"
+
     def test_exceptions_keep_their_multiline_traceback(self, tmp_path: Path) -> None:
         setup_logging("svc_exc", log_dir=tmp_path, level="INFO")
         try:

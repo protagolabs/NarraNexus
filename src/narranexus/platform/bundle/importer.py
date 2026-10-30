@@ -226,16 +226,32 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     sessions_root = Path.home() / ".nexusagent" / "bundle_preflight"
     sessions_root.mkdir(parents=True, exist_ok=True)
     work_dir = Path(tempfile.mkdtemp(prefix="nx-import-", dir=str(sessions_root)))
+    # One guard for every exit: the unpack dir survives only once a token row
+    # exists (confirm reads it; the TTL sweep is driven by those rows). Any
+    # failure before that — a malformed manifest, a DB error, a refused path —
+    # removes it here, so no branch can leak an unswept nx-import-* dir.
+    issued = False
     try:
-        # zip extraction is CPU-bound — offload to a worker thread.
-        await asyncio.to_thread(extract_zip_safely, zip_path, work_dir)
-    except Exception:
-        shutil.rmtree(work_dir, ignore_errors=True)
-        raise
+        summary = await _preflight_in_dir(work_dir, zip_path, user_id)
+        issued = True
+        return summary
+    finally:
+        if not issued:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+
+async def _preflight_in_dir(work_dir: Path, zip_path: Path, user_id: str) -> Dict[str, Any]:
+    """The body of :func:`preflight`, run inside its cleanup guard.
+
+    Any exception escaping this function makes the caller remove
+    ``work_dir`` — no branch here needs its own cleanup.
+    """
+    # zip extraction is CPU-bound — offload to a worker thread.
+    await asyncio.to_thread(extract_zip_safely, zip_path, work_dir)
 
     manifest_path = work_dir / "manifest.json"
     if not manifest_path.exists():
-        shutil.rmtree(work_dir, ignore_errors=True)
         raise ValueError("manifest.json missing in bundle")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -257,7 +273,6 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         try:
             sanitize_filename(str(aid), label="agent id in manifest")
         except ValueError as e:
-            shutil.rmtree(work_dir, ignore_errors=True)
             log_boundary_violation("bundle_import.preflight", actor=user_id, detail=f"agent id {aid!r}: {e}")
             raise ValueError(f"manifest contains an unusable agent id ({e})")
 
@@ -295,11 +310,7 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         apply_migrations,
         CURRENT_BUNDLE_MAJOR,
     )
-    try:
-        manifest = await apply_migrations(work_dir, manifest)
-    except ValueError:
-        shutil.rmtree(work_dir, ignore_errors=True)
-        raise
+    manifest = await apply_migrations(work_dir, manifest)
     # Persist the (possibly migrated) manifest back to disk so confirm() reads
     # the upgraded version.
     manifest_path.write_text(
@@ -316,11 +327,7 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     try:
         _reject_escaping_bundle_paths(work_dir, manifest)
     except BundlePathEscape as e:
-        shutil.rmtree(work_dir, ignore_errors=True)
         log_boundary_violation("bundle_import.preflight", actor=user_id, detail=str(e))
-        raise
-    except ValueError:
-        shutil.rmtree(work_dir, ignore_errors=True)
         raise
 
     # Name clashes
@@ -408,7 +415,7 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     return summary
 
 
-def _bundle_member_path(work_dir: Path, archive_ref: Optional[str]) -> Optional[Path]:
+def _bundle_member_path(work_dir: Path, archive_ref: Optional[str], *, method: str) -> Optional[Path]:
     """Resolve a manifest `archive_ref` to a path inside the unpacked bundle.
 
     `archive_ref` is written by whoever produced the `.nxbundle` — as untrusted
@@ -428,6 +435,15 @@ def _bundle_member_path(work_dir: Path, archive_ref: Optional[str]) -> Optional[
     (`_reject_escaping_bundle_paths`), so the unsafe branch here is the second
     line, not the gate.
     """
+    # The ONE place confirm turns an archive_ref into a path. Preflight gates
+    # archive_ref (and skill_dir) for exactly _ARCHIVE_INSTALL_METHODS; an
+    # install method that reads archive_ref here without being listed there
+    # would skip the preflight gate, so it fails loudly instead.
+    if method not in _ARCHIVE_INSTALL_METHODS:
+        raise RuntimeError(
+            f"install method {method!r} reads archive_ref but is not in "
+            f"_ARCHIVE_INSTALL_METHODS; add it so preflight gates it too"
+        )
     if not archive_ref:
         return None
     try:
@@ -1653,7 +1669,7 @@ async def _confirm_inner(
 
             elif method == "zip":
                 archive_ref = s.get("archive_ref")
-                zip_path = _bundle_member_path(work_dir, archive_ref)
+                zip_path = _bundle_member_path(work_dir, archive_ref, method=method)
                 if not zip_path or not zip_path.exists():
                     skill_install_failures.append(
                         {"skill": skill_name, "reason": "zip archive missing in bundle"}
@@ -1717,7 +1733,7 @@ async def _confirm_inner(
                 # skills/<agent_id>/<skill>-full.zip with that agent's own
                 # .skill_meta.json + wallets.
                 archive_ref = s.get("archive_ref")
-                zip_path = _bundle_member_path(work_dir, archive_ref)
+                zip_path = _bundle_member_path(work_dir, archive_ref, method=method)
                 if not zip_path or not zip_path.exists():
                     skill_install_failures.append(
                         {"skill": skill_name, "reason": "full_copy archive missing in bundle"}

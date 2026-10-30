@@ -204,3 +204,54 @@ async def test_traversing_agent_id_logs_once_at_preflight(
     hits = boundary_lines()
     assert len(hits) == 1
     assert "surface=bundle_import.preflight" in hits[0] and "actor=u_attacker" in hits[0]
+
+
+# --- every failure removes the unpack dir (auto-review #429) -----------------
+
+@pytest.mark.parametrize("manifest_bytes,agent_json", [
+    (b"{not json", None),                                            # manifest unparseable
+    (json.dumps({"bundle_format_version": "1.0", "agents": [AID]}).encode(), "{}"),  # agent.json lacks agent_name
+    (json.dumps({"bundle_format_version": "1.0", "agents": [AID]}).encode(), "{not json"),
+])
+async def test_any_preflight_failure_leaves_no_unpack_dir(
+    isolated_db, tmp_home, tmp_path, manifest_bytes, agent_json
+):
+    path = tmp_path / "upload.nxbundle"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("manifest.json", manifest_bytes)
+        if agent_json is not None:
+            zf.writestr(f"agents/{AID}/agent.json", agent_json)
+    with pytest.raises(Exception):
+        await preflight(path, "u_x")
+    assert list(_sessions_root(tmp_home).glob("nx-import-*")) == []
+    assert await isolated_db.get("bundle_preflight_sessions", {"user_id": "u_x"}) == []
+
+
+async def test_a_db_failure_after_unpack_leaves_no_dir(isolated_db, tmp_home, tmp_path, monkeypatch):
+    from narranexus.platform.bundle import importer
+
+    async def boom(*_a, **_k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(importer, "_cleanup_stale_preflights", boom)
+    with pytest.raises(RuntimeError):
+        await preflight(_bundle(tmp_path), "u_x")
+    assert list(_sessions_root(tmp_home).glob("nx-import-*")) == []
+
+
+async def test_success_keeps_the_unpack_dir_for_confirm(isolated_db, tmp_home, tmp_path):
+    pf = await preflight(_bundle(tmp_path), "u_ok")
+    row = await isolated_db.get_one("bundle_preflight_sessions", {"token": pf["preflight_token"]})
+    assert Path(row["work_dir"]).is_dir()
+
+
+def test_reading_archive_ref_for_an_unlisted_method_fails_loudly(tmp_path):
+    """A new install method that reads archive_ref must also be gated at
+    preflight; reading it without being listed raises instead of silently
+    skipping the gate."""
+    from narranexus.platform.bundle import importer
+
+    with pytest.raises(RuntimeError, match="_ARCHIVE_INSTALL_METHODS"):
+        importer._bundle_member_path(tmp_path, "skills/a/s.zip", method="tarball")
+    for method in importer._ARCHIVE_INSTALL_METHODS:
+        assert importer._bundle_member_path(tmp_path, "skills/a/s.zip", method=method) is not None

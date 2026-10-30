@@ -248,7 +248,9 @@ async def heal_artifact(
         search_root = str(team_shared_dir(user_id, art.team_id, base))
     if os.path.islink(search_root):
         logger.warning(f"heal_artifact: {artifact_id} scope root is a symlink, refusing: {search_root}")
-        log_boundary_violation("artifact.heal_symlink", owner=user_id, detail=search_root)
+        # The heal route authenticated the caller as this owner (it refuses
+        # anyone else), so the caller and the owner are the same account.
+        log_boundary_violation("artifact.heal_symlink", actor=user_id, owner=user_id, detail=search_root)
         return HealResult(
             recovered=False,
             candidates=[],

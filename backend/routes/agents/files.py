@@ -180,10 +180,13 @@ def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> 
     Returns the realpath-resolved absolute path. The caller decides what to do
     with it (read, delete, ...).
 
-    A `..` segment, a NUL byte and a realpath outside the workspace are also
-    logged as boundary violations (``actor`` = the caller): the file browser
-    only ever sends paths it listed. A dotfile name is refused quietly — it is
-    a policy (hidden files are not served), not a probe signal.
+    A `..` segment, a NUL byte and an absolute path are also logged as
+    boundary violations (``actor`` = the caller): the file browser only ever
+    sends relative paths it listed. Two refusals stay quiet: a dotfile name
+    (a policy — hidden files are not served) and a relative path whose
+    realpath leaves the workspace through a link inside it (an agent's own
+    `venv/bin/python -> /usr/bin/python3` is that shape, so an honest owner can
+    hit it by typing the path).
     """
     if not rel_path:
         raise HTTPException(400, "invalid path")
@@ -192,7 +195,7 @@ def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> 
         raise HTTPException(400, "invalid path")
     posix = PurePosixPath(rel_path.replace("\\", "/"))
     parts = posix.parts
-    if any(part == ".." for part in parts):
+    if posix.is_absolute() or any(part == ".." for part in parts):
         log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
         raise HTTPException(400, "invalid path: dotfolders and traversal are not allowed")
     if any(part in ("", ".") or part.startswith(".") for part in parts):
@@ -206,7 +209,6 @@ def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> 
     try:
         candidate.relative_to(workspace)
     except ValueError:
-        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
         raise HTTPException(400, "invalid path: outside the agent workspace")
     return candidate
 
