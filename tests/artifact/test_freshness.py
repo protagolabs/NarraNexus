@@ -27,7 +27,7 @@ from narranexus.platform.artifact import ArtifactService
 from narranexus.platform.artifact._artifact_impl.freshness import office_lock_present
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema import Artifact
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 

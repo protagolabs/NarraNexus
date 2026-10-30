@@ -29,7 +29,7 @@ from __future__ import annotations
 import pytest
 
 from narranexus.platform.message_bus._bus_attachment_impl import stage_path_into_team
-from narranexus.platform.utils.workspace_paths import agent_workspace_path
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
 AGENT = "agent_a"
 USER = "user_1"

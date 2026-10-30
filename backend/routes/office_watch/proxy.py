@@ -292,7 +292,7 @@ async def _lookup_office_file(request: Request, artifact_id: str) -> tuple[str, 
     """
     from narranexus.platform.repository.artifact_repository import ArtifactRepository
     from narranexus.platform.utils.db.db_factory import get_db_client
-    from narranexus.platform.utils.workspace_paths import resolve_workspace_relative_file
+    from narranexus.platform.utils.fs.workspace_paths import resolve_workspace_relative_file
 
     user_id = await resolve_current_user_id(request)
     repo = ArtifactRepository(await get_db_client())

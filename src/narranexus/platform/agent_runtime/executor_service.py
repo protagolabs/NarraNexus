@@ -455,7 +455,7 @@ async def watch_version(request: Request) -> JSONResponse:
     container. Query: agent_id, user_id, file. Token-gated (ExecutorTokenMiddleware).
     """
     from narranexus.platform.utils.office_watch import resolve_watch_file
-    from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
+    from narranexus.platform.utils.fs.workspace_paths import resolve_existing_workspace
 
     agent_id = request.query_params.get("agent_id", "")
     user_id = request.query_params.get("user_id", "")

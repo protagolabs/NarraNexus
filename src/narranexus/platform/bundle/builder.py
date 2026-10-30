@@ -29,14 +29,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from loguru import logger
 
-from narranexus.platform.utils.workspace_paths import refuse_symlinked_dir
+from narranexus.platform.utils.fs.workspace_paths import refuse_symlinked_dir
 
 from narranexus.platform.bundle.team_bulletin_transfer import (
     collect_bulletin_for_export,
 )
 
 from narranexus.platform.utils.db.db_factory import get_db_client
-from narranexus.platform.utils.file_safety import ensure_within_directory, sanitize_filename
+from narranexus.platform.utils.fs.file_safety import ensure_within_directory, sanitize_filename
 from .channel_credential_tables import CHANNEL_CREDENTIALS_KEY
 from .security import (
     bytes_sha256,
@@ -685,7 +685,7 @@ async def build_bundle(
                 set(selection.artifact_selection.get(aid, [])) if selection.artifact_selection is not None else None
             )
             art_rows_raw = await db.get("instance_artifacts", {"agent_id": aid})
-            from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+            from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
             ws_prefix = f"{agent_workspace_relpath(aid, user_id)}/"
             legacy_flat_prefix = f"{aid}_{user_id}/"
@@ -1366,7 +1366,7 @@ async def _pack_workspace(
     from narranexus.platform.settings import settings as core_settings
 
     base = Path(core_settings.base_working_path)
-    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
     candidates = [
         base / agent_workspace_relpath(agent_id, user_id),  # canonical (current layout)
@@ -1563,7 +1563,7 @@ async def _find_skill_dir(
     base = Path(core_settings.base_working_path)
     dir_name = skill_dir or skill_name
     for aid in agent_ids:
-        from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+        from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
         candidates = [
             base / agent_workspace_relpath(aid, user_id) / "skills" / dir_name,  # canonical (current layout)

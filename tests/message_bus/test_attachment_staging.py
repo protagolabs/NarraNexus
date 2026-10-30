@@ -25,7 +25,7 @@ from narranexus.platform.message_bus._bus_attachment_impl import (
     store_bus_attachment_meta,
     store_bytes_into_bus,
 )
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.fs.workspace_paths import (
     agent_workspace_path,
     bus_files_dir,
     team_shared_dir,

@@ -24,7 +24,7 @@ boundary.
 
 from __future__ import annotations
 
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.fs.workspace_paths import (
     bus_files_dir,
     team_shared_dir,
     turn_accessible_roots,

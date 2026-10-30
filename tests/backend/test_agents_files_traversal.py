@@ -24,7 +24,7 @@ from narranexus.platform.utils.logging._security import BOUNDARY_MARKER
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 OWNER = "user_owner_000000000000000000000"
 VICTIM = "user_victim_00000000000000000000"

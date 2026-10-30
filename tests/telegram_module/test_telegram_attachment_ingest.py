@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_FETCH_FAILED,

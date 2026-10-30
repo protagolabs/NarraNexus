@@ -178,7 +178,7 @@ async def provision_new_agent(
             get_profile,
         )
         from narranexus.platform.settings import settings
-        from narranexus.platform.utils.workspace_paths import agent_workspace_path
+        from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
         profile = get_profile(bootstrap_profile)
         await apply_bootstrap(

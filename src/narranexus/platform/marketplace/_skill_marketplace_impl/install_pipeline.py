@@ -37,7 +37,7 @@ from loguru import logger
 
 from narranexus.contracts.skill import SkillWorkspace
 from narranexus.platform.utils.plugin_services import skill_workspace
-from narranexus.platform.utils.workspace_paths import safe_id_segment
+from narranexus.platform.utils.fs.workspace_paths import safe_id_segment
 from narranexus.platform.schema.skill_schema import SkillInfo
 
 from .scanner import scan_skill_dir
@@ -314,7 +314,7 @@ class InstallPipeline:
         skip_scan: bool = False,
         catalog_skill_id: Optional[str] = None,
     ) -> InstallResult:
-        from narranexus.platform.utils.file_safety import sanitize_filename
+        from narranexus.platform.utils.fs.file_safety import sanitize_filename
 
         manifest = self._read_manifest(skill_root)
         incoming = self.skill_module.parse_skill_package(skill_root)

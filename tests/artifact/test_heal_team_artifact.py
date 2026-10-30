@@ -32,7 +32,7 @@ import pytest
 from narranexus.platform.artifact import ArtifactService
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.fs.workspace_paths import (
     agent_workspace_path,
     team_shared_dir,
 )

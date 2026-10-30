@@ -59,7 +59,7 @@ from backend.auth import resolve_current_user_id
 from narranexus.platform.repository import AgentRepository
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils.logging import log_boundary_violation
-from narranexus.platform.utils.workspace_paths import safe_id_segment
+from narranexus.platform.utils.fs.workspace_paths import safe_id_segment
 
 # Deny reasons — the ONE decision both public surfaces map from. A failed
 # LOOKUP is not a reason either surface renders as prose: _deny_reason raises

@@ -23,7 +23,7 @@ from pathlib import PurePosixPath
 
 import pytest
 
-from narranexus.platform.utils.file_safety import validate_zip_member_path
+from narranexus.platform.utils.fs.file_safety import validate_zip_member_path
 
 
 # -------- normalization: Windows-zipped packages must work --------------

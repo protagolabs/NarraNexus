@@ -147,7 +147,7 @@ class RegistryService:
                 raise ValueError(f"Invalid manifest.json: {exc}")
 
         info = staging_module.parse_skill_package(skill_root)
-        from narranexus.platform.utils.file_safety import sanitize_filename
+        from narranexus.platform.utils.fs.file_safety import sanitize_filename
 
         manifest.setdefault("id", sanitize_filename(info.name, label="skill id"))
         manifest.setdefault("name", info.name)

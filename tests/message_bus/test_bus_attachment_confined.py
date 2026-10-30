@@ -30,7 +30,7 @@ from narranexus.platform.message_bus._bus_attachment_impl import (
     store_bus_attachment_meta,
     store_bytes_into_bus,
 )
-from narranexus.platform.utils.workspace_paths import agent_workspace_path, bus_files_dir, team_shared_dir
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path, bus_files_dir, team_shared_dir
 
 AGENT, OWNER = "agent_sender01", "user_owner01"
 V_AGENT, V_OWNER = "agent_victim001", "user_victim01"

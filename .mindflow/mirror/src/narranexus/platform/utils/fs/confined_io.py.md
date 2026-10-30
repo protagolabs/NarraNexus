@@ -109,8 +109,11 @@ narramessenger `_matrix_send`。
   `ensure_watch` 在**该用户自己的执行器**里运行（`proxy.py` 转发到执行器），桌面是单租户）；
   `plugins/builtin.channels.lark/.../lark_cli_client.py`（~:293 `cwd = resolve_agent_workspace_cwd`，lark-cli 子进程）；
   `plugins/builtin.channels.narramessenger/.../narra_cli_client.py`（~:345，narra-cli 子进程）。cwd 的**创建**已经受限（`workspace_cwd.py`）。
-- `plugins/builtin.nexus_plugins_module/.../_nexus_plugins_impl/service.py` 的 `scaffold` / `edit` / `list`（agent 自己的插件草稿目录 `dev_root(workspace)`）：
-  经 CLI 脚手架库用 pathlib 写很多文件，仅靠 `check_inside` 的词法守卫；同一类，需要把脚手架库整体改为接受受限根，**未转换**。
+- `plugins/builtin.nexus_plugins_module/.../_nexus_plugins_impl/service.py` 里**所有经过 `_dev_dir` 的方法**（`scaffold` / `edit` / `validate` / `test` / `register` / `diff` / `publish_hint` / `wipe_draft`）加上 `list` 的 glob（agent 自己的插件草稿目录 `dev_root(workspace)`）：
+  经 CLI 脚手架库用 pathlib 按路径读写——`register` 还以 `LocalSource(dest, mode="link")` **链接式安装**，已注册插件就是指向草稿的链接，仅靠 `check_inside` 的词法守卫，**不转换，原因是威胁模型不成立**：所有入口（MCP `plugin_*` 工具、
+  `backend/plugins_factory/service.py`）都经 `SelfExtensionService`，其构造函数在云模式直接抛 `GuardError`（`tests/nexus_plugins_module/test_flow.py`
+  的 "local feature" 用例钉住）。本地版 / 桌面是单租户，不存在"另一个租户换链接"的攻击者。**若将来这个功能上云，必须先把这些站点改成 `confined_io`
+  （脚手架库要能接受受限根）再去掉云拒绝**——删掉 `is_cloud_mode()` 检查的 PR 就是触发点。
 - `src/narranexus/platform/artifact/_artifact_impl/heal.py` `_scan_workspace_for_kind` 的 `os.walk` 发现阶段：只产生**候选名字**；每个候选的元数据与内容读取都已走受限路径，
   被换成链接的候选被丢弃。名字泄漏的窗口只剩 walk 与 `_confined` 之间。
 - `src/narranexus/platform/agent_runtime/executor_service.py`：执行器侧，以租户 uid 在容器内运行，本来就只能访问自己的挂载；不是后端读写租户树。
@@ -123,7 +126,7 @@ narramessenger `_matrix_send`。
 - **调试脚本，不是运行路径**：`scripts/debug/verify_arena_provision.py`（~:105 对租户技能文件按路径 `.exists()`，
   且仍用旧的平铺布局；只在开发机手动运行）。
 - **只做路径字符串拼接、不碰磁盘**：`module_system/data_access/__init__.py`（仅 re-export）、`plugins/builtin.common_tools/.../artifact_lines.py`、`plugins/builtin.social_network/.../routes.py`（仅注释）、`message_bus/team_files.py`、`message_bus/message_bus_trigger.py`
-  （`team_shared_dir` 只用于生成提示词里的路径）、`utils/workspace_paths.py`（路径构造本身）、`artifact_repository.py` / `artifact_schema.py`（字段文档）。
+  （`team_shared_dir` 只用于生成提示词里的路径）、`utils/fs/workspace_paths.py`（路径构造本身）、`artifact_repository.py` / `artifact_schema.py`（字段文档）。
 - 技能的**暂存区**一侧：`skill_module.py` 的 zip / GitHub 解包（写入 `tempfile.mkdtemp()` 下的平台自有目录）与 `_find_skill_root` / `parse_skill_package` 对 staging 的遍历——staging 不在任何租户挂载内；
   bundle 导入的工作区 tar 在 `mkdtemp` 暂存区解开后再 `merge_tree`。
 - 其余 `rmtree` 均作用于平台临时目录 / 安装目录（`temp_dir`、`staging`、插件目录），不在租户树内；`backend/main.py:914/917` 服务前端构建产物。

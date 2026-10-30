@@ -38,7 +38,7 @@ import os
 from typing import BinaryIO, Optional
 
 from narranexus.platform.utils.fs import confined_io
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.fs.workspace_paths import (
     workspace_candidate_relpaths,
     resolve_workspace_relative_file,
     team_shared_dir,

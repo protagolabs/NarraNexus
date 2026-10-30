@@ -37,7 +37,7 @@ from narranexus.platform.bundle.security import (
 )
 from narranexus.platform.bundle.skill_backup import archive_target, ensure_archive_dir
 from narranexus.platform.repository import SkillArchiveRepository
-from narranexus.platform.utils.file_safety import enforce_max_bytes
+from narranexus.platform.utils.fs.file_safety import enforce_max_bytes
 from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
 

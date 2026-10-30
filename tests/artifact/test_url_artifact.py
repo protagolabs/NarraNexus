@@ -19,7 +19,7 @@ import pytest
 from narranexus.platform.artifact import ArtifactError, ArtifactService
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import EmbedVerdict, UrlArtifactDoc
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -266,7 +266,7 @@ async def test_team_root_entry_does_not_serve_its_siblings(db_client, monkeypatc
     from narranexus.platform.repository.artifact_repository import ArtifactRepository
     from narranexus.platform.schema.artifact_schema import Artifact
     from narranexus.platform.settings import settings as sa
-    from narranexus.platform.utils.workspace_paths import team_shared_dir
+    from narranexus.platform.utils.fs.workspace_paths import team_shared_dir
 
     monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
     shared = team_shared_dir("user_1", "team_1", str(tmp_path))

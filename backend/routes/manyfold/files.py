@@ -95,7 +95,7 @@ async def _resolve_workspace_root(agent_id: str) -> tuple[Path, str]:
             status_code=500,
             detail=f"agent {agent_id!r} has no created_by user",
         )
-    from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
+    from narranexus.platform.utils.fs.workspace_paths import resolve_existing_workspace
     workspace = resolve_existing_workspace(
         agent_id, user_id, str(core_settings.base_working_path)
     )

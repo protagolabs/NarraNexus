@@ -1060,7 +1060,7 @@ async def get_agents(request: Request):
             bootstrap_active = False
             created_by = row.get('created_by')
             if created_by:
-                from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
+                from narranexus.platform.utils.fs.workspace_paths import resolve_existing_workspace
                 bootstrap_path = os.path.join(
                     str(resolve_existing_workspace(
                         row['agent_id'], created_by, app_settings.base_working_path
@@ -1488,7 +1488,7 @@ async def update_agent(
         # isfile-only rule (no threshold) — see the /api/auth/agents note above and
         # narranexus.platform.bootstrap.lifecycle.is_bootstrap_active (the writers' gate).
         from narranexus.platform.settings import settings
-        from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
+        from narranexus.platform.utils.fs.workspace_paths import resolve_existing_workspace
         workspace_path = str(resolve_existing_workspace(
             agent_id, updated_agent.created_by, settings.base_working_path
         ))
@@ -1801,7 +1801,7 @@ async def delete_agent(
         try:
             from narranexus.platform.settings import settings
             from narranexus.platform.utils.fs import confined_io
-            from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
+            from narranexus.platform.utils.fs.workspace_paths import resolve_existing_workspace
             workspace_path = str(
                 resolve_existing_workspace(
                     agent_id, agent.created_by, settings.base_working_path
