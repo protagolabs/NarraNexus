@@ -227,6 +227,16 @@ describe('RequestLoopGuard', () => {
     await Promise.all(queued);
   });
 
+  it('once the edge limits switch off, the next read releases reads queued before', async () => {
+    let enabled = true;
+    const g = new RequestLoopGuard({ edgeLimitsEnabled: () => enabled });
+    for (let i = 0; i < EDGE_FAIL_SAFE; i++) await g.acquire(`/api/held/${i}`); // never released
+    const queued = g.acquire('/api/q');
+    enabled = false; // the mode resolved to local
+    await g.acquire('/api/next'); // no slot is ever released
+    expect(typeof (await queued)).toBe('function');
+  });
+
   it('dispose refuses queued reads instead of leaving them pending', async () => {
     const g = new RequestLoopGuard();
     for (let i = 0; i < EDGE_FAIL_SAFE; i++) await g.acquire(`/api/held/${i}`);

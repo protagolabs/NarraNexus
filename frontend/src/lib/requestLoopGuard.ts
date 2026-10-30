@@ -271,7 +271,13 @@ export class RequestLoopGuard {
    * (a known-local backend), take no slot.
    */
   acquire(key: string, signal?: AbortSignal | null): Promise<(() => void) | SlotRefusal> {
-    if (this.#pathOk.get(pathOf(key)) === true || !this.#edgeLimitsEnabled()) return Promise.resolve(NOOP);
+    if (this.#pathOk.get(pathOf(key)) === true || !this.#edgeLimitsEnabled()) {
+      // Limits just switched off (mode resolved to local): reads still queued
+      // from before would otherwise wait out SLOT_WAIT_MAX_MS for nothing.
+      // The drain re-judges each one, so this is not a blanket release.
+      if (this.#slotQueue.length > 0 && !this.#edgeLimitsEnabled()) this.#drainQueue();
+      return Promise.resolve(NOOP);
+    }
     return new Promise((resolve, reject) => {
       const waiter: SlotWaiter = { key, resolve, reject, signal: signal ?? null, timer: null, onAbort: null };
       // First come, first served: a newcomer never overtakes a queued read.
@@ -283,6 +289,9 @@ export class RequestLoopGuard {
       if (this.#slotQueue.length >= MAX_SLOT_WAITERS) {
         // Before refusing on a full queue, serve it once: capacity may be free
         // with nobody having woken it (see the drain after enqueueing below).
+        // Redundant insurance: release and the expiry timer are the normal
+        // wake paths, so no test can reach a state where this changes the
+        // outcome; it costs one drain on an already-full queue.
         this.#drainQueue();
         if (this.#slotQueue.length === 0 && this.#tryGrant(waiter)) return;
         if (this.#slotQueue.length >= MAX_SLOT_WAITERS) {

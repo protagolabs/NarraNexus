@@ -63,7 +63,8 @@ is refused unsent; a queued read is re-judged when served (a path proven
 meanwhile, or edge limits switched off, needs no slot); a status-0 answer does
 not prove a path; the slot queue is bounded (`slot_full` past `MAX_SLOT_WAITERS`) and
 a full-queue refusal waits the per-URL delay so a retry loop cannot spin; the first
-local-backend decision is logged once; dispose refuses queued reads; a served queued read leaves no
+local-backend decision is logged once; once the edge limits switch off, the next
+read releases reads queued before (no slot release needed); dispose refuses queued reads; a served queued read leaves no
 timer behind and is reported once; a queued read is let through when
 the oldest failure leaves the window even though no slot is ever released; a local backend
 (mode `local`, or no mode on a loopback origin) has no page-wide limits; an

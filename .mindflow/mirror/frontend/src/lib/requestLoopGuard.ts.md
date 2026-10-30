@@ -70,15 +70,19 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   failure leaves the window (a timer), when a newcomer joins (capacity may
   have freed before the timer fired), and when a path is proven (`recordSuccess`). Each queued read is re-judged when it is
   served: a path proven by another read meanwhile, or edge limits switched off
-  (mode resolved to local), needs no slot. A queued read is refused — never
+  (mode resolved to local), needs no slot. When the limits switch off, the
+  next read that arrives drains the queue, so reads queued before are
+  released rather than waiting out the 15s limit. A queued read is refused — never
   let through — when the failure budget fills (`fail_budget`), when its own URL
   got fail-blocked meanwhile (`failing`), or after `SLOT_WAIT_MAX_MS` (15s,
   `slot_wait`). The wait limit matters because a slot is held until response
   headers arrive: a slow or degraded backend (requests running into upstream
   timeouts) can hold all 18, and the reads behind them then fail visibly
   instead of spinning forever. The queue itself is bounded (`MAX_SLOT_WAITERS`,
-  200): past it a read is refused as `slot_full` after the per-URL refusal
-  delay (an immediate refusal would let a retry loop spin), so a loop whose
+  200): past it a newcomer first serves the queue once
+  (capacity may have freed with nobody waking it), and only if it is still
+  full is the read refused as `slot_full` after the per-URL refusal delay (an
+  immediate refusal would let a retry loop spin), so a loop whose
   reads never settle cannot pile up promises and timers. The first time reads start queueing,
   guardedFetch logs one throttled warning. `guardedFetch` releases the slot in
   `finally`; a read aborted while waiting rejects with an AbortError and frees
