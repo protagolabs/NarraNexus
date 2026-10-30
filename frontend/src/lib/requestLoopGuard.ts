@@ -24,10 +24,13 @@
  *    403s from one panel cannot freeze the agent list or the chat. Reads of
  *    unproven paths also hold a slot while in flight (`acquire`): landed
  *    failures plus slots held may not reach EDGE_FAIL_SAFE (18), and a read
- *    that finds no slot waits for one. So a burst of first reads of any size —
- *    a crafted link listing dozens of foreign agents included — reaches the
- *    server at most 18 at a time, and the page stays under the edge's line
- *    even if every one fails. Both page-wide limits are off for a known-local
+ *    that finds no slot waits for one (first come, first served; refused after
+ *    SLOT_WAIT_MAX_MS, never let through). So in one tab a burst of first
+ *    reads of any size — a crafted link listing dozens of foreign agents
+ *    included — reaches the server at most 18 at a time, and stays under the
+ *    edge's line even if every one fails. Slots are per tab (only landed
+ *    failures are shared across tabs), so two tabs bursting at the same
+ *    moment can together exceed it. Both page-wide limits are off for a known-local
  *    backend (no edge in front of it; `edgeLimitsEnabled`, fail-closed in
  *    guardedFetch); the per-URL failure block stays. The edge monitor (sentinel,
  *    monitoring v2) bans an IP at 20 probing-like failures a minute
@@ -78,6 +81,11 @@ export const PAGE_FAIL_MAX = 10;
  * bans at 20 a minute. Separate from PAGE_FAIL_MAX so one stray failure does not
  * starve the dozen first reads of an ordinary panel switch. */
 export const EDGE_FAIL_SAFE = 18;
+/** Longest a read waits for an in-flight slot before it is refused (a slot is
+ * held until the response headers arrive, so a slow or failing backend can hold
+ * all of them; the read then fails visibly instead of spinning forever — it is
+ * never let through, which would break the bound). */
+export const SLOT_WAIT_MAX_MS = 15_000;
 const REPORT_EVERY_MS = 60_000;
 const MAX_TRACKED_KEYS = 500;
 const MAX_TRACKED_PATHS = 1000;
@@ -104,7 +112,7 @@ function pathOf(key: string): string {
 type Clock = () => number;
 const NOOP = (): void => {};
 
-export type LoopVerdict = 'ok' | 'loop' | 'failing' | 'rapid_budget' | 'fail_budget';
+export type LoopVerdict = 'ok' | 'loop' | 'failing' | 'rapid_budget' | 'fail_budget' | 'slot_wait';
 export type BudgetKind = 'rapid' | 'fail';
 
 export interface RequestLoopGuardOptions {
@@ -113,6 +121,20 @@ export interface RequestLoopGuardOptions {
   onSpend?: (kind: BudgetKind) => void;
   /** Whether the page-wide failure limits apply right now (only behind the edge). */
   edgeLimitsEnabled?: () => boolean;
+  /** Called when a read starts waiting for an in-flight slot (for reports). */
+  onSlotWait?: () => void;
+}
+
+/** Why `acquire` refused a read instead of granting a slot. */
+export type SlotRefusal = 'fail_budget' | 'failing' | 'slot_wait';
+
+interface SlotWaiter {
+  key: string;
+  resolve: (value: (() => void) | SlotRefusal) => void;
+  reject: (reason: unknown) => void;
+  signal: AbortSignal | null;
+  timer: ReturnType<typeof setTimeout> | null;
+  onAbort: (() => void) | null;
 }
 
 export class RequestLoopGuard {
@@ -125,8 +147,10 @@ export class RequestLoopGuard {
   /** Last outcome per path (true = 2xx, false = failure status); insertion-ordered, capped. */
   readonly #pathOk = new Map<string, boolean>();
   #inflightUnproven = 0;
-  readonly #slotWaiters = new Set<() => void>();
+  readonly #slotQueue: SlotWaiter[] = [];
+  #expiryTimer: ReturnType<typeof setTimeout> | null = null;
   readonly #edgeLimitsEnabled: () => boolean;
+  readonly #onSlotWait?: () => void;
   readonly #budget: Record<BudgetKind, number[]> = { rapid: [], fail: [] };
   readonly #reportedAt = new Map<string, number>();
   readonly #now: Clock;
@@ -137,6 +161,7 @@ export class RequestLoopGuard {
     this.#now = opts.now ?? (() => Date.now());
     this.#onSpend = opts.onSpend;
     this.#edgeLimitsEnabled = opts.edgeLimitsEnabled ?? (() => true);
+    this.#onSlotWait = opts.onSlotWait;
   }
 
   /**
@@ -226,50 +251,107 @@ export class RequestLoopGuard {
    * slots held may not reach EDGE_FAIL_SAFE. A read that finds no slot WAITS
    * for one (it is not refused) — so a burst of first reads, however large,
    * reaches the server at most EDGE_FAIL_SAFE at a time, and even if every one
-   * of them fails the page stays under the edge's line. Resolves to the release
-   * function (call it once the read settles, however it settles), or to null
-   * when the page's failure budget is spent while waiting (refuse the read).
+   * of them fails the page stays under the edge's line. Queued reads are served
+   * first come, first served, re-checked when a slot is released and when the
+   * oldest landed failure leaves the window. Resolves to the release function
+   * (call it once the read settles, however it settles), or to a refusal: the
+   * page's failure budget filled ('fail_budget'), the read's URL got
+   * fail-blocked ('failing'), or no slot freed within SLOT_WAIT_MAX_MS
+   * ('slot_wait').
    * Paths that last answered 2xx, and every read when the edge limits are off
    * (a known-local backend), take no slot.
    */
-  acquire(key: string, signal?: AbortSignal | null): Promise<(() => void) | null> {
+  acquire(key: string, signal?: AbortSignal | null): Promise<(() => void) | SlotRefusal> {
     if (this.#pathOk.get(pathOf(key)) === true || !this.#edgeLimitsEnabled()) return Promise.resolve(NOOP);
     return new Promise((resolve, reject) => {
-      const attempt = (): boolean => {
-        const failed = this.#expireBudget('fail', this.#now()).length;
-        if (failed >= PAGE_FAIL_MAX) {
-          resolve(null);
-          return true;
-        }
-        if (failed + this.#inflightUnproven >= EDGE_FAIL_SAFE) return false;
-        this.#inflightUnproven += 1;
-        let released = false;
-        resolve(() => {
-          if (released) return;
-          released = true;
-          this.#inflightUnproven -= 1;
-          for (const wake of [...this.#slotWaiters]) wake();
-        });
-        return true;
-      };
-      if (attempt()) return;
+      const waiter: SlotWaiter = { key, resolve, reject, signal: signal ?? null, timer: null, onAbort: null };
+      // First come, first served: a newcomer never overtakes a queued read.
+      if (this.#slotQueue.length === 0 && this.#tryGrant(waiter)) return;
       if (signal?.aborted) {
         reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
         return;
       }
-      const onAbort = () => {
-        this.#slotWaiters.delete(wake);
-        reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
-      };
-      const wake = () => {
-        if (attempt()) {
-          this.#slotWaiters.delete(wake);
-          signal?.removeEventListener('abort', onAbort);
-        }
-      };
-      this.#slotWaiters.add(wake);
-      signal?.addEventListener('abort', onAbort, { once: true });
+      waiter.timer = setTimeout(() => {
+        this.#dequeue(waiter);
+        resolve('slot_wait');
+      }, SLOT_WAIT_MAX_MS);
+      if (signal) {
+        waiter.onAbort = () => {
+          this.#dequeue(waiter);
+          reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        };
+        signal.addEventListener('abort', waiter.onAbort, { once: true });
+      }
+      this.#slotQueue.push(waiter);
+      this.#onSlotWait?.();
+      this.#scheduleExpiryWake();
     });
+  }
+
+  /** Grant `waiter` a slot, refuse it, or leave it waiting (returns false). */
+  #tryGrant(waiter: SlotWaiter): boolean {
+    const failed = this.#expireBudget('fail', this.#now()).length;
+    if (failed >= PAGE_FAIL_MAX) {
+      waiter.resolve('fail_budget');
+      return true;
+    }
+    // Its URL got fail-blocked while it waited: the per-URL verdict applies.
+    if ((this.#failBlockedUntil.get(waiter.key) ?? 0) > this.#now()) {
+      waiter.resolve('failing');
+      return true;
+    }
+    if (failed + this.#inflightUnproven >= EDGE_FAIL_SAFE) return false;
+    this.#inflightUnproven += 1;
+    let released = false;
+    waiter.resolve(() => {
+      if (released) return;
+      released = true;
+      this.#inflightUnproven -= 1;
+      this.#drainQueue();
+    });
+    return true;
+  }
+
+  #dequeue(waiter: SlotWaiter): void {
+    const i = this.#slotQueue.indexOf(waiter);
+    if (i >= 0) this.#slotQueue.splice(i, 1);
+    if (waiter.timer !== null) clearTimeout(waiter.timer);
+    if (waiter.onAbort) waiter.signal?.removeEventListener('abort', waiter.onAbort);
+    if (this.#slotQueue.length === 0) this.#clearExpiryWake();
+  }
+
+  /** Serve queued reads in order until the head cannot be served. */
+  #drainQueue(): void {
+    while (this.#slotQueue.length > 0) {
+      const head = this.#slotQueue[0];
+      if (!this.#tryGrant(head)) break;
+      this.#dequeue(head);
+    }
+    this.#scheduleExpiryWake();
+  }
+
+  /** Landed failures leave the window over time: re-check the queue when the
+   * oldest one does, not only when a slot is released. */
+  #scheduleExpiryWake(): void {
+    this.#clearExpiryWake();
+    if (this.#slotQueue.length === 0) return;
+    const oldest = this.#expireBudget('fail', this.#now())[0];
+    if (oldest === undefined) return;
+    this.#expiryTimer = setTimeout(() => {
+      this.#expiryTimer = null;
+      this.#drainQueue();
+    }, Math.max(0, oldest + PAGE_WINDOW_MS - this.#now()) + 1);
+  }
+
+  #clearExpiryWake(): void {
+    if (this.#expiryTimer !== null) clearTimeout(this.#expiryTimer);
+    this.#expiryTimer = null;
+  }
+
+  /** Tests only: drop queued reads and timers. */
+  dispose(): void {
+    for (const w of [...this.#slotQueue]) this.#dequeue(w);
+    this.#clearExpiryWake();
   }
 
   /** A read of `key` came back 2xx: its path is known to work. */

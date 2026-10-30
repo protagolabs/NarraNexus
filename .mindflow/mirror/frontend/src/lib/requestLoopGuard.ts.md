@@ -64,13 +64,24 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   slots while in flight: landed failures in the window plus slots held may not
   reach `EDGE_FAIL_SAFE` (18, under the edge's 20). A read that finds no slot
   **waits** for one instead of being refused, so a clean page's burst of first
-  reads all goes out (at most 18 at a time; reads take ~100ms, so the queue
-  costs little), while a burst of failing reads can never put more than 18
-  failures on the wire. If the failure budget fills while a read waits, it is
-  refused. `guardedFetch` releases the slot in `finally`; a read aborted while
-  waiting rejects with an AbortError and frees nothing. Paths that last
-  answered 2xx take no slot. Slots are per tab: two tabs bursting at the same
-  moment can still sum past the line. A stale or foreign selection replayed on
+  reads all goes out (at most 18 at a time), while a burst of failing reads can
+  never put more than 18 failures on the wire. The queue is first come, first
+  served and is re-checked when a slot is released **and** when the oldest
+  landed failure leaves the window (a timer). A queued read is refused — never
+  let through — when the failure budget fills (`fail_budget`), when its own URL
+  got fail-blocked meanwhile (`failing`), or after `SLOT_WAIT_MAX_MS` (15s,
+  `slot_wait`). The wait limit matters because a slot is held until response
+  headers arrive: a slow or degraded backend (requests running into upstream
+  timeouts) can hold all 18, and the reads behind them then fail visibly
+  instead of spinning forever. The first time reads start queueing,
+  guardedFetch logs one throttled warning. `guardedFetch` releases the slot in
+  `finally`; a read aborted while waiting rejects with an AbortError and frees
+  nothing. Paths that last answered 2xx take no slot — so when an agent is
+  deleted or changes owner, its 10–15 proven panel paths can all turn 404 at
+  once, uncapped (held by the page budget only after they land). Slots are per
+  tab (only landed failures are shared over the BroadcastChannel): two tabs
+  bursting at the same moment, e.g. a session restored in two tabs on an agent
+  that now 403s, can together exceed the edge line. A stale or foreign selection replayed on
   every load is also removed at the root (`configStore.refreshAgents` clears a
   selection the server does not list; defaults never pick a stranger's agent).
 - **Page-wide limits are off for a known-local backend.** `edgeLimitsEnabled`

@@ -107,4 +107,22 @@ describe('BundleExportPage ?agents= quick-launch', () => {
     }
     storeState.agents = [];
   });
+
+  it('waits for the agent list before applying the link (a cold deep link)', async () => {
+    storeState.agents = [];
+    vi.mocked(api.previewBusChannels).mockClear();
+    vi.mocked(api.previewBusChannels).mockResolvedValue({ success: true, channels: [] } as never);
+    const view = renderStandalone(['/app/bundle/export?agents=foreign_1,agent_1']);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.previewBusChannels).not.toHaveBeenCalled();
+    storeState.agents = [{ agent_id: 'agent_1', name: 'Mine', created_by: 'u1' }];
+    view.rerender(
+      <MemoryRouter initialEntries={['/app/bundle/export?agents=foreign_1,agent_1']}>
+        <Routes><Route path="/app/bundle/export" element={<BundleExportPage />} /></Routes>
+      </MemoryRouter>,
+    );
+    await vi.waitFor(() => expect(api.previewBusChannels).toHaveBeenCalled());
+    for (const [ids] of vi.mocked(api.previewBusChannels).mock.calls) expect(ids).toEqual(['agent_1']);
+    storeState.agents = [];
+  });
 });

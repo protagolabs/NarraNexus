@@ -31,16 +31,20 @@ A guarded read whose response status is in `FAILURE_STATUSES` (400 / 403 /
 404 / 405) is reported to the guard (`recordFailure`); any status below 400 —
 304 included — proves the path (`recordSuccess`). Every admitted read first
 takes an in-flight slot from `guard.acquire(url, signal)` (unproven paths
-only; it waits when none is free) and releases it in `finally`, so a burst of
-unproven reads reaches the server at most `EDGE_FAIL_SAFE` at a time. Refusals
+only; it waits when none is free, up to `SLOT_WAIT_MAX_MS`) and releases it in
+`finally`, so in one tab a burst of unproven reads reaches the server at most
+`EDGE_FAIL_SAFE` at a time. Only statuses 200–399 prove a path (an opaque
+status 0 does not). Refusals
 by a page budget throw at once; per-URL refusals wait `LOOP_BLOCK_DELAY_MS`
 first.
 
 The page-wide limits are switched off only when the backend is known to be
 local (`knownLocalBackend`: Tauri, forced-local config, runtime mode `local`,
 or an API origin on a loopback host — `bash run.sh` in a browser). Forced cloud
-/ `cloud-web` and an unknown mode keep them on (fail-closed; a LAN self-host on
-a non-loopback address is "not known local"). They were briefly removed with
+/ `cloud-web` and an unknown mode keep them on (fail-closed). In practice the
+app resolves the mode to `local` for every build not forced to cloud
+(`useResolveAppMode`), so the deciding input is the forced-cloud flag, which
+the cloud deployment sets (`NARRANEXUS_FORCE_MODE=cloud`). They were briefly removed with
 the volume budget, then restored for this switch only (review I-1 on #434: a
 minimal distribution's excluded plugins 404 on every poll, and there is no edge
 to protect against locally).

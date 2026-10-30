@@ -1,5 +1,5 @@
 /**
- * Unit tests for the first-run gate (see lib/onboardingGate.ts).
+ * Unit tests for the first-run gate (see lib/agentIdentity/onboardingGate.ts).
  *
  * The regression this file exists for: a brand-new account must be sent to the
  * welcome flow. Login provisions a guide agent (and sometimes NetMind provider

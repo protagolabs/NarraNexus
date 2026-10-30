@@ -20,6 +20,7 @@ import {
   FAIL_MAX,
   PAGE_FAIL_MAX,
   EDGE_FAIL_SAFE,
+  SLOT_WAIT_MAX_MS,
   PAGE_WINDOW_MS,
   RequestLoopGuard,
 } from '../requestLoopGuard';
@@ -575,6 +576,57 @@ describe('guardedFetch in-flight slots and runtime mode', () => {
     expect(after.status).toBe(200);
   });
 
+  it('a read that finds no slot within SLOT_WAIT_MAX_MS is refused, never let through', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {})); // a hung backend
+    for (let i = 0; i < EDGE_FAIL_SAFE; i++) void guardedFetch(`/api/hung/${i}`);
+    const waiting = guardedFetch('/api/waiting').catch((e) => e);
+    await vi.advanceTimersByTimeAsync(SLOT_WAIT_MAX_MS + 1);
+    expect(await waiting).toBeInstanceOf(RequestLoopBlockedError);
+    expect(spy).toHaveBeenCalledTimes(EDGE_FAIL_SAFE);
+  });
+
+  it('queued reads are served first come, first served', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      order.push(String(input));
+      if (String(input).startsWith('/api/held')) await gate;
+      return new Response('{}');
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const held = Array.from({ length: EDGE_FAIL_SAFE }, (_, i) => guardedFetch(`/api/held/${i}`));
+    const queued = ['/api/q/1', '/api/q/2', '/api/q/3'].map((u) => guardedFetch(u));
+    release();
+    await Promise.all([...held, ...queued]);
+    expect(order.slice(EDGE_FAIL_SAFE)).toEqual(['/api/q/1', '/api/q/2', '/api/q/3']);
+  });
+
+  it('a queued read is re-checked when the oldest failure leaves the window', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const u = String(input);
+      if (u.startsWith('/api/gone')) return new Response('', { status: 404 });
+      if (u.startsWith('/api/held')) return new Promise<Response>(() => {}); // never settles
+      return new Response('{}');
+    });
+    for (let i = 0; i < 9; i++) await guardedFetch(`/api/gone/${i}`); // 9 failures, under the budget
+    await vi.advanceTimersByTimeAsync(PAGE_WINDOW_MS - 5_000); // they expire 5s from now
+    for (let i = 0; i < EDGE_FAIL_SAFE - 9; i++) void guardedFetch(`/api/held/${i}`); // 9 + 9 = 18: full
+    await vi.advanceTimersByTimeAsync(0);
+    expect(spy).toHaveBeenCalledTimes(EDGE_FAIL_SAFE);
+    const waiting = guardedFetch('/api/waiting');
+    // No slot is ever released; only the failures expiring (before the 15s
+    // wait limit) can let it through.
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect((await waiting).status).toBe(200);
+  });
+
   it('a local backend has no page-wide limits (no edge in front of it)', async () => {
     useRuntimeStore.setState({ mode: 'local' });
     __resetRequestLoopGuardForTests();
@@ -667,7 +719,7 @@ describe('guardedFetch reports failing reads', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(16);
   });
 
-  it('on a clean page a burst of first reads is never held back', async () => {
+  it('on a clean page a burst of 2xx first reads all goes out', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve(new Response('{}', { status: 200 })), 20)),
     );

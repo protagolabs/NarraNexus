@@ -45,7 +45,7 @@ Failure wiring: a read that keeps answering 404 stops reaching the network,
 a read that answered 2xx keeps working while other reads exhaust the budget,
 once a read has failed 25 concurrent first reads reach the network at most
 `EDGE_FAIL_SAFE` times (< 20), one stray failure still lets an ordinary panel
-switch's 15 first reads all go out, a clean page's burst of 40 first reads is never held,
+switch's 15 first reads all go out, a clean page's burst of 40 2xx first reads all goes out,
 reads settling by network error release their pending slot,
 its failures are announced to other tabs, and failing writes are never
 counted. Each case starts
@@ -55,7 +55,10 @@ In-flight slots and runtime mode (guardedFetch): a crafted burst of 250
 failing first reads on a clean page puts at most `EDGE_FAIL_SAFE` on the wire
 and never more than that in flight; a clean burst of 40 first reads all goes
 out, at most `EDGE_FAIL_SAFE` at a time; a page-budget refusal is immediate; a
-read waiting for a slot rejects on abort and leaks no slot; a local backend
+read waiting for a slot rejects on abort and leaks no slot; a read that finds
+no slot within `SLOT_WAIT_MAX_MS` behind a hung backend is refused (and never
+sent); queued reads go out in arrival order; a queued read is let through when
+the oldest failure leaves the window even though no slot is ever released; a local backend
 (mode `local`, or no mode on a loopback origin) has no page-wide limits; an
 unknown mode with a non-loopback API keeps them (fail-closed). The file runs
 in `cloud-web` mode by default, because jsdom's localhost origin would read as
