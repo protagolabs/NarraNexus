@@ -3113,6 +3113,7 @@
   },
   "appBanners": {
     "sessionExpired": "Your session expired. Please sign in again. (click to dismiss)",
+    "accountSuspended": "This account is not available. You have been signed out. (click to dismiss)",
     "sessionExpiringSoon": "Your session expires in {{time}}. Sign out and back in to avoid losing work. (click to dismiss)",
     "circuitPausedQuota": "This agent is paused after repeated quota/balance failures. Fix its provider, then resume.",
     "circuitPausedAuth": "This agent is paused after repeated authentication failures. Re-authenticate or set a provider, then resume.",

@@ -2598,6 +2598,7 @@
   },
   "appBanners": {
     "sessionExpired": "Votre session a expiré. Veuillez vous reconnecter. (cliquez pour fermer)",
+    "accountSuspended": "Ce compte n'est pas disponible. Vous avez été déconnecté. (cliquer pour fermer)",
     "sessionExpiringSoon": "Votre session expire dans {{time}}. Déconnectez-vous puis reconnectez-vous pour ne pas perdre votre travail. (cliquez pour fermer)",
     "circuitPausedQuota": "Cet agent est en pause après des échecs répétés de quota/solde. Corrigez son fournisseur, puis reprenez.",
     "circuitPausedAuth": "Cet agent est en pause après des échecs d'authentification répétés. Réauthentifiez-vous ou définissez un fournisseur, puis reprenez.",

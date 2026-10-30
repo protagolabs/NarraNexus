@@ -131,7 +131,7 @@ import type {
   BrowserLoginRequest,
 } from '@/types/browser';
 import { markGuideCoachmarkPending } from './guideCoachmark';
-import { isSessionDeadFailure, readAuthCode } from './authFailure';
+import { isSessionDeadFailure, readAuthCode, ACCOUNT_SUSPENDED_CODE } from './authFailure';
 import { confirmSessionDeath } from './sessionGuard';
 import { ApiError } from './apiError';
 import { guardedFetch } from './guardedFetch';
@@ -225,6 +225,13 @@ class ApiClient {
       // /login on 2026-08-02 while their sessions were perfectly valid.
       if (response.status === 401 && isSessionDeadFailure(body)) {
         void confirmSessionDeath({ endpoint, code: readAuthCode(body) });
+      }
+      // A suspended account gets 403 on every request. Left alone, every open
+      // tab keeps polling into a stream of 403s — the failures the edge
+      // monitor bans an IP on, taking down whoever else shares that address.
+      // App signs out on this event, which stops every poll.
+      if (response.status === 403 && readAuthCode(body) === ACCOUNT_SUSPENDED_CODE) {
+        window.dispatchEvent(new CustomEvent('narranexus:account-suspended', { detail: { endpoint } }));
       }
 
       // Extract the FastAPI HTTPException `detail` field so callers get

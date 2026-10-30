@@ -32,6 +32,7 @@ import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
 import { ArenaProvisioningModal } from '@/components/arena/ArenaProvisioningModal';
 import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary';
+import { useAccountSuspendedSignOut } from '@/hooks/useAccountSuspendedSignOut';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 
@@ -299,6 +300,8 @@ function App() {
   // (on the WS side) was stranded on the chat surface with red "Token
   // expired" bubbles and no way out.
   const [sessionExpired, setSessionExpired] = useState(false);
+  // Suspended account: signed out so every poll stops (see the hook).
+  const [accountSuspended, dismissAccountSuspended] = useAccountSuspendedSignOut();
   useEffect(() => {
     const handler = (e: Event) => {
       const { isLoggedIn, logout } = useConfigStore.getState();
@@ -323,6 +326,7 @@ function App() {
     window.addEventListener('narranexus:auth-expired', handler);
     return () => window.removeEventListener('narranexus:auth-expired', handler);
   }, []);
+
 
   // Pre-expiry warning. The JWT lasts 7 days and cannot be refreshed, so
   // without this the session simply stops working mid-click. Warning a day
@@ -486,7 +490,16 @@ function App() {
       <MockBanner />
       <UpdateBanner />
       <ArenaProvisioningModal />
-      {sessionExpired && (
+      {accountSuspended && (
+        <div
+          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
+          onClick={dismissAccountSuspended}
+          role="alert"
+        >
+          {t('appBanners.accountSuspended')}
+        </div>
+      )}
+      {!accountSuspended && sessionExpired && (
         <div
           className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
           onClick={() => setSessionExpired(false)}
@@ -495,7 +508,7 @@ function App() {
           {t('appBanners.sessionExpired')}
         </div>
       )}
-      {!sessionExpired &&
+      {!sessionExpired && !accountSuspended &&
         expiresInMs !== null &&
         shouldShowExpiryWarning(expiresInMs, expiryDismissedAt) && (
           <div

@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-09-10
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 封号即退出登录 + 「账号不可用」提示
+
+挂 [[useAccountSuspendedSignOut]]：收到 `narranexus:account-suspended` 就 `logout()` 并显示
+`appBanners.accountSuspended`（10 个 locale），优先于会话过期 / 即将过期横幅。退出后轮询全部停止，后续请求
+不带凭据、回 401，边缘不计数；重新登录会被登录闸门拒绝，所以是终态。
 
 ## 2026-09-10 — 熔断横幅轮询抽成 `useCircuitBannerAutoClear`，事件 handler 去重
 

@@ -28,6 +28,10 @@ export const SESSION_DEAD_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /** Pull the `code` out of a parsed 401 body; null when absent or malformed. */
+/** backend/auth_errors.py ACCOUNT_SUSPENDED: authenticated, but the account
+ * may not transact (403 on every request). */
+export const ACCOUNT_SUSPENDED_CODE = 'account_suspended';
+
 export function readAuthCode(body: unknown): string | null {
   if (!body || typeof body !== 'object') return null;
   const code = (body as { code?: unknown }).code;

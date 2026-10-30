@@ -4,6 +4,13 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 403 `account_suspended` 派发 `narranexus:account-suspended`
+
+封号账号的每个请求都会被后端账号状态闸门回 403 `account_suspended`。前端此前不认这个码，开着的页面会一直
+轮询、成串拿 403——正是边缘监控 v2 按失败数封 IP 的信号，会连带封掉同一出口（办公室 NAT）的其他人。
+`request()` 遇到这个码就派发事件，由 [[useAccountSuspendedSignOut]] 退出登录，所有轮询随之停止。普通 403
+（别人的 agent 等）不触发。
+
 ## 2026-10-30 — `getChatLatest(agentIds)`
 
 `GET /api/agents/chat-latest`（每个 id 一个 `agent_ids` 查询参数）：一次拿一批 agent（≤200）对话 tab 最新一行的时间戳，供
