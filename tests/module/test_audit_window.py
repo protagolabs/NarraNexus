@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.module_system._audit_window import OVERFLOW_KEY, WindowedAuditCounter
+from narranexus.platform.module_system._audit_window import OVERFLOW_KEY, AuditField, WindowedAuditCounter
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def rows(monkeypatch):
 
 def _counter(**kw):
     return WindowedAuditCounter(
-        event_type="ev", fields=("a", "b"), caps=kw.pop("caps", (4, 8)), **kw
+        event_type="ev", fields=(AuditField("a", cap=4), AuditField("b", cap=8)), **kw
     )
 
 
@@ -57,9 +57,9 @@ def test_overflow_collapses_every_dimension_into_one_constant_key():
     assert pending[OVERFLOW_KEY] == 7
 
 
-def test_caps_must_match_fields():
+def test_at_least_one_field():
     with pytest.raises(ValueError):
-        WindowedAuditCounter(event_type="ev", fields=("a", "b"), caps=(4,))
+        WindowedAuditCounter(event_type="ev", fields=())
 
 
 async def test_flush_writes_one_row_per_window_and_returns_entries(rows):
@@ -105,7 +105,7 @@ async def test_reset_clears_counts_and_reopens_the_window(rows):
 
 
 def test_none_cap_means_not_truncated():
-    c = WindowedAuditCounter(event_type="ev", fields=("a", "b"), caps=(2, None))
+    c = WindowedAuditCounter(event_type="ev", fields=(AuditField("a", cap=2), AuditField("b")))
     c.note(("abcdef", "0123456789"))
     assert c.pending() == {("ab", "0123456789"): 1}
 
@@ -121,8 +121,8 @@ async def test_overflow_entry_shape_default_and_custom_blanks(rows):
     c.note(("b", "y"))
     entries = await c.flush()
     assert {"a": "<overflow>", "b": "", "n": 1} in entries
-    c2 = WindowedAuditCounter(event_type="ev", fields=("a", "b"), caps=(4, None),
-                              blanks=("", 0), keys_max=1)
+    c2 = WindowedAuditCounter(event_type="ev", fields=(AuditField("a", cap=4), AuditField("b", blank=0)),
+                              keys_max=1)
     c2.note(("a", 1))
     c2.note(("b", 2))
     assert {"a": "<overflow>", "b": 0, "n": 1} in await c2.flush()
@@ -151,3 +151,17 @@ async def test_before_write_runs_before_the_db_write(monkeypatch):
     c.note(("u", "p"))
     await c.flush(before_write=lambda entries: order.append(f"log:{len(entries)}"))
     assert order == ["log:1", "db", "write"]
+
+
+async def test_a_failing_before_write_never_breaks_the_flush(rows):
+    """The callback is the caller's; if it raises, the row is still written
+    and nothing propagates to the measured call."""
+    c = _counter()
+    c.note(("u", "p"))
+
+    def boom(_entries):
+        raise RuntimeError("log formatting broke")
+
+    entries = await c.flush(before_write=boom)
+    assert entries == [{"a": "u", "b": "p", "n": 1}]
+    assert len(rows) == 1

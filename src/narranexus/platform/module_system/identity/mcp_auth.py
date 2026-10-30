@@ -37,7 +37,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from narranexus.platform.module_system._audit_window import WindowedAuditCounter
+from narranexus.platform.module_system._audit_window import AuditField, WindowedAuditCounter
 from narranexus.platform.schema.executor_audit import EVENT_MCP_AUTH_TOKENLESS
 
 from narranexus.platform.module_system.identity.tokens import (
@@ -166,9 +166,12 @@ _LOG_TOP_N = 20
 # "POST"; port is a server-side int); the overflow entry keeps port an int.
 _TOKENLESS = WindowedAuditCounter(
     event_type=EVENT_MCP_AUTH_TOKENLESS,
-    fields=("caller", "method", "path", "port"),
-    caps=(_DECLARED_MAX_LEN, None, _PATH_MAX_LEN, None),
-    blanks=("", "", "", 0),
+    fields=(
+        AuditField("caller", cap=_DECLARED_MAX_LEN),
+        AuditField("method"),
+        AuditField("path", cap=_PATH_MAX_LEN),
+        AuditField("port", blank=0),
+    ),
     keys_max=_TOKENLESS_KEYS_MAX,
     window_s=_TOKENLESS_FLUSH_SECONDS,
 )

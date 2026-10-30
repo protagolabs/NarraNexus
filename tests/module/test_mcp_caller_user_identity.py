@@ -413,12 +413,12 @@ def test_override_keys_are_bounded(audit_rows, monkeypatch):
 
     monkeypatch.setattr(ident._OVERRIDES, "_deadline", float("inf"))  # hold the window open
     with injected({USER_ID_HEADER: USER}):
-        for i in range(256 + 50):
+        for i in range(ident._OVERRIDE_KEYS_MAX + 50):
             resolve_caller_user_id(f"forged_user_{i:04d}" + "x" * 200, tool="t")
     pending = ident._OVERRIDES.pending()
-    assert len(pending) == 256 + 1
+    assert len(pending) == ident._OVERRIDE_KEYS_MAX + 1
     assert pending[OVERFLOW_KEY] == 50
-    assert all(len(k[1]) <= 64 for k in pending if k != OVERFLOW_KEY)
+    assert all(len(k[1]) <= ident._OVERRIDE_VALUE_MAX for k in pending if k != OVERFLOW_KEY)
 
 
 @pytest.mark.asyncio

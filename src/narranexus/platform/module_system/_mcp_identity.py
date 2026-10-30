@@ -71,7 +71,7 @@ from typing import Any, Callable, NamedTuple, Optional
 
 from loguru import logger
 
-from narranexus.platform.module_system._audit_window import WindowedAuditCounter
+from narranexus.platform.module_system._audit_window import AuditField, WindowedAuditCounter
 from narranexus.platform.schema.executor_audit import EVENT_MCP_IDENTITY_USER_OVERRIDE
 
 # The honest header. Lowercased on lookup — HTTP headers are case-insensitive
@@ -451,10 +451,18 @@ def caller_event_id_from_request() -> Optional[str]:
 # tokenless measurement, through the same helper (_audit_window): in-process
 # counts, every dimension capped (`supplied` is caller-controlled), one
 # constant overflow bucket past 256 keys, one row per window.
+_OVERRIDE_VALUE_MAX = 64
+_OVERRIDE_KEYS_MAX = 256
+_OVERRIDE_FLUSH_SECONDS = 60.0
 _OVERRIDES = WindowedAuditCounter(
     event_type=EVENT_MCP_IDENTITY_USER_OVERRIDE,
-    fields=("tool", "supplied", "owner"),
-    caps=(64, 64, 64),  # overflow entry: tool "<overflow>", others "" (default blanks)
+    fields=(
+        AuditField("tool", cap=_OVERRIDE_VALUE_MAX),
+        AuditField("supplied", cap=_OVERRIDE_VALUE_MAX),
+        AuditField("owner", cap=_OVERRIDE_VALUE_MAX),
+    ),
+    keys_max=_OVERRIDE_KEYS_MAX,
+    window_s=_OVERRIDE_FLUSH_SECONDS,
 )
 
 
