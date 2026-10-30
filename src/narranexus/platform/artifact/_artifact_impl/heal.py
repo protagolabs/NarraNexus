@@ -22,6 +22,8 @@ from typing import List, Optional
 
 from loguru import logger
 
+from narranexus.platform.utils.logging import log_boundary_violation
+
 from narranexus.platform.artifact._artifact_impl import registration
 from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactError,
@@ -247,6 +249,7 @@ async def heal_artifact(
         search_root = str(team_shared_dir(user_id, art.team_id, base))
     if os.path.islink(search_root):
         logger.warning(f"heal_artifact: {artifact_id} scope root is a symlink, refusing: {search_root}")
+        log_boundary_violation("artifact.heal_symlink", owner=user_id, detail=search_root)
         return HealResult(
             recovered=False,
             candidates=[],

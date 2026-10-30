@@ -29,6 +29,7 @@ from fastapi.responses import FileResponse
 from loguru import logger
 
 from backend.config import settings as backend_settings
+from narranexus.platform.utils.logging import log_boundary_violation
 from backend.routes._ownership import require_owned_workspace_agent
 from narranexus.platform.schema import (
     FileInfo,
@@ -69,6 +70,9 @@ def _get_workspace_path(agent_id: str, user_id: str) -> str:
     except ValueError:
         # The owner replaced its workspace dir with a link (to anywhere);
         # nothing under it is served, listed or deleted.
+        log_boundary_violation(
+            "agent_files.workspace_symlink", actor=user_id, owner=user_id, detail=str(workspace)
+        )
         raise HTTPException(404, "agent not found")
     return str(workspace)
 
@@ -164,7 +168,7 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
     return tree, budget["truncated"]
 
 
-def _resolve_within_workspace(workspace: Path, rel_path: str) -> Path:
+def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> Path:
     """Resolve a workspace-relative path to an absolute path, refusing escape.
 
     Rejects:
@@ -175,12 +179,23 @@ def _resolve_within_workspace(workspace: Path, rel_path: str) -> Path:
 
     Returns the realpath-resolved absolute path. The caller decides what to do
     with it (read, delete, ...).
+
+    A `..` segment, a NUL byte and a realpath outside the workspace are also
+    logged as boundary violations (``actor`` = the caller): the file browser
+    only ever sends paths it listed. A dotfile name is refused quietly — it is
+    a policy (hidden files are not served), not a probe signal.
     """
-    if not rel_path or "\x00" in rel_path:
+    if not rel_path:
+        raise HTTPException(400, "invalid path")
+    if "\x00" in rel_path:
+        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
         raise HTTPException(400, "invalid path")
     posix = PurePosixPath(rel_path.replace("\\", "/"))
     parts = posix.parts
-    if any(part in ("", ".", "..") or part.startswith(".") for part in parts):
+    if any(part == ".." for part in parts):
+        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
+        raise HTTPException(400, "invalid path: dotfolders and traversal are not allowed")
+    if any(part in ("", ".") or part.startswith(".") for part in parts):
         raise HTTPException(400, "invalid path: dotfolders and traversal are not allowed")
 
     # The workspace root is LEXICAL (base already realpath-ed by
@@ -191,6 +206,7 @@ def _resolve_within_workspace(workspace: Path, rel_path: str) -> Path:
     try:
         candidate.relative_to(workspace)
     except ValueError:
+        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
         raise HTTPException(400, "invalid path: outside the agent workspace")
     return candidate
 
@@ -243,7 +259,7 @@ async def fetch_workspace_file(
     """
     user_id = await require_owned_workspace_agent(request, agent_id)
     workspace = Path(_get_workspace_path(agent_id, user_id))
-    target = _resolve_within_workspace(workspace, path)
+    target = _resolve_within_workspace(workspace, path, actor=user_id)
     if not target.is_file():
         raise HTTPException(404, "file not found")
     media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
@@ -311,7 +327,7 @@ async def delete_file(
     logger.info(f"Deleting workspace path '{path}' for agent: {agent_id}, user: {user_id}")
     try:
         workspace = Path(_get_workspace_path(agent_id, user_id))
-        target = _resolve_within_workspace(workspace, path)
+        target = _resolve_within_workspace(workspace, path, actor=user_id)
         if not target.exists():
             return FileDeleteResponse(success=False, error=f"path not found: {path}")
         if target.is_dir():

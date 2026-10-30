@@ -354,3 +354,55 @@ def test_depth_cap_on_an_empty_directory_is_not_reported_as_truncated(setup, mon
     r = setup["client"].get(f"/api/agents/{OWNED_AGENT}/files", headers=AS_OWNER)
     assert r.json()["truncated"] is True
     assert "below.txt" not in r.text
+
+
+# --- boundary-violation log line (2026-10-30) --------------------------------
+# A log watcher alerts on `[security.boundary]`. It must fire on every refused
+# traversal and never on the owner's ordinary use — a false positive here is an
+# alert someone has to triage.
+
+
+@pytest.fixture
+def boundary_lines():
+    from loguru import logger
+
+    captured: list[str] = []
+    sink_id = logger.add(captured.append, level="WARNING", format="{message}")
+    yield lambda: [line for line in captured if "[security.boundary]" in line]
+    logger.remove(sink_id)
+
+
+@pytest.mark.parametrize("bad_agent", DOT_AGENT_IDS)
+def test_traversing_agent_id_is_logged(setup, boundary_lines, bad_agent):
+    setup["client"].get(f"/api/agents/{bad_agent}/files", headers=AS_OWNER)
+    hits = boundary_lines()
+    assert len(hits) == 1
+    assert "surface=agent_route.agent_id" in hits[0]
+    assert f"actor={OWNER}" in hits[0]
+
+
+def test_traversing_path_is_logged(setup, boundary_lines):
+    setup["client"].get(
+        f"/api/agents/{OWNED_AGENT}/files/raw",
+        params={"path": f"../../{VICTIM_REL}"},
+        headers=AS_OWNER,
+    )
+    hits = boundary_lines()
+    assert len(hits) == 1 and "surface=agent_files.path" in hits[0]
+
+
+def test_dotfile_and_foreign_agent_are_refused_quietly(setup, boundary_lines):
+    client = setup["client"]
+    r = client.get(
+        f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": ".env"}, headers=AS_OWNER
+    )
+    assert r.status_code == 400
+    # A well-formed id the caller does not own is a stale link, not a probe.
+    r = client.get(f"/api/agents/{VICTIM_AGENT}/files", headers=AS_OWNER)
+    assert r.status_code == 404
+    assert boundary_lines() == []
+
+
+def test_owner_use_logs_nothing(setup, boundary_lines):
+    test_owner_can_list_read_upload_delete(setup)
+    assert boundary_lines() == []

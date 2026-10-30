@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/agents/files.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 越界路径记边界日志
+
+`_resolve_within_workspace` 新增必填关键字 `actor`。`..` 段、NUL、realpath 落在 workspace
+外这三种情况调用 `log_boundary_violation("agent_files.path")`；点开头的文件名仍拒绝但不记
+（这是"不提供隐藏文件"的策略，不是探测信号）。workspace 被换成符号链接时记
+`agent_files.workspace_symlink`。
 
 ## 2026-10-28（复审后）— workspace 根字面化、拒绝符号链接、目录树上限
 

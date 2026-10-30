@@ -57,6 +57,7 @@ from fastapi import HTTPException, Request
 
 from backend.auth import resolve_current_user_id
 from narranexus.platform.repository import AgentRepository
+from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils.workspace_paths import safe_id_segment
 
@@ -168,6 +169,9 @@ async def require_owned_workspace_agent(request: Request, agent_id: str) -> str:
     try:
         safe_id_segment(agent_id, label="agent_id")
     except ValueError:
+        # No product surface ever builds such an id; it is the 2026-10-28
+        # traversal shape (or a variant of it).
+        log_boundary_violation("agent_route.agent_id", actor=user_id, detail=agent_id)
         raise HTTPException(status_code=404, detail="agent not found")
     reason = await _deny_reason(request, agent_id, user_id=user_id)
     if reason is not None:

@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/heal.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 搜索根是符号链接时记边界日志
+
+拒绝符号链接搜索根时额外调用 `log_boundary_violation("artifact.heal_symlink", owner=...)`。
+`confine_entry` 本身**不**记：prod 约 6% 的产物行是早期布局/改名遗留的指针，会在每轮
+新鲜度检查里被拒，记了就是持续误报。
 
 # heal.py — broken-pointer recovery strategy
 

@@ -1,8 +1,22 @@
 ---
 code_file: src/narranexus/platform/bundle/importer.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 路径校验前移到 preflight；产物行归属钉死
+
+- `_reject_escaping_bundle_paths`：preflight 在迁移之后、发 token 之前，校验每个
+  `artifacts.json` 行的 `file_path`（复用 `artifact_relpath_or_raise`）和 zip/full_copy
+  技能的 `archive_ref`（`_bundle_member_path_or_raise`）。任一不合格即拒整份包、删解压目录。
+  confirm 里的两处校验保留为第二道。解析不了的 `artifacts.json` 不拦（confirm 本来就只记
+  warning、不写行）；能解析但形状不对（非 list / 行非 dict / 字段非 str）则拒。
+- `rewrite_artifact_row` 新增必填关键字 `team_id`：行的 `agent_id` 一律改为本次新建的
+  agent；原本带 team 的行归入本次导入新建的 team（无则 None），不带 team 的行保持私有。
+  原因：`rewrite_row` 只映射 id_map 里有的 id，`team_id` 不在映射表里，包里写别人的
+  agent/team id 会原样落库。
+- 被拒时调用 `log_boundary_violation`（surface `bundle_import.preflight` /
+  `bundle_import.confirm`），供日志告警统一匹配。
 
 ## 2026-10-28（二审）— `artifacts.json` 行改写提成 `rewrite_artifact_row`
 

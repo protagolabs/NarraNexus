@@ -41,6 +41,7 @@ from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils.db.dialect_errors import is_unique_violation
 from narranexus.platform.utils.deployment_mode import is_cloud_mode
 from narranexus.platform.utils.url_safety import is_obviously_non_public_url
+from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.utils.file_safety import (
     sanitize_filename,
     validate_zip_member_path,
@@ -257,6 +258,7 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
             sanitize_filename(str(aid), label="agent id in manifest")
         except ValueError as e:
             shutil.rmtree(work_dir, ignore_errors=True)
+            log_boundary_violation("bundle_import.preflight", actor=user_id, detail=f"agent id {aid!r}: {e}")
             raise ValueError(f"manifest contains an unusable agent id ({e})")
 
     # Legacy bundle compatibility: pre-3d7e089 exports put every
@@ -304,6 +306,18 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         json.dumps(manifest, indent=2, ensure_ascii=False, default=str),
         encoding="utf-8",
     )
+
+    # Every other path-shaped string the bundle carries is checked HERE, on the
+    # migrated tree confirm() will read, before a token exists — see
+    # `_reject_escaping_bundle_paths`. The agent-id gate above runs earlier
+    # because nothing, migrations included, may join those ids into a path
+    # before they are vetted.
+    try:
+        _reject_escaping_bundle_paths(work_dir, manifest)
+    except ValueError as e:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        log_boundary_violation("bundle_import.preflight", actor=user_id, detail=str(e))
+        raise
 
     # Name clashes
     db = await get_db_client()
@@ -405,20 +419,95 @@ def _bundle_member_path(work_dir: Path, archive_ref: Optional[str]) -> Optional[
     and `ensure_within_directory` accepts only a single segment.
 
     Returns None when the ref is missing or unsafe; callers already treat None
-    as "archive missing in bundle" and record a per-skill failure.
+    as "archive missing in bundle" and record a per-skill failure. Preflight
+    has already refused any bundle with an unsafe ref
+    (`_reject_escaping_bundle_paths`), so the unsafe branch here is the second
+    line, not the gate.
     """
     if not archive_ref:
         return None
     try:
-        member = validate_zip_member_path(archive_ref)
+        return _bundle_member_path_or_raise(work_dir, archive_ref)
     except ValueError as e:
         logger.warning(f"bundle_import.archive_ref.rejected ref={archive_ref!r}: {e}")
         return None
+
+
+def _bundle_member_path_or_raise(work_dir: Path, archive_ref: str) -> Path:
+    """`_bundle_member_path` for a present ref, raising ValueError when unsafe."""
+    member = validate_zip_member_path(archive_ref)
     candidate = (work_dir / member).resolve(strict=False)
     if not candidate.is_relative_to(work_dir.resolve(strict=False)):
-        logger.warning(f"bundle_import.archive_ref.escapes ref={archive_ref!r}")
-        return None
+        raise ValueError("resolves outside the unpacked bundle")
     return candidate
+
+
+_ARCHIVE_INSTALL_METHODS = ("zip", "full_copy")
+
+
+def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> None:
+    """Refuse the bundle if any path-shaped string in it leaves its container.
+
+    A bundle is attacker-controlled input, and two more of its strings become
+    filesystem paths after confirm: each `artifacts.json` row's `file_path`
+    (stored in `instance_artifacts`, later served by the artifact routes) and
+    each archive-installed skill's `archive_ref` (read out of the unpack dir).
+    Confirm re-checks both (`rewrite_artifact_row`, `_bundle_member_path`), but
+    by then preflight had answered 200 and kept the unpacked tree for the TTL:
+    on 2026-10-29 a prober used exactly that 200 to confirm its upload
+    shape before trying `../` pointers at other tenants' files and
+    /etc/passwd. Checking here makes the very first response the refusal.
+
+    The whole bundle is rejected, never a single row — same rule as the
+    agent-id gate (a filtered list would desync id_map from the writes), and
+    no honest export ever produces such a path.
+
+    An `artifacts.json` that does not parse is left alone: confirm reports it
+    as a warning and writes no artifact rows from it, so it carries no path to
+    act on. One that parses into the wrong SHAPE is refused, because confirm
+    would iterate it and fail mid-import.
+
+    Raises:
+        ValueError: naming the offending agent/artifact or skill.
+    """
+    for aid in manifest.get("agents", []) or []:
+        art_path = work_dir / "agents" / str(aid) / "artifacts.json"
+        if not art_path.exists():
+            continue
+        try:
+            rows = json.loads(art_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            raise ValueError(f"agent {aid}: artifacts.json must be a list of objects")
+        for row in rows:
+            fp = row.get("file_path")
+            if not fp:
+                continue
+            if not isinstance(fp, str):
+                raise ValueError(f"agent {aid}: artifact {row.get('artifact_id')!r} file_path is not a string")
+            try:
+                artifact_relpath_or_raise(fp)
+            except ValueError as e:
+                raise ValueError(
+                    f"agent {aid}: artifact {row.get('artifact_id')!r} file_path leaves "
+                    f"the agent workspace ({e})"
+                ) from e
+
+    for s in manifest.get("skills", []) or []:
+        if not isinstance(s, dict) or s.get("install_method") not in _ARCHIVE_INSTALL_METHODS:
+            continue
+        ref = s.get("archive_ref")
+        if not ref:
+            continue  # confirm records "archive missing" for this skill
+        if not isinstance(ref, str):
+            raise ValueError(f"skill {s.get('name')!r}: archive_ref is not a string")
+        try:
+            _bundle_member_path_or_raise(work_dir, ref)
+        except ValueError as e:
+            raise ValueError(
+                f"skill {s.get('name')!r}: archive_ref leaves the bundle ({e})"
+            ) from e
 
 
 async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
@@ -1205,7 +1294,8 @@ async def _confirm_inner(
             try:
                 for arec in json.loads(art_path.read_text(encoding="utf-8")):
                     new_ar = rewrite_artifact_row(
-                        rewrite_row("instance_artifacts", arec), new_aid, user_id
+                        rewrite_row("instance_artifacts", arec), new_aid, user_id,
+                        team_id=new_team_id,
                     )
                     try:
                         await _ins("instance_artifacts", new_ar)
@@ -1842,7 +1932,9 @@ def artifact_relpath_or_raise(fp: str) -> str:
     return rel
 
 
-def rewrite_artifact_row(new_ar: dict, new_aid: str, user_id: str) -> dict:
+def rewrite_artifact_row(
+    new_ar: dict, new_aid: str, user_id: str, *, team_id: Optional[str]
+) -> dict:
     """Re-home one ``artifacts.json`` row (already id-rewritten) onto the new agent.
 
     The bundle's ``file_path`` is workspace-relative and attacker-controlled:
@@ -1852,12 +1944,28 @@ def rewrite_artifact_row(new_ar: dict, new_aid: str, user_id: str) -> dict:
     portable across instances, so session ids are cleared and the row pinned so
     the user can still find it in Settings -> Artifacts. Mutates and returns
     ``new_ar``.
+
+    The row's identity is not taken from the bundle either. ``rewrite_row``
+    maps an ``agent_id`` only when it is in id_map and does not map
+    ``team_id`` at all, so a crafted row could name another tenant's agent or
+    team and surface in that agent's artifact list / that team's panel. The
+    row always belongs to ``new_aid``; a row that had a team joins the team
+    this import creates (``team_id``, None when the bundle has none), a row
+    without one stays private.
     """
     from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
-    fp = artifact_relpath_or_raise(new_ar["file_path"]) if new_ar.get("file_path") else ""
+    try:
+        fp = artifact_relpath_or_raise(new_ar["file_path"]) if new_ar.get("file_path") else ""
+    except ValueError as e:
+        # Preflight refuses these bundles already; reaching here means a tree
+        # changed between preflight and confirm or a new caller skipped it.
+        log_boundary_violation("bundle_import.confirm", actor=user_id, detail=f"{new_ar['file_path']!r}: {e}")
+        raise
     if fp:
         new_ar["file_path"] = f"{agent_workspace_relpath(new_aid, user_id)}/{fp}"
     new_ar["user_id"] = user_id
+    new_ar["agent_id"] = new_aid
+    new_ar["team_id"] = team_id if new_ar.get("team_id") else None
     new_ar["session_id"] = None
     new_ar["original_session_id"] = None
     new_ar["pinned"] = 1
