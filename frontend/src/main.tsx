@@ -15,6 +15,7 @@ import {
 import { installExternalLinkInterceptor } from './lib/externalLinkInterceptor'
 import { captureInboundEntry } from './lib/netmindAuth/tokenInbound'
 import { MOCK_ENABLED } from './lib/mock/flag'
+import { installGlobalFetchGuard } from './lib/guardedFetch'
 import { installMockApi } from './lib/api'
 
 // Run BEFORE the first render so the App tree never observes a
@@ -34,6 +35,10 @@ captureInboundEntry()
 // In a regular browser this returns a no-op uninstaller so nothing changes.
 // See lib/externalLinkInterceptor.ts for the rationale.
 installExternalLinkInterceptor()
+
+// Before any plugin can load: plugin bundles call the global fetch directly,
+// so it is routed through the request-loop guard (own-backend requests only).
+installGlobalFetchGuard()
 
 // User plugins: declarative metadata now, code on activation. Never blocks
 // the first render; a failure costs one error report. See platform/loader.ts.

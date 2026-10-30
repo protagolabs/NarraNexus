@@ -851,8 +851,9 @@ class ApiClient {
   /** Liveness of the caller's own session. Does no database work server-side,
    *  so it is the cheap way to ask "is my JWT still accepted?" — used by
    *  ProtectedRoute on mount. (lib/sessionGuard probes the same endpoint with
-   *  a raw fetch, deliberately bypassing `request<T>` to avoid recursing into
-   *  the very 401 handler it serves.) */
+   *  guardedFetch's unguarded raw path, deliberately bypassing `request<T>`
+   *  and the request-loop guard to avoid recursing into the very 401 handler
+   *  it serves.) */
   async getSession(): Promise<SessionResponse> {
     return this.request<SessionResponse>('/api/auth/session');
   }

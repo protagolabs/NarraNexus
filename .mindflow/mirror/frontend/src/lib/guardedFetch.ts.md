@@ -4,6 +4,20 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 全局 fetch 守卫（覆盖插件直接调用的 `fetch`）
+
+插件 bundle 以模块形式跑在本页面的 realm 里，可以直接调全局 `fetch`，源码扫描看不到它们——插件自己的
+渲染循环此前没有任何刹车。`installGlobalFetchGuard()`（[[main]] 在 `bootPlugins()` 之前调用，幂等）
+保存原生 fetch 后把 `globalThis.fetch` 换成包装：**发往本站 origin 或 API 后端 origin 的请求**走
+`guardedFetch`，其它 origin 原样放行（边缘看不到，失败不该占预算）。`rawFetch` 是唯一的不受守卫
+通道：安装后指向保存的原生 fetch，未安装（测试）时就是当前全局 fetch；只有本文件与
+[[sessionGuard]] 可以用它（源码扫描强制）。此前「不能全局替换，因为 sessionGuard 要用真 fetch」
+的顾虑由 `rawFetch` 解决。原生 fetch 存在 `globalThis[Symbol.for('narranexus.nativeFetch')]`
+（不是模块变量），dev HMR 重新求值本模块时仍调真 fetch，不会套两层守卫；`urlOf` 对跨 realm 的 URL
+对象用 `String(input)` 取 href，避免把不同请求都记成 `undefined` 误触循环封锁。测试用
+`__uninstallGlobalFetchGuardForTests` 还原原始（未 bind）的 fetch。首屏体积的余量来自
+#434 里 Owner 批准的入口上限 2,385,000。
+
 ## 2026-10-30 — 每个响应都检查封号（`noteAccountSuspended`）
 
 封号账号的每个请求都回 403 `account_suspended`；只在 `api.request` 里认这个码会漏掉直接用 guardedFetch 的
@@ -77,12 +91,12 @@ cases cannot leak budget into each other.
 ## This file doesn't do
 
 - Guard `lib/sessionGuard.ts`'s session probe — a refusal there would read as a
-  dead session; it is allowlisted in the raw-fetch scan instead.
+  dead session; it uses `rawFetch`, which the no-raw-fetch scan allows only
+  there and in this file (`RAW_FETCH_ALLOWED`).
+- Cover a plugin's XMLHttpRequest (e.g. axios), Worker or iframe requests —
+  only the main-realm global `fetch` is wrapped. None of the in-tree plugins
+  use them; wrapping XHR would be its own change.
 - Cover WebSocket / SSE traffic.
-- **Cover plugin bundles.** The plugin loader imports them as modules in this
-  page's realm, so a plugin can call the global `fetch` directly; only its
-  calls through `HostAPI.http` (platform/host.ts) are guarded, and those share
-  the host page's budgets. Closing this needs the loader to hand plugins a
-  guarded `fetch` (or a sandbox exposing only `HostAPI.http`); patching
-  `window.fetch` globally is not an option because sessionGuard must reach the
-  real one.
+- Guard requests to other origins (third-party SDKs, CDNs): the global
+  wrapper passes them straight through. The edge never sees them, so their
+  failures must not spend the page's budget.

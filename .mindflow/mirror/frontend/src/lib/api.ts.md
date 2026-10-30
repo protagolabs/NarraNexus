@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `getSession` 注释：sessionGuard 走 guardedFetch 的不受守卫通道
+
+仅注释：sessionGuard 探测 `/api/auth/session` 现在用 guardedFetch 导出的 raw 通道（全局 fetch 已被
+守卫包装，见 [[guardedFetch]]），行为不变。
+
 ## 2026-10-30 — 403 `account_suspended`：不在这里处理
 
 封号检测放在 [[guardedFetch]]（所有 HTTP 调用的公共层，读写都过），`request()` 本身不再单独判断——只在这一处

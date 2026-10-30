@@ -5,13 +5,15 @@
  * @description: The app's network calls: `fetch` behind the per-page request-loop guard, with its page budgets shared across same-origin tabs.
  *
  * Every HTTP call in the app's own source goes through `guardedFetch` (a source
- * scan, `no-raw-fetch.test.ts`, enforces it; the exceptions are sessionGuard's
- * session probe and WebSocket traffic), so a render loop anywhere in it — the
- * API client, the artifact / office-watch services, raw blob downloads, the
- * plugin loader — hits the same brake. NOT covered: plugin bundles. They run as
- * modules in this page's realm and can call the global `fetch` directly;
- * `HostAPI.http` (platform/host.ts) is guarded, but nothing forces a plugin to
- * use it. Reads the guard refuses throw `RequestLoopBlockedError` — after
+ * scan, `no-raw-fetch.test.ts`, enforces it), so a render loop anywhere in it —
+ * the API client, the artifact / office-watch services, raw blob downloads, the
+ * plugin loader — hits the same brake. Plugin bundles run as modules in this
+ * page's realm and are invisible to that scan; their calls to the main-realm
+ * global `fetch` are covered by `installGlobalFetchGuard` (own-backend requests
+ * only). The one unguarded path is `rawFetch`, allowed only for sessionGuard's
+ * session probe. NOT covered: WebSocket traffic, and a plugin's
+ * XMLHttpRequest (e.g. axios), Worker or iframe fetches — none of the in-tree
+ * plugins use them. Reads the guard refuses throw `RequestLoopBlockedError` — after
  * LOOP_BLOCK_DELAY_MS for the per-URL verdicts and 'slot_full' (a retry would
  * be refused again at once; the delay slows that loop), at once for the
  * page-budget verdicts and 'slot_wait' (retrying sooner cannot change a
@@ -126,8 +128,9 @@ function detectLocalBackend(): boolean {
 
 function urlOf(input: RequestInfo | URL): string {
   if (typeof input === 'string') return input;
-  if (input instanceof URL) return input.href;
-  return input.url;
+  if (input instanceof Request) return input.url;
+  // A URL (also one from another realm) or any object with a toString.
+  return String(input);
 }
 
 function methodOf(input: RequestInfo | URL, init?: RequestInit): string | undefined {
@@ -135,9 +138,56 @@ function methodOf(input: RequestInfo | URL, init?: RequestInit): string | undefi
   return typeof input === 'object' && 'method' in input ? input.method : undefined;
 }
 
+/**
+ * The browser's own fetch, captured when the global guard is installed. Kept
+ * on globalThis under a registry symbol rather than in module scope, so a
+ * re-evaluated copy of this module (dev HMR) still calls the real fetch
+ * instead of the previous copy's wrapper (which would guard every read twice).
+ */
+const NATIVE_FETCH = Symbol.for('narranexus.nativeFetch');
+type NativeSlot = { [NATIVE_FETCH]?: { original: typeof fetch; bound: typeof fetch } };
+const nativeSlot = globalThis as unknown as NativeSlot;
+
+/**
+ * The unguarded network call. Only this file and the session probe
+ * (lib/sessionGuard.ts) may use it — a source scan enforces that. Before the
+ * global guard is installed it is simply the current global fetch.
+ */
+export function rawFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return (nativeSlot[NATIVE_FETCH]?.bound ?? globalThis.fetch)(input, init);
+}
+
+/** Whether a request goes to this app's own origin or its API backend — the
+ * only traffic the edge monitor sees, so the only traffic worth guarding. */
+function isOwnBackend(input: RequestInfo | URL): boolean {
+  try {
+    const target = new URL(urlOf(input), window.location.href).origin;
+    if (target === window.location.origin) return true;
+    const base = getApiBaseUrl();
+    return Boolean(base) && target === new URL(base, window.location.href).origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Route the page's global `fetch` through the guard, so code that calls it
+ * directly — plugin bundles, which run as modules in this realm and are not
+ * covered by the source scan — hits the same brake. Requests to other origins
+ * pass straight through: the edge never sees them. Call once, before any
+ * plugin loads; repeat calls do nothing.
+ */
+export function installGlobalFetchGuard(): void {
+  if (nativeSlot[NATIVE_FETCH]) return;
+  const original = globalThis.fetch;
+  nativeSlot[NATIVE_FETCH] = { original, bound: original.bind(globalThis) };
+  globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) =>
+    isOwnBackend(input) ? guardedFetch(input, init) : rawFetch(input, init);
+}
+
 export async function guardedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   if (!isGuardedMethod(methodOf(input, init))) {
-    const written = await fetch(input, init);
+    const written = await rawFetch(input, init);
     noteAccountSuspended(written);
     return written;
   }
@@ -147,7 +197,7 @@ export async function guardedFetch(input: RequestInfo | URL, init?: RequestInit)
   const release = await guard.acquire(url, signalOf(input, init));
   if (typeof release !== 'function') await refuse(release, url, init, input);
   try {
-    const response = await fetch(input, init);
+    const response = await rawFetch(input, init);
     noteAccountSuspended(response);
     if (FAILURE_STATUSES.has(response.status)) guard.recordFailure(url);
     else if (response.status >= 200 && response.status < 400) guard.recordSuccess(url);
@@ -194,7 +244,15 @@ async function refuse(verdict: LoopVerdict, url: string, init: RequestInit | und
   throw new RequestLoopBlockedError(verdict === 'slot_wait' ? 'slow' : 'limit');
 }
 
+/** Tests only: undo installGlobalFetchGuard, restoring the original fetch. */
+export function __uninstallGlobalFetchGuardForTests(): void {
+  const saved = nativeSlot[NATIVE_FETCH];
+  if (saved) globalThis.fetch = saved.original;
+  delete nativeSlot[NATIVE_FETCH];
+}
+
 /** Tests only: a fresh guard (and channel) so cases cannot leak budget into each other. */
+
 export function __resetRequestLoopGuardForTests(): void {
   reportedLocal = false;
   guard.dispose();
