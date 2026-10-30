@@ -42,11 +42,21 @@ from narranexus_plugins.chat_module._chat_projection import (
     project_message,
 )
 
-#: Most agent ids one call accepts (the sidebar sends its list in chunks of this).
+#: Most agent ids one call accepts. The sidebar's chunk size must not exceed it:
+#: frontend/src/hooks/useAutoRefresh.ts CHAT_LATEST_CHUNK — change both together
+#: (a larger client chunk would be refused with 422 on every tick).
 CHAT_LATEST_MAX_AGENTS = 200
+
+#: Generous upper bound on one agent id's length (ids are ~15 characters).
+CHAT_LATEST_ID_MAX_LENGTH = 128
 
 #: Full memory rows fetched per query on a cache miss.
 _MEMORY_READ_CHUNK = 20
+
+#: (instance_id, updated_at) stamps fetched per query. The instance count is not
+#: bounded by the agent count (ChatModule instances are per narrative and are
+#: never archived), so the IN list is chunked rather than sent whole.
+_STAMP_READ_CHUNK = 500
 
 Latest = Optional[Tuple[datetime, str]]
 
@@ -56,18 +66,10 @@ _LATEST_CACHE: "OrderedDict[str, Tuple[Any, Latest]]" = OrderedDict()
 _LATEST_CACHE_MAX = 20_000
 
 
-def latest_conversation_row(messages: List[Dict[str, Any]]) -> Latest:
-    """(parsed, raw) timestamp of the newest row the conversation tab shows from
-    one owner-scoped instance, or None. Rows project_message drops or marks
-    'activity' do not count; ties keep the later message, like the tab's stable
-    sort."""
-    best: Latest = None
-    for msg in messages:
-        best = _fold(best, msg)
-    return best
-
-
 def _fold(best: Latest, msg: Dict[str, Any]) -> Latest:
+    """Fold one message into the newest conversation row seen so far. Rows
+    project_message drops or marks 'activity', and rows without a timestamp,
+    do not count; ties keep the later message, like the tab's stable sort."""
     row = project_message(msg, peer_scoped=False)
     if row is None or row["message_type"] == "activity" or not row["timestamp"]:
         return best
@@ -135,7 +137,14 @@ async def chat_latest_for_user(db, user_id: str, agent_ids: List[str]) -> Dict[s
         return {}
 
     instance_ids = [r["instance_id"] for r in rows]
-    stamps = await db.get_by_ids(CHAT_MEMORY_TABLE, "instance_id", instance_ids, fields=["instance_id", "updated_at"])
+    stamps: List[Optional[Dict[str, Any]]] = []
+    for i in range(0, len(instance_ids), _STAMP_READ_CHUNK):
+        # get_by_ids keeps the order of its ids and pads misses with None, so
+        # each chunk lines up with its own slice of instance_ids.
+        stamps.extend(await db.get_by_ids(
+            CHAT_MEMORY_TABLE, "instance_id", instance_ids[i:i + _STAMP_READ_CHUNK],
+            fields=["instance_id", "updated_at"],
+        ))
 
     # Results for THIS call, so a concurrent call evicting cache entries during
     # the awaits below cannot drop an agent from this response.

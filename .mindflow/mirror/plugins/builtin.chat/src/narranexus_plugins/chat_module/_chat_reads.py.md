@@ -6,8 +6,8 @@ stub: false
 
 ## 2026-10-30 — 表名常量改从 `_chat_projection` 导入
 
-`_CHAT_MEMORY_TABLE` 不再本地定义，改为 `from _chat_projection import CHAT_MEMORY_TABLE as
-_CHAT_MEMORY_TABLE`（同一个表名只有一处）。行为不变。
+表名不再本地定义，改为 `from _chat_projection import CHAT_MEMORY_TABLE`（同一个表名只有一处）。
+行为不变。
 
 # _chat_reads.py — get_chat_history 的共享实现（AgentDataStore seam 单点）
 

@@ -537,7 +537,8 @@ class ApiClient {
    * agent list. The background "agent replied" poll; at most 200 ids a call.
    */
   async getChatLatest(agentIds: string[]): Promise<ChatLatestResponse> {
-    const params = new URLSearchParams({ agent_ids: agentIds.join(',') });
+    const params = new URLSearchParams();
+    for (const id of agentIds) params.append('agent_ids', id);
     return this.request<ChatLatestResponse>(`/api/agents/chat-latest?${params}`);
   }
 

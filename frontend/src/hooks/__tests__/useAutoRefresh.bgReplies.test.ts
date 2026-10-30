@@ -122,10 +122,13 @@ describe('background reply detection', () => {
     h.state.latest = { a1: '2026-10-30T01:00:00' };
     renderHook(() => useAutoRefresh({ agentId: 'other', userId: 'usr_1' }));
     await tick();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     h.getChatLatest.mockRejectedValueOnce(new Error('offline'));
     await tick();
     h.state.latest = { a1: '2026-10-30T02:00:00' };
     await tick();
     expect(h.state.chat.toastQueue.map((t) => t.agentId)).toEqual(['a1']);
+    expect(warn).toHaveBeenCalled(); // a failed chunk is not silent
+    warn.mockRestore();
   });
 });

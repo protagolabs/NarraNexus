@@ -8,9 +8,10 @@ stub: false
 
 simple-chat-history 循环里「一条 memory 消息在 owner 面板上显示成什么（或不显示）」原样抽成
 [[_chat_projection]] 的 `project_message`（连同 `parse_timestamp` / `parse_json_field` / 两个
-来源常量 / 表名常量），本文件用本地别名导入，行为不变（test_activity_log_a2a_visibility 全绿）。
+来源常量 / 表名常量），本文件直接用公共名调用，行为不变（test_activity_log_a2a_visibility 全绿）。
 
-新增 **`GET /api/agents/chat-latest?agent_ids=…`**（≤200 个，超出 422；需登录）：薄壳，解析去重
+新增 **`GET /api/agents/chat-latest?agent_ids=a&agent_ids=b…`**（每个 id 一个查询参数，≤200 个、
+单个 ≤128 字符，超出 422；需登录）：薄壳，解析去重
 后交给 [[_chat_latest]] 的 `chat_latest_for_user`，返回每个 agent 对话 tab 最新一行的时间戳。侧栏
 后台「有新回复」用，替代逐 agent 调 simple-chat-history；投影、作用域、成本与缓存见 [[_chat_latest]]。
 

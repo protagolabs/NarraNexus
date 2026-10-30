@@ -33,7 +33,8 @@ const MID_FREQ_INTERVAL = 30_000; // 30s
 
 /** Background message check interval */
 const BG_MESSAGE_INTERVAL = 15_000; // 15s
-/** Agent ids per /api/agents/chat-latest call (the server accepts at most 200). */
+/** Agent ids per /api/agents/chat-latest call. Must not exceed the server's
+ *  CHAT_LATEST_MAX_AGENTS (chat_module/_chat_latest.py) — change both together. */
 const CHAT_LATEST_CHUNK = 200;
 
 // ── Hook ────────────────────────────────────────
@@ -218,20 +219,24 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
       // simple-chat-history call per agent per tick. Same signal: the newest
       // row of each agent's conversation tab (include='chat' — never peer/team
       // activity, which would fire a false "replied to you"). Agents with a live
-      // session are skipped; an id containing a comma cannot ride the list.
-      const polled = useConfigStore.getState().agents.filter(
-        (a) => !isAgentStreaming(a.agent_id) && !a.agent_id.includes(','),
-      );
+      // session are skipped.
+      const polled = useConfigStore.getState().agents.filter((a) => !isAgentStreaming(a.agent_id));
 
       for (let i = 0; i < polled.length; i += CHAT_LATEST_CHUNK) {
         const chunk = polled.slice(i, i + CHAT_LATEST_CHUNK);
         let latest: Record<string, string>;
         try {
           const response = await api.getChatLatest(chunk.map((a) => a.agent_id));
-          if (!response.success) continue;
+          if (!response.success) {
+            // A whole chunk (up to 200 agents) gets no reply notice this tick:
+            // say so, or a persistent failure is invisible.
+            console.warn('[bg-replies] chat-latest refused:', response.error);
+            continue;
+          }
           latest = response.latest;
-        } catch {
-          continue; // a failed poll is retried on the next tick
+        } catch (err) {
+          console.warn('[bg-replies] chat-latest poll failed; retrying next tick:', err);
+          continue;
         }
 
         for (const agent of chunk) {

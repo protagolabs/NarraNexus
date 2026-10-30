@@ -41,7 +41,7 @@ import json
 
 from loguru import logger
 
-from narranexus_plugins.chat_module._chat_projection import CHAT_MEMORY_TABLE as _CHAT_MEMORY_TABLE
+from narranexus_plugins.chat_module._chat_projection import CHAT_MEMORY_TABLE
 
 
 def _empty(instance_id: str, note: str) -> dict:
@@ -65,7 +65,7 @@ async def fetch_chat_history(db, agent_id: str, instance_id: str, limit: int = 2
         if not inst or inst.get("agent_id") != agent_id:
             return _empty(instance_id, "This Chat Instance has no chat history yet")
 
-        row = await db.get_one(_CHAT_MEMORY_TABLE, {"instance_id": instance_id})
+        row = await db.get_one(CHAT_MEMORY_TABLE, {"instance_id": instance_id})
         if not row or not row.get("memory"):
             return _empty(instance_id, "This Chat Instance has no chat history yet")
 

@@ -12,6 +12,11 @@ stub: false
 随 agent 数线性增长。`chat_latest_for_user(db, user_id, agent_ids)` 一次给出整批（≤200）答案：
 每个 agent 在**调用者自己的** ChatModule instance 里、对话 tab 会显示的最新一行的原始时间戳。
 
+## 常量
+
+`CHAT_LATEST_MAX_AGENTS`（200）与前端 `useAutoRefresh.ts` 的 `CHAT_LATEST_CHUNK` 必须一起改：
+前端块大于它会每个 tick 都 422。`CHAT_LATEST_ID_MAX_LENGTH`（128）是单个 id 的宽松上界。
+
 ## 与 tab 一致（按构造）
 
 - 同一个投影 [[_chat_projection]] `project_message`（peer_scoped=False）；activity 行与无时间戳的
@@ -24,7 +29,9 @@ stub: false
 ## 成本与缓存
 
 一次 `InstanceRepository.list_ids_by_agents_and_user`（走 `(agent_id, user_id)` 索引、只投影三列）、
-一次只取 `(instance_id, updated_at)` 的读；只有 `updated_at` 变了的行才整读 memory 并解析，每次
+只取 `(instance_id, updated_at)` 的读（每 500 个 instance 一批——instance 数不受 agent 数约束：
+ChatModule instance 按 narrative 建、从不归档，只增不减；不按「每个 agent 最近 N 个」截断，
+因为最新一行可能落在很老的 instance 里，截断会破坏与 tab 的一致性）；只有 `updated_at` 变了的行才整读 memory 并解析，每次
 最多 20 行一批（memory blob 只增不减，冷启动不一次拉 N×MB）。进程内 LRU 缓存 `_LATEST_CACHE`
 （上限 2 万）是纯缓存，各进程独立正确；本次调用的结果收进局部字典，并发调用淘汰缓存也不会让
 某个 agent 从这次响应里消失。

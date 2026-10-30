@@ -83,7 +83,7 @@ async def env(monkeypatch):
 
 
 def _latest(client, user, agent_ids):
-    r = client.get("/api/agents/chat-latest", params={"agent_ids": ",".join(agent_ids)},
+    r = client.get("/api/agents/chat-latest", params={"agent_ids": list(agent_ids)},
                    headers={"x-test-user": user})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -274,9 +274,22 @@ async def test_more_rows_than_one_memory_read_chunk(env):
     assert latest[f"a{n - 1}"] == f"2026-10-30T10:{n - 1:02d}:00"
 
 
+@pytest.mark.asyncio
+async def test_more_instances_than_one_stamp_read_chunk(env, monkeypatch):
+    """The (instance_id, updated_at) read is chunked; each chunk must line up
+    with its own slice of instance ids, including across a chunk boundary."""
+    client, _db, instance = env
+    monkeypatch.setattr(cl, "_STAMP_READ_CHUNK", 3)
+    for i in range(7):
+        await instance(f"c{i}", f"a{i % 3}", OWNER, _msg("assistant", "x", f"2026-10-30T10:0{i}:00"))
+    assert _latest(client, OWNER, ["a0", "a1", "a2"]) == {
+        "a0": "2026-10-30T10:06:00", "a1": "2026-10-30T10:04:00", "a2": "2026-10-30T10:05:00",
+    }
+
+
 def test_unauthenticated_call_is_refused(env):
     client, _db, _instance = env
-    r = client.get("/api/agents/chat-latest", params={"agent_ids": "a1"})
+    r = client.get("/api/agents/chat-latest", params={"agent_ids": ["a1"]})
     assert r.status_code == 401
 
 
@@ -285,6 +298,6 @@ async def test_input_bounds(env):
     client, _db, _instance = env
     assert _latest(client, OWNER, []) == {}
     too_many = [f"a{i}" for i in range(cl.CHAT_LATEST_MAX_AGENTS + 1)]
-    r = client.get("/api/agents/chat-latest", params={"agent_ids": ",".join(too_many)},
+    r = client.get("/api/agents/chat-latest", params={"agent_ids": too_many},
                    headers={"x-test-user": OWNER})
     assert r.status_code == 422

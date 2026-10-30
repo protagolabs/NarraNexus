@@ -7,12 +7,12 @@ stub: false
 ## 2026-10-30 — 后台「有新回复」改为每 200 个 agent 一次 `/chat-latest`
 
 `tickBgMessages` 原来每 15s 对**每个** agent 调一次 `getSimpleChatHistory(aid, 5, 0, 'chat')`，
-请求数随 agent 数线性增长。现在把列表（跳过正在流式的 agent；含逗号的 id 无法放进列表，跳过）
-按 200 个一块调 `api.getChatLatest(ids)`，拿回每个 agent 对话 tab 最新一行的时间戳。信号**同源**：
+请求数随 agent 数线性增长。现在把列表（跳过正在流式的 agent）按 200 个一块调
+`api.getChatLatest(ids)`（块大小与服务端 `CHAT_LATEST_MAX_AGENTS` 必须一起改），拿回每个 agent 对话 tab 最新一行的时间戳。信号**同源**：
 服务端用 simple-chat-history 同一个投影函数（[[_chat_projection]] `project_message`）算，不是近似（之前一版用
 `events` 表近似过，被预审否掉——IM/job 不通知 owner 的 turn 会误报，只经工具回复的 turn 会漏报）。
 toast / 徽标规则不变：首次只记录、非当前 agent 时间戳前进才提醒、同一时间戳不重复；单次调用失败
-下个 tick 重试。`refreshAgents` 仍在 30s 的 mid tick，节奏未变。
+下个 tick 重试，并 `console.warn` 一行（一块最多 200 个 agent 这次没提醒，持续失败不能是静默的）。`refreshAgents` 仍在 30s 的 mid tick，节奏未变。
 
 ## 2026-08-21 — tickBgMessages「有新回复」信号只订阅 chat 流
 

@@ -46,11 +46,15 @@ from narranexus.platform.schema.api_schema import InstanceInfo
 from narranexus_plugins.chat_module.chat_history_timeline import build_event_timeline
 from narranexus_plugins.chat_module._chat_projection import (
     CHAT_MEMORY_TABLE,
-    parse_json_field as _parse_json_field,
-    parse_timestamp as _parse_timestamp,
-    project_message as _project_message,
+    parse_json_field,
+    parse_timestamp,
+    project_message,
 )
-from narranexus_plugins.chat_module._chat_latest import CHAT_LATEST_MAX_AGENTS, chat_latest_for_user
+from narranexus_plugins.chat_module._chat_latest import (
+    CHAT_LATEST_ID_MAX_LENGTH,
+    CHAT_LATEST_MAX_AGENTS,
+    chat_latest_for_user,
+)
 
 
 router = APIRouter()
@@ -122,7 +126,7 @@ def _drop_phantom_event_twins(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
         The same rows, in the same order, minus the copies.
     """
     def _identity(row: Dict[str, Any]) -> tuple:
-        env = _parse_json_field(row.get("env_context"), {})
+        env = parse_json_field(row.get("env_context"), {})
         user_input = env.get("input", "") if isinstance(env, dict) else ""
         return (
             row.get("trigger") or "",
@@ -133,14 +137,14 @@ def _drop_phantom_event_twins(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
     logged_identities = {
         _identity(row) for row in rows
-        if _parse_json_field(row.get("event_log"), [])
+        if parse_json_field(row.get("event_log"), [])
     }
     if not logged_identities:
         return list(rows)
 
     kept: List[Dict[str, Any]] = []
     for row in rows:
-        is_logless = not _parse_json_field(row.get("event_log"), [])
+        is_logless = not parse_json_field(row.get("event_log"), [])
         has_output = bool(row.get("final_output"))
         if is_logless and has_output and _identity(row) in logged_identities:
             logger.debug(
@@ -205,7 +209,7 @@ async def get_chat_history(
                 nar_row = await db_client.get_one("narratives", {"narrative_id": nar_id})
                 if nar_row:
                     valid_narrative_ids.append(nar_id)
-                    narrative_info = _parse_json_field(nar_row.get("narrative_info"), {})
+                    narrative_info = parse_json_field(nar_row.get("narrative_info"), {})
 
                     actors = narrative_info.get("actors", [])
                     if not any(a.get("id") == user_id for a in actors):
@@ -239,7 +243,7 @@ async def get_chat_history(
                 if not narrative_id:
                     continue
 
-                narrative_info = _parse_json_field(narrative.get("narrative_info"), None)
+                narrative_info = parse_json_field(narrative.get("narrative_info"), None)
                 if narrative_info is None:
                     continue
 
@@ -282,8 +286,8 @@ async def get_chat_history(
                     if status in ("cancelled", "archived"):
                         continue
 
-                    config = _parse_json_field(inst.get("config"), {})
-                    deps = _parse_json_field(inst.get("dependencies"), [])
+                    config = parse_json_field(inst.get("config"), {})
+                    deps = parse_json_field(inst.get("dependencies"), [])
 
                     instances.append(InstanceInfo(
                         instance_id=inst.get("instance_id", ""),
@@ -326,7 +330,7 @@ async def get_chat_history(
         for event in events_raw:
             event_id = event.get("event_id") or event.get("id")
             narrative_id = event.get("narrative_id")
-            event_log = _parse_json_field(event.get("event_log"), [])
+            event_log = parse_json_field(event.get("event_log"), [])
 
             events.append(EventInfo(
                 event_id=event_id,
@@ -445,10 +449,10 @@ class ChatLatestResponse(BaseModel):
 @router.get("/chat-latest", response_model=ChatLatestResponse)
 async def get_chat_latest(
     request: Request,
-    agent_ids: str = Query(
-        default="",
-        max_length=CHAT_LATEST_MAX_AGENTS * 130,
-        description=f"Comma-separated agent ids (at most {CHAT_LATEST_MAX_AGENTS}).",
+    agent_ids: List[str] = Query(
+        default=[],
+        max_length=CHAT_LATEST_ID_MAX_LENGTH,
+        description=f"Agent ids, one parameter each (at most {CHAT_LATEST_MAX_AGENTS}).",
     ),
 ):
     """
@@ -458,7 +462,7 @@ async def get_chat_latest(
     (see _chat_latest for the projection, scope and cost).
     """
     user_id = await current_user_id(request)
-    ids = list(dict.fromkeys(a.strip() for a in agent_ids.split(",") if a.strip()))
+    ids = list(dict.fromkeys(a.strip() for a in agent_ids if a.strip()))
     if len(ids) > CHAT_LATEST_MAX_AGENTS:
         raise HTTPException(status_code=422, detail=f"at most {CHAT_LATEST_MAX_AGENTS} agent ids per call")
     if not ids:
@@ -588,7 +592,7 @@ async def get_simple_chat_history(
                 )
 
                 if memory_row and memory_row.get("memory"):
-                    memory_data = _parse_json_field(memory_row["memory"], {})
+                    memory_data = parse_json_field(memory_row["memory"], {})
                     messages = memory_data.get("messages", [])
 
                     links = await db_client.get(
@@ -599,7 +603,7 @@ async def get_simple_chat_history(
                     narrative_id = links[0].get("narrative_id") if links else None
 
                     for msg in messages:
-                        row = _project_message(msg, peer_scoped)
+                        row = project_message(msg, peer_scoped)
                         if row is None:
                             continue
                         all_messages.append({
@@ -616,7 +620,7 @@ async def get_simple_chat_history(
                 logger.warning(f"Failed to load chat history from instance {instance.instance_id}: {e}")
 
         # Sort by time
-        all_messages.sort(key=lambda m: _parse_timestamp(m.get("_sort_key", "")))
+        all_messages.sort(key=lambda m: parse_timestamp(m.get("_sort_key", "")))
 
         if all_messages:
             logger.debug(f"First message timestamp: {all_messages[0].get('_sort_key', 'N/A')}")
@@ -707,7 +711,7 @@ async def get_event_log_detail(agent_id: str, event_id: str, request: Request):
                 error="Event not found"
             )
 
-        event_log = _parse_json_field(event_row.get("event_log"), [])
+        event_log = parse_json_field(event_row.get("event_log"), [])
 
         # Extract thinking: concatenate streaming deltas into coherent blocks.
         # Each thinking_delta is stored as a separate step in event_log.
@@ -857,7 +861,7 @@ async def _build_event_meta(db_client, event_row: Dict[str, Any], *, tool_call_c
     Returns:
         EventLogMeta ready for the response.
     """
-    env_context = _parse_json_field(event_row.get("env_context"), {})
+    env_context = parse_json_field(event_row.get("env_context"), {})
     input_text = None
     if isinstance(env_context, dict):
         raw_input = env_context.get("input")

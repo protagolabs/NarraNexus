@@ -101,7 +101,7 @@ async def test_endpoint_and_cache_on_mysql(mysql_client, monkeypatch):
     async def latest():
         request = Request({"type": "http", "method": "GET", "path": "/api/agents/chat-latest", "headers": []})
         request.state.user_id = OWNER
-        res = await ch.get_chat_latest(request, agent_ids=",".join(AGENTS))
+        res = await ch.get_chat_latest(request, agent_ids=list(AGENTS))
         assert res.success, res.error
         return res.latest
 
