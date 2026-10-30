@@ -110,8 +110,8 @@ async def test_endpoint_and_cache_on_mysql(mysql_client, monkeypatch):
         # updated_at is a DATETIME(6) value here: an unchanged row must compare equal
         # (served from the cache) and a rewritten row must not.
         parsed = []
-        real = cl.latest_conversation_row
-        monkeypatch.setattr(cl, "latest_conversation_row", lambda m: parsed.append(1) or real(m))
+        real = cl._parse_row
+        monkeypatch.setattr(cl, "_parse_row", lambda *a: parsed.append(1) or real(*a))
         assert (await latest())[AGENTS[0]] == "2026-10-30T10:00:00"
         assert parsed == []
         # Through the production writer, whose upsert bumps updated_at

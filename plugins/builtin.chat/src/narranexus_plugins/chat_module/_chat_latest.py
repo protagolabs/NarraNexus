@@ -16,9 +16,10 @@ of the memory rows, and a full memory read + parse only for rows whose
 updated_at changed since this process last looked (in chunks — memory blobs
 grow without bound). The cache is a pure cache: an entry is used only while the
 row's updated_at is unchanged, so every process is correct on its own. Only
-sub-second stamps are trusted: SQLite's datetime('now') has whole seconds, so a
-second write in the same second would leave updated_at unchanged; such rows are
-re-read on every call (local single-user mode).
+sub-second stamps are trusted: SQLite's datetime('now') has whole seconds (the
+backend returns it as a datetime with microsecond 0), so a second write in the
+same second would leave updated_at unchanged; such rows are re-read on every
+call (local single-user mode).
 
 Writers this relies on: EventMemoryRepository.add_instance_json_format_memory
 (upsert bumps updated_at to CURRENT_TIMESTAMP(6)); the bundle importer inserts
@@ -62,12 +63,17 @@ def latest_conversation_row(messages: List[Dict[str, Any]]) -> Latest:
     sort."""
     best: Latest = None
     for msg in messages:
-        row = project_message(msg, peer_scoped=False)
-        if row is None or row["message_type"] == "activity" or not row["timestamp"]:
-            continue
-        parsed = parse_timestamp(row["timestamp"])
-        if best is None or parsed >= best[0]:
-            best = (parsed, str(row["timestamp"]))
+        best = _fold(best, msg)
+    return best
+
+
+def _fold(best: Latest, msg: Dict[str, Any]) -> Latest:
+    row = project_message(msg, peer_scoped=False)
+    if row is None or row["message_type"] == "activity" or not row["timestamp"]:
+        return best
+    parsed = parse_timestamp(row["timestamp"])
+    if best is None or parsed >= best[0]:
+        return (parsed, str(row["timestamp"]))
     return best
 
 
@@ -75,9 +81,10 @@ def stamp_is_precise(updated_at: Any) -> bool:
     """Whether an updated_at value can tell two writes in the same second apart.
 
     MySQL's DATETIME(6) comes back as a datetime with microseconds; SQLite's
-    datetime('now') as a whole-second string. Whole-second stamps are never
-    trusted (the row is re-read every call). A MySQL write that lands exactly on
-    .000000 is merely re-read too."""
+    datetime('now') has whole seconds (a datetime with microsecond 0, or a
+    string without a fraction from a backend that does not parse it).
+    Whole-second stamps are never trusted (the row is re-read every call). A
+    MySQL write that lands exactly on .000000 is merely re-read too."""
     if isinstance(updated_at, datetime):
         return updated_at.microsecond != 0
     return isinstance(updated_at, str) and "." in updated_at
@@ -90,15 +97,32 @@ def _cache_put(instance_id: str, updated_at: Any, latest: Latest) -> None:
         _LATEST_CACHE.popitem(last=False)
 
 
-def _parse_row(instance_id: str, memory: Any) -> Latest:
-    """One instance's newest row; a malformed blob costs only this instance."""
+#: (instance_id, updated_at) last warned about, so a malformed row re-read on
+#: every call (whole-second stamps) is reported once per version, not per tick.
+_WARNED: "OrderedDict[str, Any]" = OrderedDict()
+
+
+def _parse_row(instance_id: str, memory: Any, updated_at: Any) -> Latest:
+    """One instance's newest row; a malformed blob costs only this instance.
+
+    Fails the same way the conversation tab does: its loop appends rows in order
+    and stops at the first message it cannot read, keeping the rows before it —
+    so the fold here stops there too and keeps what it had."""
+    best: Latest = None
     try:
         data = parse_json_field(memory, {})
         messages = data.get("messages", []) if isinstance(data, dict) else []
-        return latest_conversation_row([m for m in messages if isinstance(m, dict)])
+        for msg in messages:
+            best = _fold(best, msg)
+        return best
     except Exception as e:  # noqa: BLE001 — one bad row must not blank the whole list
-        logger.warning(f"chat-latest: unreadable chat memory for instance {instance_id}: {e}")
-        return None
+        if _WARNED.get(instance_id, object()) != updated_at:
+            _WARNED[instance_id] = updated_at
+            _WARNED.move_to_end(instance_id)
+            while len(_WARNED) > _LATEST_CACHE_MAX:
+                _WARNED.popitem(last=False)
+            logger.warning(f"chat-latest: unreadable chat memory for instance {instance_id}: {e}")
+        return best
 
 
 async def chat_latest_for_user(db, user_id: str, agent_ids: List[str]) -> Dict[str, str]:
@@ -133,7 +157,7 @@ async def chat_latest_for_user(db, user_id: str, agent_ids: List[str]) -> Dict[s
         for iid, mem in zip(chunk, memory_rows):
             if mem is None:
                 continue
-            latest = _parse_row(iid, mem.get("memory"))
+            latest = _parse_row(iid, mem.get("memory"), mem.get("updated_at"))
             _cache_put(iid, mem.get("updated_at"), latest)
             results[iid] = latest
 

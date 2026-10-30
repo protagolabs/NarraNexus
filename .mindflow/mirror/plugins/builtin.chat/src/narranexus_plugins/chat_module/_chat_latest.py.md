@@ -30,8 +30,8 @@ stub: false
 某个 agent 从这次响应里消失。
 
 **只信任亚秒精度的 `updated_at`**（`stamp_is_precise`）：MySQL DATETIME(6) 带微秒（2026-10-30 已
-核实 dev / prod 的该列都是 `datetime(6)`、值带微秒）；SQLite 的 `datetime('now')` 只有整秒，同一秒
-两次写入 `updated_at` 不变——整秒时间戳每次重读（本地单用户）。
+核实 dev / prod 的该列都是 `datetime(6)`、值带微秒）；SQLite 的 `datetime('now')` 只有整秒（后端解析成
+microsecond=0 的 datetime），同一秒两次写入 `updated_at` 不变——整秒时间戳每次重读（本地单用户）。
 
 依赖的写入口：`EventMemoryRepository.add_instance_json_format_memory` 的 upsert 把 `updated_at`
 刷成 `CURRENT_TIMESTAMP(6)`；bundle importer 插新行（列默认值）；wipe / 删号删行。新增写入口若直接
@@ -41,4 +41,6 @@ UPDATE memory 而不刷 `updated_at`，缓存会过期。
 
 单个 instance 的 memory 解析失败（列表形 blob、非 dict 消息、`meta_data: null` 等）只记 warning、
 该 instance 记为「无行」并缓存，**不**让整批返回失败——否则一行坏数据会让最多 200 个 agent 的
-提醒每个 tick 都失效。
+提醒每个 tick 都失效。失败方式与 tab 一致：tab 的循环按顺序 append，遇到第一条读不了的消息就中断、保留之前的行；
+这里的折叠也停在同一处、保留之前的结果（不会出现「有提醒、tab 里却没有新行」）。warning 按 (instance, updated_at)
+去重，本地整秒时间戳每次重读时不会每个 tick 刷日志。

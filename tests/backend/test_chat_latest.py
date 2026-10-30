@@ -159,8 +159,8 @@ async def test_a_new_message_is_seen_and_an_unchanged_row_is_not_reparsed(env, m
     assert _latest(client, OWNER, ["a1"]) == {"a1": "2026-10-30T10:00:00"}
 
     parsed = []
-    real = cl.latest_conversation_row
-    monkeypatch.setattr(cl, "latest_conversation_row", lambda m: parsed.append(1) or real(m))
+    real = cl._parse_row
+    monkeypatch.setattr(cl, "_parse_row", lambda *a: parsed.append(1) or real(*a))
     # Unchanged row: served from the cache, memory not read or parsed again.
     assert _latest(client, OWNER, ["a1"]) == {"a1": "2026-10-30T10:00:00"}
     assert parsed == []
@@ -237,6 +237,41 @@ async def test_a_tie_inside_one_instance_keeps_the_later_message(env):
     latest = _latest(client, OWNER, ["a1"])["a1"]
     assert latest == "2026-10-30T10:00:00+00:00"
     assert latest == _tab_newest(client, OWNER, "a1")
+
+
+@pytest.mark.asyncio
+async def test_a_mixed_message_list_fails_like_the_tab(env):
+    """The tab keeps the rows before the first message it cannot read and drops
+    the rest of that instance; the signal stops at the same place."""
+    client, db, instance = env
+    await db.insert("module_instances", {"instance_id": "mixed", "agent_id": "a1", "user_id": OWNER,
+                                         "module_class": "ChatModule", "status": "active"})
+    await db.insert("instance_json_format_memory_chat", {"instance_id": "mixed", "memory": json.dumps(
+        {"messages": [_msg("assistant", "ok", "2026-10-30T10:00:00"), "junk",
+                      _msg("assistant", "after", "2026-10-30T11:00:00")]})})
+    assert _latest(client, OWNER, ["a1"]).get("a1") == _tab_newest(client, OWNER, "a1") == "2026-10-30T10:00:00"
+
+
+@pytest.mark.asyncio
+async def test_cache_eviction_during_a_call_drops_no_agent(env, monkeypatch):
+    client, _db, instance = env
+    monkeypatch.setattr(cl, "_LATEST_CACHE_MAX", 1)
+    await instance("c1", "a1", OWNER, _msg("assistant", "x", "2026-10-30T10:00:00"))
+    await instance("c2", "a2", OWNER, _msg("assistant", "y", "2026-10-30T11:00:00"))
+    expected = {"a1": "2026-10-30T10:00:00", "a2": "2026-10-30T11:00:00"}
+    assert _latest(client, OWNER, ["a1", "a2"]) == expected
+    assert _latest(client, OWNER, ["a1", "a2"]) == expected
+
+
+@pytest.mark.asyncio
+async def test_more_rows_than_one_memory_read_chunk(env):
+    client, _db, instance = env
+    n = cl._MEMORY_READ_CHUNK + 5
+    for i in range(n):
+        await instance(f"c{i}", f"a{i}", OWNER, _msg("assistant", "x", f"2026-10-30T10:{i:02d}:00"))
+    latest = _latest(client, OWNER, [f"a{i}" for i in range(n)])
+    assert len(latest) == n
+    assert latest[f"a{n - 1}"] == f"2026-10-30T10:{n - 1:02d}:00"
 
 
 def test_unauthenticated_call_is_refused(env):
