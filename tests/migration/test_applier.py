@@ -118,7 +118,7 @@ async def test_apply_creates_and_populates_agent(db_client, workspace, tmp_path,
 
     # skill copied verbatim into workspace/skills/<name>/
     assert res.skills_copied == ["myskill"]
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
     copied = agent_workspace_path(res.agent_id, "user_x") / "skills" / "myskill" / "SKILL.md"
     assert copied.exists()
 

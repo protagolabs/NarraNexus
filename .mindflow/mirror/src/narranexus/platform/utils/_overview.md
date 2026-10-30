@@ -19,8 +19,7 @@ Infrastructure utilities shared by every other layer of `xyz_agent_context` — 
 | `timezone.py` | UTC storage / user-timezone display / LLM-friendly formatting |
 | `text.py` | Keyword extraction and smart truncation for mixed Chinese-English text |
 | `exceptions.py` | `AgentContextError` hierarchy — typed errors with rich context |
-| `file_safety.py` | Path traversal and upload size validation helpers |
-| `fs/` | Filesystem-safety group. `fs/confined_io.py`: fd-relative O_NOFOLLOW file ops — path check and open as one operation (tenant symlink swaps) |
+| `fs/` | Filesystem-safety group: `confined_io.py` (fd-relative O_NOFOLLOW file ops — path check and open as one operation), `workspace_paths.py` (workspace/team/bus path layout + id-segment guard), `file_safety.py` (filename / zip-member / upload-size validation), `fs_safety.py` (make `~/.narranexus` dirs usable) |
 | `evermemos/` | HTTP client for the optional EverMemOS external memory service |
 
 ## Collaboration with external directories

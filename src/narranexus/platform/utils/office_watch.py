@@ -72,7 +72,7 @@ def resolve_watch_file(agent_id: str, user_id: str, file_path: str) -> str:
             a regular file, or is not a supported Office format. The message
             is actionable and surfaced straight to the agent.
     """
-    from narranexus.platform.utils.workspace_paths import (
+    from narranexus.platform.utils.fs.workspace_paths import (
         resolve_existing_workspace,
         resolve_inside_workspace,
     )
@@ -360,7 +360,7 @@ def ensure_watch(agent_id: str, user_id: str, rel_file: str, wait_s: float = 6.0
     Valid only when the caller is co-located with the workspace + the agent's
     officecli (local/desktop, or inside the executor container for cloud).
     """
-    from narranexus.platform.utils.workspace_paths import (
+    from narranexus.platform.utils.fs.workspace_paths import (
         resolve_existing_workspace,
         resolve_inside_workspace,
     )

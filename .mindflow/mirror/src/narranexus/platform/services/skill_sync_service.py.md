@@ -57,7 +57,7 @@ way). Cancelled on shutdown with a done-callback that logs unexpected exits
 (fire-and-forget lesson #2). Lives in the backend process — both run modes
 (run.sh / DMG sidecar) boot the same lifespan, iron rule #7.
 `reconcile_all` walks the NESTED workspace layout `{user_id}/{agent_id}`
-(see utils/workspace_paths.py `_LAYOUT`); if the layout flips again this
+(see utils/fs/workspace_paths.py `_LAYOUT`); if the layout flips again this
 walk must follow.
 
 Enable/disable via the UI routes does NOT write the audit table directly —

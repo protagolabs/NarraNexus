@@ -237,7 +237,7 @@ def _skill_zip(path: Path, marker: bytes) -> None:
 @pytest.mark.asyncio
 async def test_archive_local_zip_swap_after_resolve_never_archives_the_victims_zip(trees, monkeypatch):
     from narranexus.platform.bundle import skill_backup
-    from narranexus.platform.utils import workspace_paths
+    from narranexus.platform.utils.fs import workspace_paths
 
     archives = trees["tmp"] / "skill_archives"
     monkeypatch.setattr(skill_backup, "SKILL_ARCHIVES_ROOT", archives)

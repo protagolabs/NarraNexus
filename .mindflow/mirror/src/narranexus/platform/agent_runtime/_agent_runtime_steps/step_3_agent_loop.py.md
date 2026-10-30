@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（复审 2）— `ensure_agent_workspace_dir`：失败关闭，且报错可操作
 
 工作目录创建抽成 `ensure_agent_workspace_dir(agent_working_path, base)`（`confined_io.make_dirs`，逐级 `O_NOFOLLOW`）。**fail-closed 的后果**：桌面端用户如果**自己**把

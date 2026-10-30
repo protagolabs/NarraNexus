@@ -39,7 +39,7 @@ from narranexus.platform.artifact._artifact_impl.commit import entry_size_bytes
 from narranexus.platform.artifact._artifact_impl.freshness import office_lock_present
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema import Artifact
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 OWNER, VICTIM = "user_owner", "user_victim"
 A_OWN, A_VIC = "agent_own000000", "agent_vic000000"
@@ -476,7 +476,7 @@ def test_entry_size_bytes_nested_entry_counts_the_directory(env):
 
 
 def test_entry_size_bytes_team_folder_entry_counts_the_file_alone(env):
-    from narranexus.platform.utils.workspace_paths import team_shared_dir
+    from narranexus.platform.utils.fs.workspace_paths import team_shared_dir
 
     tdir = team_shared_dir(OWNER, "team_0123456789ab", base=str(env["base"].resolve()))
     tdir.mkdir(parents=True)

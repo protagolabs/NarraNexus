@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-10-30
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30 — 出站媒体读取走受限 fd
 
 `resolve_workspace_file` 返回**词法**路径（workspace + 已证明的尾段）并用受限 lstat 判常规文件；`send_media_impl` 用 `open_read` 一次拿到 fstat 大小与字节

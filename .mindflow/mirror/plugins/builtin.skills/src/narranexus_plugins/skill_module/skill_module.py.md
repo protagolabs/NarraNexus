@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（复审）— 词法元数据路径；符号链接技能目录的可见性
 
 - 安装时 `.skill_meta.json` 与 `info.path` 用**词法** `skills_dir / name`，不用 `ensure_within_directory` 的返回值（它 `resolve()`：`skills`

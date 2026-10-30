@@ -33,7 +33,7 @@ from narranexus.platform.repository.artifact_repository import ArtifactRepositor
 from narranexus.platform.schema.artifact_schema import Artifact, HealCandidate, HealResult
 from narranexus.platform.settings import settings
 from narranexus.platform.utils.logging import log_boundary_violation
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.fs.workspace_paths import (
     resolve_inside_workspace,
     team_shared_dir,
 )
@@ -246,7 +246,7 @@ async def heal_artifact(
     if art is None or art.agent_id != agent_id:
         raise ArtifactNotFound("artifact not found")
 
-    from narranexus.platform.utils.workspace_paths import (
+    from narranexus.platform.utils.fs.workspace_paths import (
         resolve_existing_workspace,
         resolve_workspace_relative_file,
     )

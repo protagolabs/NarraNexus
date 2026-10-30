@@ -5,7 +5,7 @@
 ``{agent_id}_{user_id}`` → nested ``{user_id}/{agent_id}``.
 
 Run this ONCE at deploy, BEFORE flipping
-``utils.workspace_paths._LAYOUT`` to "nested" (and before per-user
+``utils.fs.workspace_paths._LAYOUT`` to "nested" (and before per-user
 executor containers bind-mount ``{base}/{user_id}``). Idempotent and
 non-destructive: it never overwrites or deletes — a pre-existing nested
 target leaves the flat dir untouched and reported as a conflict.
@@ -24,7 +24,7 @@ import argparse
 import asyncio
 
 from narranexus.platform.settings import settings
-from narranexus.platform.utils.workspace_paths import migrate_flat_to_nested
+from narranexus.platform.utils.fs.workspace_paths import migrate_flat_to_nested
 
 
 async def _load_known_user_ids() -> set[str]:

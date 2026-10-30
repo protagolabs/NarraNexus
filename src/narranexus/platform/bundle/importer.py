@@ -41,7 +41,7 @@ from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils.db.dialect_errors import is_unique_violation
 from narranexus.platform.utils.deployment_mode import is_cloud_mode
 from narranexus.platform.utils.url_safety import is_obviously_non_public_url
-from narranexus.platform.utils.file_safety import (
+from narranexus.platform.utils.fs.file_safety import (
     sanitize_filename,
     validate_zip_member_path,
 )
@@ -1327,7 +1327,7 @@ async def _confirm_inner(
         ws_target = None
         if ws_tar.exists():
             from narranexus.platform.settings import settings as core_settings
-            from narranexus.platform.utils.workspace_paths import agent_workspace_path
+            from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
             target = agent_workspace_path(new_aid, user_id, base=core_settings.base_working_path)
             await asyncio.to_thread(
                 _import_workspace_tar, ws_tar, target, core_settings.base_working_path, id_map, user_id
@@ -1555,7 +1555,7 @@ async def _confirm_inner(
     # subprocess.git invocations under the naive impl).
     # full_copy is excluded — each agent's archive zip carries that agent's
     # own .skill_meta.json / credentials, so they're distinct payloads.
-    from narranexus.platform.utils.file_safety import ensure_within_directory
+    from narranexus.platform.utils.fs.file_safety import ensure_within_directory
     from narranexus.platform.settings import settings as core_settings
 
     def install_cache_key(s_entry: dict) -> Optional[str]:
@@ -1973,7 +1973,7 @@ def artifact_relpath_or_raise(fp: str) -> str:
     aborts the import — a bad pointer would otherwise become a row whose raw
     / edit / upload paths point outside the new agent's workspace.
     """
-    from narranexus.platform.utils.file_safety import validate_zip_member_path
+    from narranexus.platform.utils.fs.file_safety import validate_zip_member_path
     if "\\" in (fp or ""):
         raise ValueError(f"artifact file_path must not contain backslashes: {fp!r}")
     rel = (fp or "").lstrip("/")
@@ -2002,7 +2002,7 @@ def rewrite_artifact_row(
     this import creates (``team_id``, None when the bundle has none), a row
     without one stays private.
     """
-    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
     try:
         fp = artifact_relpath_or_raise(new_ar["file_path"]) if new_ar.get("file_path") else ""
     except ValueError as e:
@@ -2032,8 +2032,8 @@ def copy_skill_into_agent(
     name is sanitised and confined, an existing target is replaced, and the
     copy never dereferences links (see ``confined_io.copy_tree``).
     """
-    from narranexus.platform.utils.file_safety import ensure_within_directory, sanitize_filename
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.file_safety import ensure_within_directory, sanitize_filename
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
     skills_base = agent_workspace_path(target_aid, user_id, base=base) / "skills"
     safe_name = sanitize_filename(skill_name, label="skill name")
     target = ensure_within_directory(skills_base, safe_name, label="skill name")

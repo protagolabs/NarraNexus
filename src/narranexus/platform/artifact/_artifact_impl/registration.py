@@ -30,7 +30,7 @@ from typing import Optional
 
 from loguru import logger
 
-from narranexus.platform.utils.workspace_paths import refuse_symlinked_dir
+from narranexus.platform.utils.fs.workspace_paths import refuse_symlinked_dir
 
 from narranexus.platform.artifact._artifact_impl.confinement import (
     confined_dir_size,
@@ -56,7 +56,7 @@ from narranexus.platform.schema.artifact_schema import (
     CreateArtifactToolResult,
 )
 from narranexus.platform.settings import settings
-from narranexus.platform.utils.workspace_paths import team_shared_dir
+from narranexus.platform.utils.fs.workspace_paths import team_shared_dir
 from narranexus.platform.utils.office_watch import OFFICE_LIVE_KIND
 
 
@@ -101,7 +101,7 @@ def _new_artifact_id() -> str:
 
 
 def workspace_root(agent_id: str, user_id: str) -> str:
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     return str(agent_workspace_path(agent_id, user_id, base=os.path.realpath(settings.base_working_path)))
 

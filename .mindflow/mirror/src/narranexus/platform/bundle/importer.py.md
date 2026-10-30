@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（复审 2）— 工作区 tar 先在平台暂存区解开，再受限合并进目标
 
 **跨租户写**：每用户执行器挂载整个 `{base}/{user}`，租户可以在导入前把 `{user}/{new_agent_id}` 预先建成指向别的租户目录的符号链接；原来的

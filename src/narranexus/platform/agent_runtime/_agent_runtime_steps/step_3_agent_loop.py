@@ -2028,7 +2028,7 @@ async def step_3_agent_loop(
     # Set up Agent working directory
     from narranexus.platform.settings import settings
     working_path = settings.base_working_path
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
     agent_working_path = str(agent_workspace_path(ctx.agent_id, ctx.user_id, base=working_path))
     ensure_agent_workspace_dir(agent_working_path, working_path)
 
@@ -2044,7 +2044,7 @@ async def step_3_agent_loop(
     # (see `_resolve_entry` and `list_for_agent_context`), and it is not
     # read-only: the confinement layers inspect `file_path` and shell paths,
     # so the grant covers Write, Edit and rm.
-    from narranexus.platform.utils.workspace_paths import turn_accessible_roots
+    from narranexus.platform.utils.fs.workspace_paths import turn_accessible_roots
     _turn_extra = ctx.trigger_extra_data or {}
     extra_accessible_roots = turn_accessible_roots(
         ctx.user_id, team_id=str(_turn_extra.get("bus_team_id") or ""), base=working_path

@@ -127,7 +127,7 @@ Upstream:
 
 Downstream:
 - `narranexus.platform.settings.base_working_path` — workspace root.
-- `narranexus.platform.utils.file_safety` for upload-time filename validation.
+- `narranexus.platform.utils.fs.file_safety` for upload-time filename validation.
 - `os.scandir` / `shutil.rmtree` for tree walking and recursive delete.
 
 Mounted under `/api/agents` (see `backend/main.py`).

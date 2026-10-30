@@ -59,7 +59,7 @@ correct dir**, not working around it:
    **stderr-only**. The service always starts.
 
 The `probe_writable` / `chmod_repair_owned` / `chown_hint` primitives now live in
-`utils/fs_safety.py` (shared with the SQLite backend so logs + DB behave
+`utils/fs/fs_safety.py` (shared with the SQLite backend so logs + DB behave
 identically); `_setup` imports them under its old `_`-prefixed names so existing
 monkeypatches keep working. They touch ONLY dirs we own, within `$HOME` (never
 `/` or `/Users`). Warnings go to stderr — and the desktop log drainer now mirrors

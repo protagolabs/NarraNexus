@@ -70,7 +70,7 @@ Upstream callers:
   `format_attachments_for_system_prompt`
 
 Downstream:
-- `narranexus.platform.utils.file_safety` for `sanitize_filename` /
+- `narranexus.platform.utils.fs.file_safety` for `sanitize_filename` /
   `ensure_within_directory` — re-used so all upload paths share the
   same sandbox semantics
 - `narranexus.platform.settings` for `base_working_path`

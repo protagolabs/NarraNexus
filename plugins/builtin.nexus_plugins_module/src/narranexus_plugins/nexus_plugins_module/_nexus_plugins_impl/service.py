@@ -30,7 +30,7 @@ from narranexus.kernel.plugins.install.index import Index
 from narranexus.kernel.plugins.lifecycle import RegistryStore
 from narranexus.kernel.plugins.paths import MANIFEST_FILENAME, plugin_home, registry_path
 from narranexus.kernel.plugins.registries import KERNEL_REGISTRIES
-from narranexus.platform.utils.workspace_paths import agent_workspace_path
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
 from .guards import (
     GuardError,
@@ -50,6 +50,10 @@ HEAVY_KINDS = frozenset({"hook", "routes", "worker", "tool", "mcp_server"})  # f
 
 class SelfExtensionService:
     def __init__(self, agent_id: str, user_id: str, *, workspace: Path | None = None, store: RegistryStore | None = None, index: Index | None = None) -> None:
+        # This refusal is also what makes the by-path draft I/O below safe: the
+        # draft tree is the agent's workspace, which on cloud a tenant can
+        # rearrange (symlink swaps). Lifting it requires moving every draft
+        # read/write/delete onto utils.fs.confined_io first.
         if is_cloud_mode():
             raise GuardError("self-extension is a local feature; the cloud build ships the standard plugin set")
         self.agent_id = agent_id

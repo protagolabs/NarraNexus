@@ -182,7 +182,7 @@ async def main() -> None:
         # 3. Install the arena skill into the agent's real workspace.
         # Below settings.base_working_path (ArenaOnboarder writes through the
         # link-free walk under it); the current nested layout, like the app uses.
-        from narranexus.platform.utils.workspace_paths import agent_workspace_path
+        from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
         workspace = agent_workspace_path(agent_id, user_id, base=settings.base_working_path)
         result = onboarder.install_skill(workspace / "skills", creds)

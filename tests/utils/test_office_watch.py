@@ -34,7 +34,7 @@ def test_is_watch_port_range():
 
 def _ws(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path))
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     ws = agent_workspace_path("a1", "u1")
     ws.mkdir(parents=True, exist_ok=True)
