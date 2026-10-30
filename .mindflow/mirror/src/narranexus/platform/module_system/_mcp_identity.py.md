@@ -9,7 +9,7 @@ stub: false
 工具上的 `user_id` 指本平台账号（其 workspace / 技能 / job / 产物），产物和技能工具会拿它
 拼 workspace 路径，保留模型填的别人的 id 就会写进别的租户目录。当初"先测量再收紧"的测量
 结果：prod 四天 0 次不一致。现在 `resolve_caller_user_id` 对不一致的真实值返回注入的回合
-所有者（warning 记录）；None 仍不碰；无注入（本地、直连）时原样放行。
+所有者（warning 记录）；None 仍不碰；无注入（无属主回合、直连客户端）时原样放行。
 
 真正指外部平台用户的参数（目前只有 Discord 的 `discord_dm`，Discord snowflake）用
 `@external_user_id` 标注（放在 `@mcp.tool()` 下面），wrapper 对其 `user_id` 完全不做

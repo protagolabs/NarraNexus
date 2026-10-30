@@ -458,8 +458,8 @@ def resolve_caller_user_id(supplied: Any) -> Any:
     while artifact and skill tools turned the kept value into a workspace
     path — another tenant's tree. A tool whose ``user_id`` names someone
     else (an IM platform user) is marked with :func:`external_user_id` and
-    never reaches this function. Without injection (local mode, a direct
-    MCP client) the supplied value passes through unchanged.
+    never reaches this function. Without injection (an ownerless turn, a
+    direct MCP client) the supplied value passes through unchanged.
     """
     if supplied is None:
         return None

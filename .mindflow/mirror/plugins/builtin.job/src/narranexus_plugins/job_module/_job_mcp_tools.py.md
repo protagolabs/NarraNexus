@@ -6,8 +6,9 @@ last_verified: 2026-10-30
 ## 2026-10-30 — 检索工具的 `user_id` 说明改写
 
 平台现在把账号 `user_id` 一律改成回合所有者（见 [[_mcp_identity]]），所以
-`job_retrieval_*` 的 `user_id` 不再能"按某个联系人过滤"；docstring 删掉了误导性的
-`user_id="user_123"` 示例，改为提示按名字写进 query。
+`job_retrieval_*` 的 `user_id` 不再能"按某个联系人过滤"——传了就只返回属主名下的 job，
+不传不过滤；docstring 删掉了误导性的 `user_id="user_123"` 示例，改为提示把联系人名字写进
+query / keywords。
 
 ## 2026-09-07 — 私有平台模块换成公开门面（批 6c，A2-1）
 

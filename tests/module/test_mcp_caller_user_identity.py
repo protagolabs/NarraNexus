@@ -262,10 +262,12 @@ def _real_user_id_tools():
     from narranexus.platform.module_system import module_registry
 
     found = {}
-    for _name, cls in module_registry.items():
+    failed = []
+    for name, cls in module_registry.items():
         try:
             mcp = cls(agent_id="probe", user_id="probe", database_client=None).build_instrumented_mcp_server()
-        except Exception:
+        except Exception as e:  # noqa: BLE001 — reported below, never skipped silently
+            failed.append(f"{name}: {type(e).__name__}: {e}")
             continue
         if mcp is None:
             continue
@@ -277,6 +279,8 @@ def _real_user_id_tools():
                 continue
             if "user_id" in params:
                 found[tool.name] = fn
+    # A module that cannot be built would hide its tools from the gate.
+    assert not failed, f"modules failed to build under probe args: {failed}"
     return found
 
 
