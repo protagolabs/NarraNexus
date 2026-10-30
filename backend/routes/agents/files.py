@@ -99,22 +99,31 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
     """
     budget = {"nodes": MAX_TREE_NODES, "truncated": False}
 
-    def _walk(dir_path: Path, depth: int = 0) -> List[FileInfo]:
+    # Every directory is listed through the link-free walk below the workspace
+    # base (confined_io.list_dir: O_NOFOLLOW per component, scandir on the fd,
+    # per-entry lstat). Recursing by PATH string (the old scandir(path) per
+    # level) let a directory swapped for a link between the is_dir check and the
+    # recursion list another tenant's names, sizes and mtimes into this tree.
+    base_root, ws_rel = confined_io.split_under_base(
+        str(workspace_root), platform_settings.base_working_path
+    )
+
+    def _walk(rel_dir: str, depth: int = 0) -> List[FileInfo]:
         nodes: List[FileInfo] = []
+        try:
+            entries = confined_io.list_dir(base_root, rel_dir)
+        except confined_io.ConfinedPathError as e:
+            # Swapped for a link since the parent listing: nothing of it is shown.
+            logger.warning(f"workspace scan refused at {rel_dir}: {e}")
+            return nodes
+        except OSError as e:
+            logger.warning(f"workspace scan failed at {rel_dir}: {e}")
+            return nodes
         if depth >= MAX_TREE_DEPTH:
             # Look before claiming truncation: only a visible entry below the
             # ceiling is content the listing omits.
-            try:
-                with os.scandir(dir_path) as it:
-                    if any(not e.name.startswith(".") for e in it):
-                        budget["truncated"] = True
-            except OSError as e:
-                logger.warning(f"workspace scan failed at {dir_path}: {e}")
-            return nodes
-        try:
-            entries = list(os.scandir(dir_path))
-        except OSError as e:
-            logger.warning(f"workspace scan failed at {dir_path}: {e}")
+            if any(not e.name.startswith(".") for e in entries):
+                budget["truncated"] = True
             return nodes
 
         for entry in entries:
@@ -124,33 +133,29 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
                 budget["truncated"] = True
                 break
             budget["nodes"] -= 1
-            try:
-                stat = entry.stat(follow_symlinks=False)
-            except OSError:
-                continue
 
-            entry_path = Path(entry.path)
-            rel = str(entry_path.relative_to(workspace_root))
+            entry_rel = f"{rel_dir}/{entry.name}"
+            rel = entry_rel[len(ws_rel) + 1:]
 
-            if entry.is_dir(follow_symlinks=False):
+            if entry.is_dir:
                 nodes.append(
                     FileInfo(
                         name=entry.name,
                         path=rel,
                         is_dir=True,
                         size=0,
-                        modified_at=str(stat.st_mtime),
-                        children=_walk(entry_path, depth + 1),
+                        modified_at=str(entry.st.st_mtime),
+                        children=_walk(entry_rel, depth + 1),
                     )
                 )
-            elif entry.is_file(follow_symlinks=False):
+            elif entry.is_file:
                 nodes.append(
                     FileInfo(
                         name=entry.name,
                         path=rel,
                         is_dir=False,
-                        size=stat.st_size,
-                        modified_at=str(stat.st_mtime),
+                        size=entry.st.st_size,
+                        modified_at=str(entry.st.st_mtime),
                         children=None,
                     )
                 )
@@ -159,9 +164,11 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
         nodes.sort(key=lambda n: (not n.is_dir, n.name.lower()))
         return nodes
 
-    if not workspace_root.exists():
+    try:
+        os.close(confined_io.open_dir_fd(base_root, ws_rel))
+    except FileNotFoundError:
         return [], False
-    tree = _walk(workspace_root)
+    tree = _walk(ws_rel)
     return tree, budget["truncated"]
 
 
@@ -212,7 +219,10 @@ async def list_workspace_files(
     logger.debug(f"Listing workspace tree for agent: {agent_id}, user: {user_id}")
     try:
         workspace_path = _get_workspace_path(agent_id, user_id)
-        tree, truncated = _build_tree(Path(workspace_path))
+        try:
+            tree, truncated = _build_tree(Path(workspace_path))
+        except confined_io.ConfinedPathError:
+            raise HTTPException(404, "agent not found")
         if truncated:
             logger.warning(
                 f"workspace tree truncated for agent {agent_id}: "
@@ -249,7 +259,7 @@ async def fetch_workspace_file(
     # resolution above is only a check, and FileResponse(path=...) would
     # re-open the string after a directory on it may have been swapped for a
     # link into another tenant's tree.
-    served = open_tenant_file(target)
+    served = open_tenant_file(target, within=[workspace])
     if served is None:
         raise HTTPException(404, "file not found")
     media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"

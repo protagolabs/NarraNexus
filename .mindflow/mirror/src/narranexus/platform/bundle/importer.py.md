@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/bundle/importer.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `copy_skill_into_agent` 替换已有技能走 `remove_tree`
+
+原来 `target.exists()` + `shutil.rmtree(target)`，`skills` 被换成链接时会删受害者的技能目录。现在对**词法**路径
+（`skills_base / safe_name`，不是 `ensure_within_directory` 的 resolve 结果）做 `confined_io.remove_tree`；链接 →
+`ConfinedPathError`（ValueError），导入 fail closed。其后的 `mkdir` / `copy_skill_dir` 仍按路径写（已知未转换）。
 
 ## 2026-10-28（二审）— `artifacts.json` 行改写提成 `rewrite_artifact_row`
 

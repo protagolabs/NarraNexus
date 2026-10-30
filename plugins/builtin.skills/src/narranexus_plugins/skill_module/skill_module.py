@@ -35,6 +35,7 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
+from narranexus.platform.utils import confined_io
 from narranexus.platform.utils.workspace_paths import safe_id_segment
 
 from narranexus.platform.module_system.base import XYZBaseModule, mcp_server_url
@@ -1266,8 +1267,10 @@ class SkillModule(XYZBaseModule):
         # wins over the SKILL.md-derived name.
         safe_skill_name = sanitize_filename(target_dir_name or info.name, label="skill name")
         target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
+        # The deletion target is the LEXICAL path (``ensure_within_directory``
+        # resolves its result, which would turn a swapped ``skills`` link into
+        # the victim's real path and make the confined walk accept it).
+        self._remove_skill_dir(self.skills_dir / safe_skill_name)
 
         shutil.move(str(skill_root), str(target_dir))
 
@@ -1500,6 +1503,25 @@ class SkillModule(XYZBaseModule):
 
         return dir_is_builtin(skill_dir)
 
+    def _remove_skill_dir(self, path: Path) -> bool:
+        """Delete one skill directory fd-relative below the workspace base.
+
+        ``skills`` (and ``.disabled``) sit inside the owner's own mount, so the
+        owner can replace them with a symlink to another tenant's tree; a
+        by-path ``rmtree`` would then delete the victim's skill. This walks the
+        path with O_NOFOLLOW (``confined_io.remove_tree``), never follows a link
+        (a link inside the skill is unlinked itself) and refuses a link on the
+        way. Returns False when nothing was there; raises ValueError on refusal.
+        """
+        try:
+            root, rel = confined_io.split_under_base(str(path), str(self.base_path))
+            confined_io.remove_tree(root, rel)
+            return True
+        except FileNotFoundError:
+            return False
+        except confined_io.ConfinedPathError as e:
+            raise ValueError(f"refusing to remove skill directory {path.name!r}: {e}") from e
+
     def remove_skill(self, skill_name: str) -> bool:
         """Remove a Skill.
 
@@ -1517,14 +1539,12 @@ class SkillModule(XYZBaseModule):
         if self._dir_is_builtin(skill_path) or self._dir_is_builtin(disabled_path):
             raise ValueError(f"Skill '{skill_name}' is built-in and can't be removed. Disable it instead.")
 
-        if skill_path.exists():
-            shutil.rmtree(skill_path)
+        if self._remove_skill_dir(skill_path):
             logger.info(f"Removed skill '{skill_name}' from {skill_path}")
             return True
 
         # Also check disabled directory
-        if disabled_path.exists():
-            shutil.rmtree(disabled_path)
+        if self._remove_skill_dir(disabled_path):
             logger.info(f"Removed disabled skill '{skill_name}' from {disabled_path}")
             return True
 

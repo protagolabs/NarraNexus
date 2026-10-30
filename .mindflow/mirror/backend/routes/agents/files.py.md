@@ -4,6 +4,12 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 目录树列表改为 fd 相对遍历
+
+`_build_tree` 每层按路径 `os.scandir(path)` 递归：目录在父级列出之后、递归之前被换成链接，会把受害者的文件名/大小/mtime 列进来。
+现在每个目录经 `confined_io.list_dir`（逐级 `O_NOFOLLOW`，scandir 在目录 fd 上，逐项 `lstat`）；递归中被换成链接的子目录整个跳过
+（日志告警），根被换成链接 → 路由 404。工作区不存在 → 空树。下载还加了 `within=[workspace]`（见 [[_confined_response]]）。
+
 ## 2026-10-30（复审 I2）— 下载/上传/删除全部走受限 fd
 
 三个 handler 的"检查"（`_resolve_within_workspace`、`ensure_within_directory`）之后原来都按字符串重开：

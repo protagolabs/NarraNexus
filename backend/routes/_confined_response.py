@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import BinaryIO, Mapping, Optional, Union
+from typing import BinaryIO, Iterable, Mapping, Optional, Union
 
 import anyio
 from loguru import logger
@@ -31,20 +31,38 @@ from narranexus.platform.settings import settings
 from narranexus.platform.utils import confined_io
 
 
-def open_tenant_file(path: Union[str, Path]) -> Optional[BinaryIO]:
+def open_tenant_file(
+    path: Union[str, Path], *, within: Iterable[Union[str, Path]] = ()
+) -> Optional[BinaryIO]:
     """Open a resolved tenant-tree file for reading through the link-free walk.
 
     ``path`` is what a resolver (``resolve_attachment_path``,
     ``resolve_shared_file_for_user``, workspace ``_resolve_within_workspace``)
-    already proved to be inside the caller\'s tree; it is only a LABEL here: the
+    already proved to be inside the caller's tree; it is only a LABEL here: the
     base-relative tail is re-derived lexically and every component below
     ``base_working_path`` is opened O_NOFOLLOW, so a directory swapped for a
-    link after the check is refused. Returns None when the file is missing, not
-    a regular file, outside the base, or the path crosses a link — callers map
-    that to their own 404 shape.
+    link after the check is refused.
+
+    ``within`` is the LEXICAL root(s) the file must live under (the caller's
+    workspace / per-user root, built from ids — never resolved). It closes the
+    gap the walk alone cannot: a resolver that returns a REALPATH hands back a
+    link-free path even when a pre-planted link already redirected it into
+    another tenant's tree, and only a prefix check against the caller's own
+    root notices. Empty ``within`` skips the check (callers whose resolver
+    already pins the root).
+
+    Returns None when the file is missing, not a regular file, outside the base
+    or ``within``, or the path crosses a link — callers map that to their own
+    404 shape.
     """
     try:
         root, rel = confined_io.split_under_base(str(path), settings.base_working_path)
+        roots = [
+            confined_io.split_under_base(str(w), settings.base_working_path)[1] for w in within
+        ]
+        if roots and not any(rel.startswith(r + "/") for r in roots):
+            logger.warning(f"tenant file refused (outside the caller's root): {path!s}")
+            return None
         return confined_io.open_read(root, rel)
     except confined_io.ConfinedPathError as e:
         logger.warning(f"tenant file refused (link or outside base): {path!s}: {e}")

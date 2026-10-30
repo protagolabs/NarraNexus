@@ -557,3 +557,63 @@ def test_open_tenant_file_refuses_outside_the_base_and_links(env, tmp_path):
     assert f is not None
     with f:
         assert f.read() == b"owner-a"
+
+
+# ── `within`: a resolver that returns a REALPATH hides a pre-planted link ────
+
+
+def test_open_tenant_file_within_refuses_a_path_outside_the_callers_root(env):
+    victim_file = env["vic_ws"] / "secret" / "a.txt"
+    assert open_tenant_file(victim_file) is not None  # link-free path: the walk alone accepts it
+    assert open_tenant_file(victim_file, within=[env["own_ws"]]) is None
+    f = open_tenant_file(env["own_ws"] / "report" / "a.txt", within=[env["own_ws"]])
+    assert f is not None
+    f.close()
+    # any one matching root is enough
+    f = open_tenant_file(env["own_ws"] / "report" / "a.txt", within=[env["vic_ws"], env["own_ws"]])
+    assert f is not None
+    f.close()
+    # the root itself is not a file inside it, and a sibling-prefix dir does not match
+    assert open_tenant_file(env["own_ws"] / "report" / "a.txt", within=[env["own_ws"] / "rep"]) is None
+
+
+def test_attachment_raw_refuses_a_resolver_path_that_a_planted_link_redirected(env, monkeypatch):
+    """resolve_attachment_path resolve()s its result: with user_upload_files
+    pre-linked to the victim's, it returns the victim's REAL path — link-free,
+    so only the prefix check against the caller's own workspace refuses it."""
+    _attachment_setup(env)
+    victim_png = env["vic_ws"] / "user_upload_files" / "2026-10-29" / "pic.png"
+    monkeypatch.setattr(env["att_mod"], "resolve_attachment_path", lambda a, u, f: victim_png)
+    r = env["client"].get(f"/api/agents/{A_OWN}/attachments/att_a1b2c3d4/raw", headers=AS_OWNER)
+    assert r.status_code == 404
+    assert SECRET not in r.content
+
+
+def test_transcription_public_refuses_a_resolver_path_outside_the_tokens_workspace(env, monkeypatch):
+    from narranexus.platform.agent_framework.llm.transcription import url_signer
+    import backend.routes.transcription.public as public_route
+
+    monkeypatch.setattr(url_signer.settings, "transcription_hmac_secret", "test-secret-32B")
+    monkeypatch.setattr(url_signer.settings, "public_base_url", "https://my.host")
+    _attachment_setup(env)
+    victim_png = env["vic_ws"] / "user_upload_files" / "2026-10-29" / "pic.png"
+    monkeypatch.setattr(public_route, "resolve_attachment_path", lambda a, u, f: victim_png)
+    app = FastAPI()
+    app.include_router(public_route.router, prefix="/api/public/transcription")
+    token = url_signer.mint(file_id="att_a1b2c3d4", agent_id=A_OWN, user_id=OWNER, variant="original")
+    r = TestClient(app).get(f"/api/public/transcription/audio/{token}")
+    assert r.status_code == 404
+    assert SECRET not in r.content
+
+
+def test_inbox_attachment_raw_refuses_a_resolver_path_outside_the_users_root(env, monkeypatch):
+    _inbox_setup(env, monkeypatch)
+    victim_bus = env["base"] / VICTIM / "_shared" / "bus_files" / "2026-10-29" / "f.bin"
+    import narranexus.platform.message_bus.attachments as att
+
+    monkeypatch.setattr(att, "resolve_shared_file_for_user", lambda u, p, base=None: victim_bus)
+    r = env["client"].get(
+        "/api/inbox/attachments/raw", params={"path": f"{OWNER}/_shared/bus_files/2026-10-29/f.bin"}
+    )
+    assert r.status_code == 404
+    assert SECRET not in r.content

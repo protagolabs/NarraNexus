@@ -43,6 +43,7 @@ from loguru import logger
 
 from backend.routes._confined_response import ConfinedFileResponse, open_tenant_file
 from backend.routes._ownership import assert_owned
+from narranexus.platform.settings import settings as core_settings
 from narranexus.platform.channel.inbox_recorder import OUTBOUND
 
 router = APIRouter()
@@ -305,7 +306,11 @@ async def get_bus_attachment_raw(request: Request, path: str = Query(...)):
     resolved = resolve_shared_file_for_user(user_id, path)
     # Serve from a file object opened through the link-free walk; the resolver
     # above is only a check (FileResponse(path=...) re-opened the string).
-    served = open_tenant_file(resolved) if resolved is not None else None
+    served = (
+        open_tenant_file(resolved, within=[Path(core_settings.base_working_path) / user_id])
+        if resolved is not None
+        else None
+    )
     if served is None:
         return JSONResponse(
             status_code=404,

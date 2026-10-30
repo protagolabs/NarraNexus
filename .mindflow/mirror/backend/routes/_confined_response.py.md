@@ -4,6 +4,12 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `open_tenant_file(path, within=...)`
+
+resolver 常返回**真实路径**（`ensure_within_directory` / `.resolve()`）：租户在 workspace 里预先放好的链接会让 resolver 吐出受害者的真实路径，
+这条路径里已经没有链接，逐级 `O_NOFOLLOW` 也拦不住。`within` 是调用方自己的**词法**根（workspace / per-user 根，由 id 拼成、从不 resolve），
+要求文件的 base 相对路径落在其下，否则返回 None。attachments / transcription / inbox / files 下载 / manyfold read 都传了 `within`。
+
 # _confined_response.py — 受限打开 + 服务"已打开文件对象"的响应（路由共享）
 
 ## 为什么存在

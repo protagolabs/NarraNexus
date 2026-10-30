@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `/attachments/raw` 加 `within=[{base}/{user}]`
+
+纵深防御：文件必须落在认证用户自己的根下，即使 resolver 返回了别处的真实路径。
+
 ## 2026-10-30（复审 I2）— `/attachments/raw` 从受限 fd 出字节
 
 同 [[agents/attachments.py]]：`resolve_shared_file_for_user` 只是检查，`open_tenant_file` + `ConfinedFileResponse` 取代

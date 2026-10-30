@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.teams/src/narranexus_plugins/teams/routes.py
-last_verified: 2026-09-10
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 清空团队共享目录走 `remove_tree`
+
+`_shared` 与 `teams` 都在属主自己的挂载里，可被换成指向别的租户的链接；原来的 `d.exists()` + `shutil.rmtree(d)` 会顺着链接删。
+现在 `confined_io.split_under_base` + `remove_tree`（逐级 `O_NOFOLLOW`，从不跟随），缺失 → 视为已清空，拒绝 → 记入 `errors`。
 
 ## 2026-09-10（PR #389 I1）— 400 文案面向人
 

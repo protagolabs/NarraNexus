@@ -4,6 +4,12 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — list / stat 改为 fd 相对；read 加 `within`
+
+`list`：`confined_io.list_dir`（scandir 在 fd 上 + 逐项 lstat），**链接条目按 `link` 报告其自身的 size/mtime**（原来 `child.stat()` 跟随链接，
+会泄漏目标——可能是别的租户的文件——的大小，且 `type` 变成 dir/file）；`stat` 用 `confined_io.lstat`。缺失 → 404（工作区根缺失仍返回空列表），
+文件 → 400，路径上有链接 → 404。`read` 增加 `within=[workspace]`。
+
 ## 2026-10-30（复审 I2）— read / write 走受限 fd
 
 `read`：`_safe_resolve` 之后 `open_tenant_file` 打开一次，size 取自 fstat，流式从同一个对象读（目录 400 / 缺失 404 / 过大 413 不变）。

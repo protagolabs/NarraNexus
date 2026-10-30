@@ -461,3 +461,35 @@ def test_write_atomic_closes_the_temp_fd_when_fdopen_fails(tree, monkeypatch):
             cio.write_atomic(tree["root"], "a/b/f.txt", b"new")
     assert _open_fd_count() == before
     assert sorted(os.listdir(os.path.join(tree["root"], "a", "b"))) == ["f.txt"]
+
+
+# ── list_dir ─────────────────────────────────────────────────────────────────
+
+
+def test_list_dir_reports_entries_with_lstat_and_links_as_links(tree):
+    os.symlink(tree["outside"] / "secret.txt", os.path.join(tree["root"], "a", "flink"))
+    os.symlink(tree["outside"], os.path.join(tree["root"], "a", "dlink"))
+    got = {e.name: e for e in cio.list_dir(tree["root"], "a")}
+    assert set(got) == {"b", "flink", "dlink"}
+    assert got["b"].is_dir and not got["b"].is_link
+    assert got["flink"].is_link and not got["flink"].is_file
+    assert got["dlink"].is_link and not got["dlink"].is_dir
+    assert got["flink"].st.st_size != len(b"outside-secret")  # the link's own size
+
+
+def test_list_dir_root_and_nested_and_file_size(tree):
+    assert [e.name for e in cio.list_dir(tree["root"])] == ["a"]
+    (e,) = cio.list_dir(tree["root"], "a/b")
+    assert (e.name, e.is_file, e.st.st_size) == ("f.txt", True, 6)
+
+
+def test_list_dir_errors(tree):
+    with pytest.raises(FileNotFoundError):
+        cio.list_dir(tree["root"], "nope")
+    with pytest.raises(NotADirectoryError):
+        cio.list_dir(tree["root"], "a/b/f.txt")
+    os.symlink(tree["outside"], os.path.join(tree["root"], "evil"))
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.list_dir(tree["root"], "evil")
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.list_dir(tree["root"], "evil/anything")

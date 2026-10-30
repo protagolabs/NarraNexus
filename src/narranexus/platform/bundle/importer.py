@@ -1881,8 +1881,19 @@ def copy_skill_into_agent(
     skills_base.mkdir(parents=True, exist_ok=True)
     safe_name = sanitize_filename(skill_name, label="skill name")
     target = ensure_within_directory(skills_base, safe_name, label="skill name")
-    if target.exists():
-        shutil.rmtree(target)
+    # Replace an existing skill fd-relative below the base: ``skills`` sits in
+    # the owner's own mount and can be swapped for a link to another tenant's
+    # tree, which a by-path rmtree would follow. ConfinedPathError (a
+    # ValueError) propagates — the import fails closed.
+    from narranexus.platform.utils import confined_io
+
+    # Lexical target (ensure_within_directory resolves its result, which would
+    # turn a swapped ``skills`` link into the victim's real path).
+    root, rel = confined_io.split_under_base(str(skills_base / safe_name), base)
+    try:
+        confined_io.remove_tree(root, rel)
+    except FileNotFoundError:
+        pass
     copy_skill_dir(src_skill_dir, target)
     return target
 

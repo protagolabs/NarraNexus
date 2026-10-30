@@ -1,8 +1,19 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/skill_module.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 删除技能目录走 fd 相对的 `remove_tree`
+
+`remove_skill`（含 `.disabled`）与 `install_from_dir` 的"替换已存在目录"原来是 `exists()` + `shutil.rmtree(path)`：
+`workspace/skills` 在租户自己的挂载里，可以被换成指向别的租户 `skills` 的链接，按路径 rmtree 会删掉受害者的技能。现在统一经
+`_remove_skill_dir`：用 `confined_io.split_under_base` + `remove_tree`（逐级 `O_NOFOLLOW`，技能内的链接只删链接本身），
+路径上有链接 → `ValueError("refusing ...")`；目标缺失 → False。**删除目标必须是词法路径**（`self.skills_dir / name`），**不能**用
+`ensure_within_directory` 的返回值——它会 `resolve()`，把被换成链接的 `skills` 解析成受害者的真实路径，之后的受限遍历反而放行。
+`skills_dir` 必须在 `settings.base_working_path` 之下（测试夹具要同步设置 `base_path`）。
+**未转换**：`install_from_dir` 之后的 `shutil.move(...)`/`mkdir`/元数据写入，以及 `disable_skill`/`enable_skill` 的 `shutil.move`
+（同一类的写/改名，非删除）；见 [[utils/confined_io]] 的清单。
 
 ## 2026-10-28 — skill_name 只能是单个目录名
 

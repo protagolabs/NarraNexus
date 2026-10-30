@@ -105,8 +105,9 @@ def public_app(monkeypatch, tmp_path):
     # The route serves through the link-free walk below base_working_path.
     from narranexus.platform.settings import settings as platform_settings
     monkeypatch.setattr(platform_settings, "base_working_path", str(tmp_path), raising=False)
-    storage = tmp_path / "attachments"
-    storage.mkdir()
+    # ... and only inside the token's own workspace (agent "ag", user "u").
+    storage = tmp_path / "u" / "ag" / "attachments"
+    storage.mkdir(parents=True)
 
     def _resolve(agent_id, user_id, file_id):
         # Two-tier lookup: original at file_id.<ext>, mp3 cache at

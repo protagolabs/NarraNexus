@@ -32,6 +32,7 @@ from narranexus.platform.schema.attachment_schema import (
     derive_category_from_mime,
 )
 from narranexus.platform.utils.attachment_storage import (
+    get_workspace_path,
     resolve_attachment_path,
     store_uploaded_attachment,
 )
@@ -203,7 +204,14 @@ async def get_attachment_raw(
     path = resolve_attachment_path(agent_id, user_id, file_id)
     # Serve from a file object opened through the link-free walk; the resolver
     # above is only a check (FileResponse(path=...) re-opened the string).
-    served = open_tenant_file(path) if path is not None else None
+    # `within`: resolve_attachment_path returns a REALPATH, so a pre-planted link
+    # inside the workspace would hand back a victim path that has no link left
+    # in it; only the prefix check against the caller's own workspace sees it.
+    served = (
+        open_tenant_file(path, within=[get_workspace_path(agent_id, user_id)])
+        if path is not None
+        else None
+    )
     if served is None:
         return JSONResponse(
             status_code=404,

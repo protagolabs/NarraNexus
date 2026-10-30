@@ -29,6 +29,7 @@ stub: false
   是链接时**替换链接本身**而不是写穿；失败清理临时文件；`mode=None` 沿用原文件权限位。
 - `dir_regular_bytes`：fd 相对递归，只数常规文件，链接既不跟随也不计入；**fail closed**——深度超过 64、目录不可读、扫描中目录被换成链接都抛
   `ConfinedScanError`/`SymlinkRefusedError`（注册据此拒绝），绝不少算（总数用来执行大小上限，静默跳过会让租户把字节藏起来）。
+- `list_dir(root, rel)`：目录 fd 上 scandir + 逐项 lstat（`DirEntryInfo`），链接条目按链接报告其自身元数据。
 - `remove_tree`：fd 相对删除，`unlink`/`rmdir` 走 dir_fd，**从不跟随链接**；树内/叶子的链接只删链接本身；深度上限 256，超过抛
   `ConfinedScanError`（已删部分不回滚）。
 - `split_under_base(path, base)`：词法还原 (realpath(base), 相对尾段)，接受 base 的真实路径与配置拼写（相对/符号链接），租户尾段
@@ -52,19 +53,25 @@ registration / commit / url_artifact 使用；被 backend 的 `agents/artifacts.
 **Windows 不受支持**（没有 `dir_fd` / `O_NOFOLLOW`）：缺原语时所有操作抛 `ConfinedIOUnsupported`，调用方按"拒绝"处理，
 **绝不**回落到按路径串的实现。Linux 与 macOS（桌面端）满足。
 
-### 同类但**未转换**的 by-path 重开（精确清单与原因）
+### 本 PR 已转换的删除 / 列表 / 元数据位置
 
-- `backend/routes/agents/files.py:77` `_build_tree`（`os.scandir(path)` 按串递归）：目录在 `is_dir` 与递归之间被换成链接会泄漏
-  受害者的文件名/大小。只读元数据，需要把整棵树遍历改成 fd 相对，另行处理。
-- `backend/routes/manyfold/files.py:233`（`list_dir` 的 `iterdir`）与 `:276`（`stat_file` 的 `target.stat()`）：同上，只读元数据。
+- 删除：`skill_module.py` 的 `remove_skill`（`skills/<name>` 与 `.disabled/<name>`）与 `install_from_dir` 的替换、`bundle/importer.py`
+  `copy_skill_into_agent` 的替换、`teams/routes.py` 的共享目录清空、`backend/routes/auth.py` 的 agent workspace 清理、
+  `agents/files.py` 的删除——全部 `remove_tree`。**删除目标必须是词法路径**：`ensure_within_directory` 的返回值已 `resolve()`，
+  会把被换成链接的目录解析成受害者的真实路径，之后的受限遍历反而放行。
+- 列表 / 元数据：`agents/files.py` 的 `_build_tree`、`manyfold/files.py` 的 `list` 与 `stat`——`list_dir` / `lstat`；链接条目按链接报告。
+- 验证过的"不需要转换"：整 workspace 的删除里，`{base}/{user}` 是执行器的绑定挂载点（`executor_protocol.py:200`、
+  `_bus_attachment_impl.py` 的说明），租户无法替换它本身；`plugins/builtin.channels.lark/.../_lark_workspace.py:109` 作用于
+  `~/.narranexus/lark_workspaces/<agent>`（`LARK_WORKSPACE_BASE`），不在任何租户挂载内。
+
+### 仍**未转换**的 by-path 位置（精确清单与原因）
+
 - `backend/routes/office_watch/proxy.py` `/office-watch/open` 与 `utils/office_watch.py`（`Popen` officecli）：把路径交给**另一个进程**，
-  无法传 fd；仅由 `resolve_watch_file` 做检查。
-- `plugins/builtin.skills/.../skill_module/skill_module.py:1270 / :1521 / :1527` 与 `src/narranexus/platform/bundle/importer.py:1885`：
-  对 `workspace/skills/<name>` 做 `shutil.rmtree`，`skills` 是租户可替换的中间目录——属于同一类（删除），涉及插件层与 bundle 导入，
-  需要把 base 传进去再用 `remove_tree`，另行处理。
-- 整个 workspace 的删除 `backend/routes/auth.py:1808`、`plugins/builtin.channels.lark/.../_lark_workspace.py:109`、
-  `plugins/builtin.teams/.../routes.py:236`：对平台自己拼出的路径做 `rmtree`，其最后一级若被换成链接，`shutil.rmtree`（Linux/macOS 上本身
-  基于 dir_fd）会拒绝顶层符号链接；路径前缀（`{base}/{user}`）不在租户可写范围，故本 PR 不动。
+  无法传 fd；仅由 `resolve_watch_file` 做检查。已知并接受。
+- `plugins/builtin.skills/.../skill_module.py` 的 `shutil.move(skill_root, target_dir)`（`install_from_dir`）、`mkdir`、
+  `_save_skill_meta`，以及 `disable_skill` / `enable_skill` 的 `shutil.move`；`bundle/importer.py` `copy_skill_into_agent` 之后的
+  `mkdir` + `copy_skill_dir`：同一类，但是**写/改名**而不是删除，需要把整个安装/复制流程改成 fd 相对。删除步骤已先拒绝链接，
+  所以 `skills` 是链接时安装会在删除处失败（fail closed），但"目标不存在"时 `remove_tree` 同样先走父目录而拒绝，故这些写也到不了。
 - 其余 `rmtree` 均作用于平台临时目录 / 安装目录（`temp_dir`、`staging`、插件目录），不在租户树内；`backend/main.py:914/917` 服务前端构建产物。
 
 ## 相关约束

@@ -46,7 +46,8 @@ from narranexus.platform.agent_framework.llm.transcription.url_signer import (
     TokenError,
     verify,
 )
-from narranexus.platform.utils.attachment_storage import resolve_attachment_path
+from narranexus.platform.settings import settings as core_settings
+from narranexus.platform.utils.attachment_storage import get_workspace_path, resolve_attachment_path
 
 
 router = APIRouter()
@@ -122,7 +123,19 @@ async def fetch_audio(token: str):
     path = _resolve_path_for_variant(claims)
     # Serve from a file object opened through the link-free walk (the resolver
     # is only a check; FileResponse(path=...) re-opened the string).
-    served = open_tenant_file(path) if path is not None else None
+    # `within`: the resolvers return REALPATHS (see open_tenant_file) — pin the
+    # file to the token's own workspace / per-user root.
+    served = (
+        open_tenant_file(
+            path,
+            within=[
+                get_workspace_path(claims.agent_id, claims.user_id),
+                Path(core_settings.base_working_path) / claims.user_id,
+            ],
+        )
+        if path is not None
+        else None
+    )
     if served is None:
         logger.warning(
             f"transcription public: file missing for "

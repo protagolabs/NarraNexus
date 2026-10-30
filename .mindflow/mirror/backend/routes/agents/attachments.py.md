@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — raw 下载加 `within=[workspace]`
+
+`resolve_attachment_path` 会 `resolve()`：`user_upload_files` 被预先换成链接时返回受害者的真实路径（无链接）。现在要求文件落在调用者自己的 workspace 之下。
+
 ## 2026-10-30（复审 I2）— raw 下载从受限 fd 出字节
 
 `resolve_attachment_path` 之后 `FileResponse(path=...)` 会按字符串重开；现在 `open_tenant_file(path)` 逐级 `O_NOFOLLOW`

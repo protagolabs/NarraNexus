@@ -1795,19 +1795,25 @@ async def delete_agent(
 
         # 13. Workspace directory
         try:
-            import os
-            import shutil
             from narranexus.platform.settings import settings
+            from narranexus.platform.utils import confined_io
             from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
             workspace_path = str(
                 resolve_existing_workspace(
                     agent_id, agent.created_by, settings.base_working_path
                 )
             )
-            if os.path.isdir(workspace_path):
-                shutil.rmtree(workspace_path)
+            # fd-relative removal below the base: the agent dir is inside the
+            # owner's mount and can be swapped for a link to another tenant's
+            # tree; remove_tree never follows a link (a link leaf is unlinked
+            # itself) and refuses one on the way.
+            root, rel = confined_io.split_under_base(workspace_path, settings.base_working_path)
+            try:
+                confined_io.remove_tree(root, rel)
                 stats["workspace_dir"] = 1
                 logger.info(f"Deleted workspace: {workspace_path}")
+            except FileNotFoundError:
+                pass
         except Exception as e:
             logger.warning(f"Workspace cleanup failed (non-critical): {e}")
 

@@ -31,7 +31,7 @@ import errno
 import os
 import secrets
 import stat as stat_mod
-from typing import BinaryIO, Optional
+from typing import BinaryIO, NamedTuple, Optional
 
 _O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
 _DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0) | _O_CLOEXEC
@@ -328,6 +328,51 @@ def lstat(root: str, rel: str) -> os.stat_result:
         return os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
     finally:
         os.close(parent_fd)
+
+
+class DirEntryInfo(NamedTuple):
+    """One directory entry as seen WITHOUT following links: ``st`` is an lstat."""
+
+    name: str
+    st: os.stat_result
+
+    @property
+    def is_dir(self) -> bool:
+        return stat_mod.S_ISDIR(self.st.st_mode)
+
+    @property
+    def is_file(self) -> bool:
+        return stat_mod.S_ISREG(self.st.st_mode)
+
+    @property
+    def is_link(self) -> bool:
+        return stat_mod.S_ISLNK(self.st.st_mode)
+
+
+def list_dir(root: str, rel: str = "") -> list[DirEntryInfo]:
+    """List ``root/rel`` (``rel`` may be empty) with per-entry lstat.
+
+    The directory is reached by the link-free walk and scanned through its fd;
+    every entry is described by ``lstat`` relative to that fd, so a link entry
+    is reported AS A LINK (its own size/mtime), never as its target — a planted
+    link cannot make a listing disclose another tenant's names, sizes or
+    mtimes. Entries that vanish mid-scan are skipped; unordered.
+    Missing dir → FileNotFoundError; a file → NotADirectoryError; a link on the
+    path → SymlinkRefusedError.
+    """
+    fd = open_dir_fd(root, rel)
+    try:
+        with os.scandir(fd) as it:
+            entries = list(it)
+        out: list[DirEntryInfo] = []
+        for entry in entries:
+            try:
+                out.append(DirEntryInfo(entry.name, entry.stat(follow_symlinks=False)))
+            except OSError:
+                continue
+        return out
+    finally:
+        os.close(fd)
 
 
 def dir_regular_bytes(root: str, rel: str) -> int:

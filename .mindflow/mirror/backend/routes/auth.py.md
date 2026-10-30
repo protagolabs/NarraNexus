@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-10-29
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 删除 agent 时的 workspace 清理走 `remove_tree`
+
+`{base}/{user}` 是执行器的绑定挂载点（租户不能替换它本身），`{agent}` 及以下都在租户可写范围内。`shutil.rmtree` 对顶层符号链接本来会拒绝
+（并留下被植入的链接），现在 `confined_io.remove_tree`：叶子是链接时**只删链接本身**，目标分毫不动，中间被换成链接则拒绝；缺失视为已清理。
 
 ## 2026-10-29 — 黑名单邮箱域登录时直接拒绝（不再只是扣免费额度）
 
