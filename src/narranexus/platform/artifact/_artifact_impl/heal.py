@@ -31,6 +31,7 @@ from narranexus.platform.artifact._artifact_impl.notify import stage_artifact_ev
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact, HealCandidate, HealResult
 from narranexus.platform.settings import settings
+from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.utils.workspace_paths import (
     resolve_inside_workspace,
     team_shared_dir,
@@ -247,6 +248,10 @@ async def heal_artifact(
         search_root = str(team_shared_dir(user_id, art.team_id, base))
     if os.path.islink(search_root):
         logger.warning(f"heal_artifact: {artifact_id} scope root is a symlink, refusing: {search_root}")
+        # In cloud mode the heal route authenticated the caller as this owner
+        # (it refuses anyone else); local mode is single-user. Either way the
+        # caller and the owner are the same account.
+        log_boundary_violation("artifact.heal_symlink", actor=user_id, owner=user_id, detail=search_root)
         return HealResult(
             recovered=False,
             candidates=[],

@@ -1,8 +1,22 @@
 ---
 code_file: backend/routes/agents/files.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（auto-review #429）— 只对绝对路径和 `..`/NUL 记边界日志
+
+workspace 内部链接指向共享 base 之外（agent 自己的 `venv/bin/python -> /usr/bin/python3`）的
+相对路径仍然拒绝，但不记边界日志：诚实的属主手敲这个路径就会触发。链接解析后落在 base 之下、
+却不在自己 workspace 里（指向别的租户）照样记录。绝对路径单独拦并记录，报错文案保持
+"outside the agent workspace"。（本文件下方更早的条目里"realpath 越界会记日志"以本条为准。）
+
+## 2026-10-30 — 越界路径记边界日志
+
+`_resolve_within_workspace` 新增必填关键字 `actor`。`..` 段、NUL、realpath 落在 workspace
+外这三种情况调用 `log_boundary_violation("agent_files.path")`；点开头的文件名仍拒绝但不记
+（这是"不提供隐藏文件"的策略，不是探测信号）。workspace 被换成符号链接时记
+`agent_files.workspace_symlink`。
 
 ## 2026-10-28（复审后）— workspace 根字面化、拒绝符号链接、目录树上限
 

@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/_ownership.py
 stub: false
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — 非法 agent_id 记一条边界日志
+
+`require_owned_workspace_agent` 在 `safe_id_segment` 拒绝时调用
+`log_boundary_violation("agent_route.agent_id", actor=调用者)`。产品界面不会生成这种 id，
+所以它只在越界尝试时出现；格式良好但不属于调用者的 id 仍静默 404（可能只是过期链接）。
 
 ## 2026-10-28（PR #419 review I-4）— `assert_visible` 搬进来
 

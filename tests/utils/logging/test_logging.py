@@ -42,11 +42,13 @@ def _reset_logger() -> Any:
     # logger.configure(extra=...). Otherwise tests that bind/unbind
     # event_id will see the default placeholder leftover from earlier
     # setup_logging calls and false-fail on "key not in extra" asserts.
-    logger.configure(extra={})
+    # configure(patcher=None) is a no-op in loguru, so the setup_logging
+    # patcher must be replaced explicitly or it outlives this module's tests.
+    logger.configure(extra={}, patcher=lambda _record: None)
     _reset_for_tests()
     yield
     logger.remove()
-    logger.configure(extra={})
+    logger.configure(extra={}, patcher=lambda _record: None)
     _reset_for_tests()
 
 
@@ -287,6 +289,45 @@ class TestSetupLogging:
         # cached
         c = setup_logging("svc_c", log_dir=tmp_path)
         assert c != a
+
+    def test_message_line_breaks_are_escaped(self, tmp_path: Path) -> None:
+        """User text logged verbatim (a chat message, an agent name) must not
+        start a new physical line: a log watcher matches lines from their
+        first character, and an embedded newline would make that text read as a
+        separate, genuine-looking entry (hygiene — the boundary line itself is
+        protected by its signature, not by this)."""
+        setup_logging("svc_nl", log_dir=tmp_path, level="INFO")
+        logger.info("Input content: hi\n2026-01-01 00:00:00.000 | WARNING  | forged\rx")
+        logger.complete()
+        files = list((tmp_path / "svc_nl").glob("svc_nl_*.log"))
+        lines = files[0].read_text(encoding="utf-8").splitlines()
+        hits = [line for line in lines if "Input content:" in line]
+        assert len(hits) == 1
+        assert "hi\\n2026-01-01" in hits[0] and "forged\\rx" in hits[0]
+        assert not any(line.startswith("2026-01-01") for line in lines)
+
+    def test_json_mode_does_not_double_escape(self, tmp_path: Path, monkeypatch) -> None:
+        """JSON encoding already escapes the message; the patcher must not add
+        a second, literal backslash-n."""
+        import json as _json
+
+        setup_logging("svc_json", log_dir=tmp_path, level="INFO", fmt="json")
+        logger.info("a\nb")
+        logger.complete()
+        content = next((tmp_path / "svc_json").glob("svc_json_*.log")).read_text(encoding="utf-8")
+        rec = next(_json.loads(line) for line in content.splitlines() if '"a' in line)
+        assert rec["record"]["message"] == "a\nb"
+
+    def test_exceptions_keep_their_multiline_traceback(self, tmp_path: Path) -> None:
+        setup_logging("svc_exc", log_dir=tmp_path, level="INFO")
+        try:
+            raise RuntimeError("boom")
+        except RuntimeError:
+            logger.exception("failed")
+        logger.complete()
+        content = next((tmp_path / "svc_exc").glob("svc_exc_*.log")).read_text(encoding="utf-8")
+        assert "Traceback (most recent call last)" in content
+        assert "RuntimeError: boom" in content
 
     def test_writes_to_file(self, tmp_path: Path) -> None:
         setup_logging("svc_file", log_dir=tmp_path, level="INFO")
