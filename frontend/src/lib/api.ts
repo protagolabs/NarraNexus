@@ -2481,11 +2481,20 @@ class ApiClient {
 // Mock layer — when enabled (?mock=1 or localStorage), calls fall through
 // to hand-authored fixtures instead of the backend. The real ApiClient
 // instance is preserved and used for any method the mock doesn't override
-// so the UI never 404s in mock mode. See src/lib/mock/index.ts.
+// so the UI never 404s in mock mode. The fixtures are not imported here:
+// main.tsx loads src/lib/mock/index.ts on demand and hands it to
+// installMockApi before the first render, so production never ships them.
 // ─────────────────────────────────────────────────────────────────────────
-import { MOCK_ENABLED, mockApi } from './mock';
+import { MOCK_ENABLED } from './mock/flag';
+import type { MockApi } from './mock';
 
 const _realApi = new ApiClient();
+let _mockApi: MockApi | null = null;
+
+/** Mock mode only: route the methods `impl` defines to it from now on. */
+export function installMockApi(impl: MockApi): void {
+  _mockApi = impl;
+}
 
 export const api: ApiClient = MOCK_ENABLED
   ? (() => {
@@ -2497,8 +2506,8 @@ export const api: ApiClient = MOCK_ENABLED
       );
       return new Proxy(_realApi, {
         get(target, prop, receiver) {
-          const mocked = (mockApi as unknown as Record<string | symbol, unknown>)[prop];
-          if (typeof mocked === 'function') return mocked.bind(mockApi);
+          const mocked = _mockApi && (_mockApi as unknown as Record<string | symbol, unknown>)[prop];
+          if (typeof mocked === 'function') return mocked.bind(_mockApi);
           return Reflect.get(target, prop, receiver);
         },
       });

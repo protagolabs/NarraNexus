@@ -4,6 +4,13 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — mock 实现不再静态 import
+
+`MOCK_ENABLED` 改从 `./mock/flag` 读；mock 模式下仍建 Proxy，但实现由
+`installMockApi(impl)` 在运行时装入（[[main]] 首帧前动态 import 后调用），未装入前
+所有方法透传真实 ApiClient。非 mock 模式 `api` 就是 `_realApi`，`installMockApi`
+无效果。只保留 `import type { MockApi }`（编译期擦除）。
+
 ## 2026-10-30 — network calls go through guardedFetch
 
 Every `fetch` in this file is now `guardedFetch` (`guardedFetch.ts`): reads pass

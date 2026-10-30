@@ -14,6 +14,8 @@ import {
 } from './lib/manyfoldFragmentAuth'
 import { installExternalLinkInterceptor } from './lib/externalLinkInterceptor'
 import { captureInboundEntry } from './lib/netmindAuth/tokenInbound'
+import { MOCK_ENABLED } from './lib/mock/flag'
+import { installMockApi } from './lib/api'
 
 // Run BEFORE the first render so the App tree never observes a
 // "logged-out" state when the user was sent here via Manyfold's
@@ -47,12 +49,26 @@ const queryClient = new QueryClient({
   },
 })
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </QueryClientProvider>
-  </StrictMode>,
-)
+function render() {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </QueryClientProvider>
+    </StrictMode>,
+  )
+}
+
+// Mock mode (?mock=1, dev/demo only) loads its fixtures on demand, before the
+// first render, so the production entry chunk never carries them. If they fail
+// to load the app still renders, against the real backend.
+if (MOCK_ENABLED) {
+  import('./lib/mock')
+    .then((m) => installMockApi(m.mockApi))
+    .catch((e) => console.error('[mock] failed to load the mock API layer; using the real backend', e))
+    .finally(render)
+} else {
+  render()
+}

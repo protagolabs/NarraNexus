@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/main.tsx
-last_verified: 2026-09-03
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — mock 模式首帧前按需加载 fixtures
+
+首帧渲染包进 `render()`。`MOCK_ENABLED`（[[flag]]）为真时先 `import('./lib/mock')`
+再 `installMockApi(m.mockApi)`，之后才 render，保证首帧起所有 `api.*` 都走 mock；
+加载失败只打 console.error 并照常 render（Proxy 未装实现时全部透传真实后端）。
+非 mock 模式同步 render，与之前一致。目的：fixtures 不进生产入口 chunk。
 
 ## 2026-09-03（批 2d）— `bootPlugins()`
 

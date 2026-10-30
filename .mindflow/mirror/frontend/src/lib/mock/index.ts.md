@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/lib/mock/index.ts
-last_verified: 2026-09-24
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 开关拆到 `flag.ts`，本文件改为按需加载
+
+`MOCK_ENABLED` / `setMockEnabled` 移到 [[flag]]；本文件只剩 `mockApi` 与 fixtures，
+由 [[main]] 在 mock 模式下 `import('./lib/mock')` 后交给 `installMockApi`，生产
+首屏不再携带（入口 chunk 约 −28KB）。除 `import type` 外不许任何源码静态 import
+本文件，`__tests__/mockLazy.test.ts` 扫源码兜底。
 
 ## 2026-09-24 ui.toolRenderers（第 18 个注册表）
 

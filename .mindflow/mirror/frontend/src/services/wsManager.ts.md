@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-09-08
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `MOCK_ENABLED` 改从 `lib/mock/flag` 读
+
+只为不把 mock fixtures 拉进生产首屏（见 [[flag]]）；mock 模式行为不变。
 
 ## 2026-09-08 — 注释同步
 

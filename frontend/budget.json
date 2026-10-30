@@ -1,7 +1,7 @@
 {
-  "_comment": "Bundle budgets (bytes). A ratchet: ceilings pin today's build and may only go down. initial = entry script + modulepreloaded chunks + css from index.html. Known exception: vendor-echarts is still preloaded at first load (1.1 MB); shrinking it is tracked, growing it is a failure. Raised once, Owner-approved 2026-10-30: entry_script_bytes 2400000 -> 2405000 (+5000) for the request-loop guard (lib/guardedFetch.ts + requestLoopGuard.ts + the common.requestBlocked strings in the eager locales), a safety backstop that must load with the first request; it put the entry at 2402282. Reclaimable: lib/mock fixtures ship in the production entry chunk behind a runtime ?mock=1 flag; moving them out should let this ceiling come back down.",
-  "initial_total_bytes": 4300000,
-  "entry_script_bytes": 2405000,
+  "_comment": "Bundle budgets (bytes). A ratchet: ceilings pin today's build and may only go down. initial = entry script + modulepreloaded chunks + css from index.html. Known exception: vendor-echarts is still preloaded at first load (1.1 MB); shrinking it is tracked, growing it is a failure. Raised once, Owner-approved 2026-10-30: entry_script_bytes 2400000 -> 2405000 (+5000) for the request-loop guard (lib/guardedFetch.ts + requestLoopGuard.ts + the common.requestBlocked strings in the eager locales), a safety backstop that must load with the first request; it put the entry at 2402282. Lowered 2026-10-30 after lib/mock moved out of the entry (loaded on demand by main.tsx under ?mock=1): entry 2402282 -> 2374669, ceiling 2405000 -> 2380000 and initial_total 4300000 -> 4195000 (5 KB headroom for small eager additions).",
+  "initial_total_bytes": 4195000,
+  "entry_script_bytes": 2380000,
   "initial_forbidden_chunk_patterns": [
     "plugin",
     "vendor-reactflow"
