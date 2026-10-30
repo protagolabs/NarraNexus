@@ -15,9 +15,11 @@
  * `RequestLoopBlockedError`; everything else is plain `fetch`, returning the
  * `Response` untouched so callers keep their own status handling.
  *
- * The total read budget is off only when the backend is known to be local
- * (`knownLocalBackend`); against it there is no edge ban to avoid. Unknown
- * means on.
+ * A guarded read that comes back with a probing-like failure status (400 /
+ * 403 / 404 / 405 — what the edge monitor bans on) is reported to the guard,
+ * which blocks a URL that keeps failing and pauses reads once the page (all
+ * tabs together) has failed PAGE_FAIL_MAX reads in a minute; a loop on a
+ * deleted agent's 404 stays far below the edge's failure line.
  *
  * Tabs share the page budgets over a BroadcastChannel because the edge flood
  * rule counts per IP: two tabs each staying under their own budget could still
@@ -25,11 +27,9 @@
  * degrades to per-tab budgets.
  */
 import { RequestLoopBlockedError } from './apiError';
-import { isForcedCloud, isForcedLocal } from './runtimeConfig';
-import { isTauri } from './tauri';
-import { getApiBaseUrl, useRuntimeStore } from '@/stores/runtimeStore';
 import {
   delayUnlessAborted,
+  FAILURE_STATUSES,
   isGuardedMethod,
   LOOP_BLOCK_DELAY_MS,
   RequestLoopGuard,
@@ -51,36 +51,13 @@ function createGuard(): RequestLoopGuard {
       channel = null; // e.g. an opaque origin: per-tab budgets only
     }
   }
-  const g = new RequestLoopGuard({
-    onSpend: (kind) => channel?.postMessage(kind),
-    totalBudgetEnabled: () => !knownLocalBackend(),
-  });
+  const g = new RequestLoopGuard({ onSpend: (kind) => channel?.postMessage(kind) });
   if (channel) {
     channel.onmessage = (event: MessageEvent<unknown>) => {
-      if (event.data === 'rapid' || event.data === 'total') g.recordRemote(event.data as BudgetKind);
+      if (event.data === 'rapid' || event.data === 'fail') g.recordRemote(event.data as BudgetKind);
     };
   }
   return g;
-}
-
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-
-/**
- * True only when the backend is known to be local — no edge flood ban in front
- * of it, so the total read budget would only refuse real work. Fail-closed:
- * an unknown mode keeps the budget on, because it is the only layer that holds
- * a loop whose query changes on every call.
- */
-function knownLocalBackend(): boolean {
-  const mode = useRuntimeStore.getState().mode;
-  if (isForcedCloud() || mode === 'cloud-web') return false;
-  if (isTauri() || isForcedLocal() || mode === 'local') return true;
-  try {
-    const base = getApiBaseUrl() || window.location.origin;
-    return LOOPBACK_HOSTS.has(new URL(base, window.location.href).hostname);
-  } catch {
-    return false;
-  }
 }
 
 function urlOf(input: RequestInfo | URL): string {
@@ -101,21 +78,27 @@ export async function guardedFetch(input: RequestInfo | URL, init?: RequestInit)
     if (verdict !== 'ok') {
       // Budget reports throttle under one fixed key each, so the console gets one
       // line a minute rather than one per refused read.
-      const reportKey = verdict === 'loop' ? url : `<${verdict}>`;
+      const reportKey = verdict === 'rapid_budget' || verdict === 'fail_budget' ? `<${verdict}>` : url;
       if (guard.shouldReport(reportKey)) {
         console.error(
           verdict === 'loop'
             ? `[request-loop-guard] refusing repeated read of ${url} (a component is fetching it in a loop)`
-            : verdict === 'rapid_budget'
-              ? `[request-loop-guard] ${guard.spent('rapid')} rapid repeat reads in the last minute; refusing ${url}`
-              : `[request-loop-guard] ${guard.spent('total')} reads in the last minute, at the edge ban line; refusing ${url}`,
+            : verdict === 'failing'
+              ? `[request-loop-guard] refusing ${url} for a minute: it keeps failing`
+              : verdict === 'fail_budget'
+                ? `[request-loop-guard] ${guard.spent('fail')} failed reads in the last minute; pausing reads (refusing ${url})`
+                : `[request-loop-guard] ${guard.spent('rapid')} rapid repeat reads in the last minute; refusing ${url}`,
         );
       }
       await delayUnlessAborted(LOOP_BLOCK_DELAY_MS, init?.signal);
       throw new RequestLoopBlockedError();
     }
   }
-  return fetch(input, init);
+  const response = await fetch(input, init);
+  if (isGuardedMethod(methodOf(input, init)) && FAILURE_STATUSES.has(response.status)) {
+    guard.recordFailure(urlOf(input));
+  }
+  return response;
 }
 
 /** Tests only: a fresh guard (and channel) so cases cannot leak budget into each other. */

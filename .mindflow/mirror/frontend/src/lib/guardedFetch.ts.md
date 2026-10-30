@@ -27,25 +27,24 @@ console error per URL per minute (the endpoint lives only there), waits
 comes back untouched, so callers keep their own status handling (410 / 409
 branches in the artifact code, `ApiError` mapping in `api.request`).
 
-The total read budget is switched off only when the backend is known to be
-local (`knownLocalBackend`: Tauri, forced-local config, runtime mode `local`, or
-an API origin on a loopback host — `bash run.sh` in a browser), where there is
-no edge ban to avoid. Forced cloud / `cloud-web` keeps it on, and so does an
-unknown mode: it is fail-closed because it is the only layer that holds a loop
-whose query changes on every call, and its on-switch would otherwise depend on
-the deploy repo writing `mode` into `/config.js` (prod injects `mode: "cloud"`,
-verified 2026-10-30). Trade-off accepted with fail-closed: a LAN self-host on a
-non-loopback address keeps the total budget on even without an edge in front,
-which only matters for sessions near 500 reads/min (~85+ agents).
+A guarded read whose response status is in `FAILURE_STATUSES` (400 / 403 /
+404 / 405) is reported to the guard (`recordFailure`), which blocks a URL that
+keeps failing and pauses reads when the page fails too many in a minute. Those
+are the statuses the edge monitor bans an IP on (20 a minute), so a client bug
+that loops on a deleted agent's 404 or a revoked resource's 403 stays far below
+that line instead of getting its user banned. The guard used to also keep a
+total read budget, switched off for a known-local backend; it was removed with
+the edge's volume ban (monitoring v2), so this file no longer needs to know the
+runtime mode at all.
 
 Reports name the limit that was hit and its count for the last minute (budget
-reports throttle under one fixed key per budget), so a heavy-but-legitimate
-session reads as "N reads at the edge ban line", not as a phantom loop.
+reports throttle under one fixed key per budget; per-URL `loop` / `failing`
+reports throttle per URL).
 
 The page budgets are shared across same-origin tabs over a `BroadcastChannel`:
-each admitted read that spends a budget is broadcast and counted by the other
-tabs (`recordRemote`). The edge flood rule counts per IP, so per-tab budgets
-alone would let two tabs sum past the ban line. Without BroadcastChannel (or if
+each rapid repeat and each failed read is broadcast and counted by the other
+tabs (`recordRemote`). The edge counts per IP, so per-tab budgets alone would
+let two tabs sum past its failure line. Without BroadcastChannel (or if
 construction throws, e.g. an opaque origin) the budgets fall back to per tab.
 
 `__resetRequestLoopGuardForTests()` rebuilds the guard and channel so test

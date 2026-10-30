@@ -4,6 +4,12 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `?agents=` 快捷入口过滤不安全 id
+
+TeamDetailPage 跳转带的 `agents=<csv>` 是链接可控输入，导出时会原样发给后端；
+现在用 `isSafeAgentId` 过滤（见 [[agentIdSafety.ts]]），不可能是真 agent 的 id
+（`..`、含分隔符等）直接丢掉，免得构造链接让用户一点导出就触发越界记录。
+
 ## 2026-08-20 — `embedded` 模式(内嵌进 Dashboard 导出标签页)
 
 新增 `embedded?: boolean` prop(默认 false=独立 /app/bundle/export 路由)。

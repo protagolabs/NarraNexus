@@ -52,6 +52,7 @@ import type {
   BundleMcpPreview,
 } from '@/types';
 import { guardedFetch } from '@/lib/guardedFetch';
+import { isSafeAgentId } from '@/lib/agentIdSafety';
 
 const TABS: { id: TabId; labelKey: string; icon: any }[] = [
   { id: 'agents', labelKey: 'pages.bundleExport.tabs.agents', icon: Users },
@@ -274,7 +275,8 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
       setBundleKind('team');
     }
     if (agentsFromQuery) {
-      const ids = agentsFromQuery.split(',').filter(Boolean);
+      // Link-supplied ids are untrusted: an unsafe one would go out on export.
+      const ids = agentsFromQuery.split(',').filter(isSafeAgentId);
       if (ids.length > 0) setSelectedAgents(new Set(ids));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

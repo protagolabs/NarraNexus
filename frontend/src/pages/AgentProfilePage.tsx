@@ -55,6 +55,7 @@ import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 import { cn, formatMessageAge } from '@/lib/utils';
 import type { OwnedAgentStatus, UpdateAgentResponse } from '@/types';
 import type { BuiltinTabId } from '@/components/bookmarks';
+import { agentIdFromRoute } from '@/lib/agentIdSafety';
 
 type ProfileTab = 'overview' | 'capabilities' | 'settings';
 type CapabilityId = 'network' | 'memory' | 'skills' | 'mcp' | 'channels';
@@ -95,7 +96,8 @@ const CAPABILITY_TO_PANEL: Partial<Record<CapabilityId, BuiltinTabId>> = {
 
 export function AgentProfilePage() {
   const { agentId: routeAgentId = '' } = useParams<{ agentId: string }>();
-  const agentId = decodeURIComponent(routeAgentId);
+  // A malformed or path-unsafe id renders as "missing" and is never requested.
+  const agentId = agentIdFromRoute(routeAgentId);
   const navigate = useNavigate();
   const location = useLocation();
   const cameFromChat = (location.state as ProfileEntryState | null)?.from === 'chat';

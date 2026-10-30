@@ -2,7 +2,7 @@
  * @file_name: requestLoopGuard.ts
  * @author: Bin Liang
  * @date: 2026-10-30
- * @description: Client-side brake for runaway read loops — a URL fetched too often, rapid repeats, or reads past the edge ban line are refused locally instead of hitting the network.
+ * @description: Client-side brake for runaway read loops — a URL fetched too often, a URL that keeps failing, or a burst of rapid repeats is refused locally instead of hitting the network.
  *
  * Why: a render loop (effect → fetch → setState → new deps → effect …) turns
  * one open panel into a sustained request flood. On 2026-10-30 the Channels
@@ -12,17 +12,21 @@
  * error on one panel instead of an account ban.
  *
  * Scope: reads (GET / HEAD) only — refusing a user's save is worse than the
- * flood. Two layers:
+ * flood. Three layers:
  *  - per URL (path + query): an identical URL repeated faster than any
  *    legitimate poll is blocked;
- *  - page-wide budgets shared by same-origin tabs (`recordRemote`, wired in
- *    guardedFetch.ts), because the edge counts per IP, not per tab: a "rapid"
- *    budget for the same URL again within LOOP_EXTEND_GAP_MS (stops loops over
- *    a few URLs early), and a total read budget just under the edge ban line:
- *    reads beyond it would get the IP banned anyway, so refusing them can only
- *    be better for the user than letting them through. guardedFetch switches the
- *    total budget off only when the backend is known to be local (desktop app,
- *    run.sh), where there is no edge ban and it would only refuse real work.
+ *  - failures: a read that keeps failing (FAILURE_STATUSES, reported by
+ *    guardedFetch through `recordFailure`) blocks its URL for a minute, and the
+ *    page as a whole may fail at most PAGE_FAIL_MAX reads a minute (shared by
+ *    tabs) before reads pause for the rest of that minute. The edge monitor
+ *    (sentinel, monitoring v2) bans an IP at 20 probing-like failures a minute
+ *    (400/403/404/405), so a looping client must stay far below that line on
+ *    its own — whatever mix of URLs, query strings or tabs the loop uses;
+ *  - a page-wide "rapid" budget (the same URL again within LOOP_EXTEND_GAP_MS)
+ *    shared by same-origin tabs (`recordRemote`, wired in guardedFetch.ts),
+ *    which stops loops spread over a few URLs, each under the per-URL limit.
+ * Request VOLUME alone is not judged: the edge no longer bans on it, and
+ * ordinary polling must never be refused however many agents it covers.
  * The app's network calls go through `guardedFetch` (enforced by a source
  * scan), which owns the single instance.
  */
@@ -43,27 +47,32 @@ export const LOOP_EXTEND_GAP_MS = 2_000;
  * which starves loops that back off on failure but refetch at once on success. */
 export const LOOP_REPEAT_WITHIN_MS = 60_000;
 export const LOOP_MAX_BLOCK_MS = 60_000;
-/** Page-wide budgets over PAGE_WINDOW_MS, shared across same-origin tabs. Every
- * admitted read spends the total budget; a rapid repeat also spends the rapid
- * budget. PAGE_TOTAL_MAX sits under the edge ban line (562/min per IP) with
- * room for writes, SSE and static assets; ordinary polling stays far below it. */
+/** Statuses the edge monitor counts as probing-like failures (and so must a
+ * looping client not produce in bulk). 401 / 429 / 5xx are deliberately absent. */
+export const FAILURE_STATUSES: ReadonlySet<number> = new Set([400, 403, 404, 405]);
+/** FAIL_MAX failures of one URL within FAIL_WINDOW_MS block it for FAIL_BLOCK_MS:
+ * a failing loop leaks at most FAIL_MAX failures per URL per ~70s, well under the
+ * edge's 20 failures a minute per IP even across several URLs. */
+export const FAIL_WINDOW_MS = 10_000;
+export const FAIL_MAX = 3;
+export const FAIL_BLOCK_MS = 60_000;
+/** Page-wide budgets over PAGE_WINDOW_MS, shared across same-origin tabs: rapid
+ * repeats, and failed reads (real users peak at 6 a minute; the edge bans at 20). */
 export const PAGE_WINDOW_MS = 60_000;
 export const PAGE_RAPID_MAX = 150;
-export const PAGE_TOTAL_MAX = 500;
+export const PAGE_FAIL_MAX = 10;
 const REPORT_EVERY_MS = 60_000;
 const MAX_TRACKED_KEYS = 500;
 
 type Clock = () => number;
 
-export type LoopVerdict = 'ok' | 'loop' | 'rapid_budget' | 'total_budget';
-export type BudgetKind = 'rapid' | 'total';
+export type LoopVerdict = 'ok' | 'loop' | 'failing' | 'rapid_budget' | 'fail_budget';
+export type BudgetKind = 'rapid' | 'fail';
 
 export interface RequestLoopGuardOptions {
   now?: Clock;
   /** Called when an admitted request spends a page budget (to tell other tabs). */
   onSpend?: (kind: BudgetKind) => void;
-  /** Whether the total read budget applies right now (only behind the edge). */
-  totalBudgetEnabled?: () => boolean;
 }
 
 export class RequestLoopGuard {
@@ -71,17 +80,17 @@ export class RequestLoopGuard {
   readonly #blockedUntil = new Map<string, number>();
   readonly #lastAttempt = new Map<string, number>();
   readonly #strikes = new Map<string, { count: number; releasedAt: number }>();
-  readonly #budget: Record<BudgetKind, number[]> = { rapid: [], total: [] };
+  readonly #failures = new Map<string, number[]>();
+  readonly #failBlockedUntil = new Map<string, number>();
+  readonly #budget: Record<BudgetKind, number[]> = { rapid: [], fail: [] };
   readonly #reportedAt = new Map<string, number>();
   readonly #now: Clock;
   readonly #onSpend?: (kind: BudgetKind) => void;
-  readonly #totalBudgetEnabled: () => boolean;
 
   constructor(options: RequestLoopGuardOptions | Clock = {}) {
     const opts = typeof options === 'function' ? { now: options } : options;
     this.#now = opts.now ?? (() => Date.now());
     this.#onSpend = opts.onSpend;
-    this.#totalBudgetEnabled = opts.totalBudgetEnabled ?? (() => true);
   }
 
   /**
@@ -91,11 +100,15 @@ export class RequestLoopGuard {
    * (for longer if it is a repeat offender), and while blocked every rapid
    * attempt pushes the release out to a full LOOP_WINDOW_MS from now.
    *
-   * Page: every admitted read spends the total budget and a rapid repeat also
-   * the rapid budget; when either is spent the request is refused. A request
-   * refused by a budget spends nothing and does not count toward the URL's
-   * window; its attempt time is still recorded, so a loop that keeps retrying
-   * keeps reading as rapid instead of slipping out every LOOP_EXTEND_GAP_MS.
+   * Failing: a URL that `recordFailure` saw fail FAIL_MAX times inside
+   * FAIL_WINDOW_MS is refused until FAIL_BLOCK_MS after the last of them, and
+   * every read is refused while the page's failure budget is spent.
+   *
+   * Page: a rapid repeat spends the rapid budget; when it is spent the request
+   * is refused. A request refused by the budget spends nothing and does not
+   * count toward the URL's window; its attempt time is still recorded, so a
+   * loop that keeps retrying keeps reading as rapid instead of slipping out
+   * every LOOP_EXTEND_GAP_MS.
    */
   check(key: string): LoopVerdict {
     const now = this.#now();
@@ -104,6 +117,14 @@ export class RequestLoopGuard {
     // Bound the bookkeeping on every call, whatever the verdict: a loop that
     // keeps getting refused is exactly when the maps grow.
     if (this.#lastAttempt.size > MAX_TRACKED_KEYS) this.#prune(now, key);
+
+    const failUntil = this.#failBlockedUntil.get(key);
+    if (failUntil !== undefined) {
+      if (now < failUntil) return 'failing';
+      this.#failBlockedUntil.delete(key);
+      this.#failures.delete(key);
+    }
+    if (this.#expireBudget('fail', now).length >= PAGE_FAIL_MAX) return 'fail_budget';
 
     const until = this.#blockedUntil.get(key);
     if (until !== undefined) {
@@ -132,12 +153,8 @@ export class RequestLoopGuard {
     }
 
     const rapid = previous !== undefined && now - previous < LOOP_EXTEND_GAP_MS;
-    const total = this.#expireBudget('total', now);
     const rapidSpent = rapid ? this.#expireBudget('rapid', now) : null;
     if (rapidSpent && rapidSpent.length >= PAGE_RAPID_MAX) return 'rapid_budget';
-    if (this.#totalBudgetEnabled() && total.length >= PAGE_TOTAL_MAX) return 'total_budget';
-    total.push(now);
-    this.#onSpend?.('total');
     if (rapidSpent) {
       rapidSpent.push(now);
       this.#onSpend?.('rapid');
@@ -146,12 +163,23 @@ export class RequestLoopGuard {
     return 'ok';
   }
 
+  /** A read of `key` came back with a failure status (FAILURE_STATUSES). */
+  recordFailure(key: string): void {
+    const now = this.#now();
+    const fails = (this.#failures.get(key) ?? []).filter((t) => t > now - FAIL_WINDOW_MS);
+    fails.push(now);
+    this.#failures.set(key, fails);
+    if (fails.length >= FAIL_MAX) this.#failBlockedUntil.set(key, now + FAIL_BLOCK_MS);
+    this.#expireBudget('fail', now).push(now);
+    this.#onSpend?.('fail');
+  }
+
   /** Another tab spent a page budget; count it here too. Capped at the budget:
    * a burst of messages can at most spend it, never pile up beyond. */
   recordRemote(kind: BudgetKind): void {
     const now = this.#now();
     const q = this.#expireBudget(kind, now);
-    if (q.length < (kind === 'rapid' ? PAGE_RAPID_MAX : PAGE_TOTAL_MAX)) q.push(now);
+    if (q.length < (kind === 'rapid' ? PAGE_RAPID_MAX : PAGE_FAIL_MAX)) q.push(now);
   }
 
   /** Reads counted against `kind` in the current window (for reports). */
@@ -179,10 +207,12 @@ export class RequestLoopGuard {
    * within LOOP_EXTEND_GAP_MS — so forgetting one cannot hide a rapid repeat. */
   #prune(now: number, current: string): void {
     const cutoff = now - LOOP_WINDOW_MS;
-    for (const key of new Set([...this.#lastAttempt.keys(), ...this.#blockedUntil.keys()])) {
+    for (const key of new Set([...this.#lastAttempt.keys(), ...this.#blockedUntil.keys(), ...this.#failBlockedUntil.keys()])) {
       if (key === current) continue;
       const until = this.#blockedUntil.get(key);
       if (until !== undefined && until > now) continue;
+      if ((this.#failBlockedUntil.get(key) ?? 0) > now) continue;
+      if ((this.#failures.get(key) ?? []).some((t) => t > now - FAIL_WINDOW_MS)) continue;
       if ((this.#hits.get(key) ?? []).some((t) => t > cutoff)) continue;
       if (now - (this.#lastAttempt.get(key) ?? Number.NEGATIVE_INFINITY) < LOOP_EXTEND_GAP_MS) continue;
       const s = this.#strikes.get(key);
@@ -193,6 +223,8 @@ export class RequestLoopGuard {
       this.#hits.delete(key);
       this.#blockedUntil.delete(key);
       this.#lastAttempt.delete(key);
+      this.#failures.delete(key);
+      this.#failBlockedUntil.delete(key);
     }
     for (const [key, t] of this.#reportedAt) {
       if (now - t >= REPORT_EVERY_MS) this.#reportedAt.delete(key);

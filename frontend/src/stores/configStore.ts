@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { resetSessionGuard } from '@/lib/sessionGuard';
 import { useTeamsStore } from './teamsStore';
 import type { AgentInfo } from '@/types';
+import { isSafeAgentId } from '@/lib/agentIdSafety';
 
 export type { AgentInfo };
 
@@ -105,7 +106,13 @@ export const useConfigStore = create<ConfigState>()(
         useTeamsStore.setState({ teams: [], loaded: false });
       },
 
-      setAgentId: (id) => set({ agentId: id }),
+      // '' clears the selection; anything else must be a possible agent id, or a
+      // crafted link / stale state would make every panel request it (see
+      // lib/agentIdSafety.ts).
+      setAgentId: (id) => {
+        if (id && !isSafeAgentId(id)) return;
+        set({ agentId: id });
+      },
 
       setAgents: (agents) => set({ agents }),
 
@@ -156,6 +163,13 @@ export const useConfigStore = create<ConfigState>()(
     }),
     {
       name: 'narra-nexus-config',
+      // A persisted selection from before the check (or a hand-edited one) must
+      // not come back unchecked on reload.
+      merge: (persisted, current) => {
+        const restored = { ...current, ...(persisted as Partial<ConfigState>) };
+        if (restored.agentId && !isSafeAgentId(restored.agentId)) restored.agentId = '';
+        return restored;
+      },
     }
   )
 );
