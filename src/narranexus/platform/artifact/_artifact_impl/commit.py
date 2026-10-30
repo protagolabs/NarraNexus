@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import os
 
+from loguru import logger
+
 from narranexus.platform.artifact._artifact_impl.confinement import (
     confined_file_size,
     owner_roots,
 )
+from narranexus.platform.artifact._artifact_impl.errors import ArtifactError
 from narranexus.platform.artifact._artifact_impl.notify import stage_artifact_event
 from narranexus.platform.artifact._artifact_impl.registration import (
     _dir_size,
@@ -77,7 +80,18 @@ async def commit_content_refresh(
     commits). Returns the refreshed row.
     """
     repo = ArtifactRepository(db)
-    size_bytes = entry_size_bytes(abs_entry, artifact)
+    # The bytes have ALREADY changed on disk when this runs (user edit) or were
+    # changed by someone else (external edit): a failure to MEASURE must not
+    # leave the row behind the file. Degrade to the previous size (logged) so
+    # the hash / history / event commit still lands.
+    try:
+        size_bytes = entry_size_bytes(abs_entry, artifact)
+    except (OSError, ArtifactError) as e:
+        logger.warning(
+            f"artifact {artifact.artifact_id}: size not measurable after a content change "
+            f"({type(e).__name__}: {e}); keeping the previous size"
+        )
+        size_bytes = artifact.size_bytes
 
     await repo.update_pointer(
         artifact.artifact_id,

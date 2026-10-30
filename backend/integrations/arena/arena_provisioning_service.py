@@ -502,11 +502,19 @@ class ArenaProvisioningService:
                 agent_id, user_id, base=settings.base_working_path
             )
             cred_file = workspace / "skills" / "arena" / "credentials.json"
-            if not cred_file.exists():
-                return prior or "error"
             import json as _json
 
-            creds_data = _json.loads(cred_file.read_text(encoding="utf-8"))
+            from narranexus.platform.utils import confined_io
+
+            # Read through the link-free walk below the base: the skill dir sits
+            # in the agent's own mount, and a link swapped in must not make
+            # another tenant's credentials.json this agent's.
+            try:
+                croot, crel = confined_io.split_under_base(str(cred_file), settings.base_working_path)
+                with confined_io.open_read(croot, crel) as cf:
+                    creds_data = _json.loads(cf.read().decode("utf-8"))
+            except FileNotFoundError:
+                return prior or "error"
             api_key = creds_data.get("api_key")
             if not api_key:
                 return prior or "error"

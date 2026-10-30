@@ -2005,8 +2005,12 @@ async def step_3_agent_loop(
     working_path = settings.base_working_path
     from narranexus.platform.utils.workspace_paths import agent_workspace_path
     agent_working_path = str(agent_workspace_path(ctx.agent_id, ctx.user_id, base=working_path))
-    if not os.path.exists(agent_working_path):
-        os.makedirs(agent_working_path)
+    # Created through the link-free walk below the base (idempotent): a swapped
+    # user/agent directory is refused instead of followed into another tenant's tree.
+    from narranexus.platform.utils import confined_io
+
+    _wroot, _wrel = confined_io.split_under_base(agent_working_path, working_path)
+    confined_io.make_dirs(_wroot, _wrel)
 
     # What this turn may reach outside its own workspace: the bus attachment
     # dir (user-wide by design — the bus stages one copy per owner and every

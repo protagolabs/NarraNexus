@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/bundle/skill_backup.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 工作区 zip 的归档与未备份列表走受限路径
+
+`archive_local_zip`：`resolve_inside_workspace` 只是检查；zip 经受限 fd 读进**平台自有的临时文件**，对**这份拷贝**做 `validate_skill_archive_path`，通过后才
+`prepare_archive_target` 并移动（被拒的 zip 不会在归档区留下目录）。`list_unbackedup` 用 `list_dir` 列 `skills/`，`dir_is_builtin` 也走受限读。
 
 # skill_backup.py — skill 归档机制 (subproject 2 §8.12.2-5)
 

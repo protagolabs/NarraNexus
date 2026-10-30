@@ -1,8 +1,12 @@
 ---
 code_file: backend/integrations/arena/arena_provisioning_service.py
-last_verified: 2026-09-04
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 读回 workspace 里的 `credentials.json` 走受限 fd
+
+重试绑定时读 `skills/arena/credentials.json` 经 `split_under_base` + `open_read`，链接 → 拒绝，不会把别的租户的 api_key 读成本 agent 的。
 
 ## 2026-08-04 — 预置 job 创建带 confirm_new=True（W1）
 

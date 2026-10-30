@@ -26,6 +26,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from narranexus.platform.artifact import (
+    ArtifactTooLarge,
     ArtifactContentGone,
     ArtifactNotFound,
     ArtifactPathEscape,
@@ -767,7 +768,7 @@ async def test_register_refuses_an_artifact_dir_deeper_than_the_scan_cap(env, mo
         deep = deep / "d"
     deep.mkdir(parents=True)
     (deep / "hidden.bin").write_bytes(b"x" * 1000)
-    with pytest.raises(ArtifactPathEscape):
+    with pytest.raises(ArtifactTooLarge, match="cannot be measured"):
         await env["svc"].register(
             agent_id=A_OWN, user_id=OWNER, session_id=None, kind="text/html",
             entry_path="report/index.html", title="t", description=None, target_artifact_id=None,
@@ -791,3 +792,37 @@ def test_asset_upload_name_collision_does_not_unlink_the_existing_file(office, m
             files={"file": ("logo.png", b"PNGBYTES", "image/png")},
         )
     assert existing.read_bytes() == b"precious"
+
+
+async def test_a_size_measuring_failure_after_the_write_does_not_desync_row_and_file(env, monkeypatch):
+    """save_user_content writes the bytes first and commits the row after: a
+    failure to MEASURE must degrade (logged), not leave the file ahead of the
+    row (the hash / history / event never landing)."""
+    from narranexus.platform.artifact import ArtifactTooLarge
+    from narranexus.platform.artifact._artifact_impl import commit as commit_mod
+
+    rel = agent_workspace_relpath(A_OWN, OWNER)
+    await env["repo"].create(_row(f"{rel}/report/index.html"))
+
+    def boom(abs_entry, artifact):
+        raise ArtifactTooLarge("cannot be measured")
+
+    monkeypatch.setattr(commit_mod, "entry_size_bytes", boom)
+    out = await user_edit_mod.save_user_content(
+        env["db"], agent_id=A_OWN, artifact_id="art_test0001", content="fresh", base_hash=_sha(MINE),
+    )
+    assert (env["own"] / "index.html").read_text(encoding="utf-8") == "fresh"
+    assert out.content_hash == _sha("fresh")
+    assert out.size_bytes == 1  # the previous size is kept
+
+
+def test_dir_size_scan_failure_is_reported_as_too_large_not_path_escape(env, monkeypatch):
+    from narranexus.platform.artifact import ArtifactTooLarge
+    from narranexus.platform.utils import confined_io
+
+    monkeypatch.setattr(confined_io, "_MAX_SCAN_DEPTH", 2)
+    deep = env["own"] / "a" / "b" / "c" / "d"
+    deep.mkdir(parents=True)
+    with pytest.raises(ArtifactTooLarge) as ei:
+        registration._dir_size(str(env["own"].resolve()))
+    assert "cannot be measured" in str(ei.value) and "deeper than" in str(ei.value)

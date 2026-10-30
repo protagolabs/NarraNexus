@@ -27,18 +27,21 @@ stub: false
 - `open_read` 用 `O_NONBLOCK` 打开叶子再 `fstat` 判类型：租户放一个 FIFO 不会把读卡死。
 - `write_atomic`：权限位取原文件 `& 0o777`（不带 setuid/sticky）；`fdopen` 失败时关临时 fd；临时文件经父目录 fd `O_CREAT|O_EXCL|O_NOFOLLOW` 创建 → fsync → 用 src/dst dir_fd `os.replace`；叶子
   是链接时**替换链接本身**而不是写穿；失败清理临时文件；`mode=None` 沿用原文件权限位。
-- `dir_regular_bytes`：fd 相对递归，只数常规文件，链接既不跟随也不计入；**fail closed**——深度超过 64、目录不可读、扫描中目录被换成链接都抛
-  `ConfinedScanError`/`SymlinkRefusedError`（注册据此拒绝），绝不少算（总数用来执行大小上限，静默跳过会让租户把字节藏起来）。
+- `dir_regular_bytes`：fd 相对递归，只数常规文件，链接既不跟随也不计入；**fail closed**——深度超过 64 抛 `TreeTooDeepError`（`ConfinedScanError` 子类，消息 "directory tree deeper than N levels"）、
+  目录不可读抛 `ConfinedScanError`、扫描中目录被换成链接抛 `SymlinkRefusedError`；绝不少算（总数用来执行大小上限，静默跳过会让租户把字节藏起来）。artifact 侧映射为
+  `ArtifactTooLarge("artifact directory cannot be measured …")`，**不再**冒充 `ArtifactPathEscape`。
 - `list_dir(root, rel)`：目录 fd 上 scandir + 逐项 lstat（`DirEntryInfo`），链接条目按链接报告其自身元数据。
 - `rename_within(root, src_rel, dst_rel)`：两个父目录各自逐级 `O_NOFOLLOW`，`renameat` 作用在两个 dir fd 上；链接叶子按链接改名；非空目标目录 →
-  `FileExistsError`（不合并、不嵌套）。
+  `FileExistsError`（不合并、不嵌套）；已存在的**文件**目标被原子替换（源也须是文件，目录覆盖文件 → `NotADirectoryError`）；已存在的**空目录**目标被替换（源须是目录，文件覆盖目录 → `IsADirectoryError`）。
+- `link_or_copy`：两个父目录 fd 上 `linkat`（源必须是常规文件，链接/特殊文件 → `NotARegularFileError`；链接后复核类型，必要时撤销），失败（跨设备等）才字节复制；目标 `O_EXCL`。
+- `iter_tree(root, rel, skip=, recurse=, strict=)`：迭代遍历目录与常规文件，逐层 `list_dir`；链接 / FIFO / socket 不产出；`skip` 剪枝整棵子树；`strict` 时子目录读不了就抛。
 - `copy_tree(src_root, src_rel, dst_root, dst_rel)`：把目录复制成**新**目录。**源必须是平台自有 staging 或同一租户的目录，绝不能是别的租户可控的
   路径**；源与目的都经 dir fd 遍历（`split_source`：base 之下从 base 起，之外取 realpath(parent)+叶子），里面的链接按链接复制（`readlink` +
   `symlink`，从不解引用），常规文件保留权限位 `& 0o777`，FIFO/socket/设备跳过；目的端 `mkdir` / `O_CREAT|O_EXCL|O_NOFOLLOW`；深度上限 64
   （`ConfinedScanError`）；任何失败都清掉半成品目的目录。
 - `make_dirs` / `copy_tree(make_parents=True)` 在 `create` 时会先创建缺失的**平台自有**根（首次运行没有 workspace base）。
-- `remove_tree`：fd 相对删除，`unlink`/`rmdir` 走 dir_fd，**从不跟随链接**；树内/叶子的链接只删链接本身；深度上限 256，超过抛
-  `ConfinedScanError`（已删部分不回滚）。
+- `remove_tree`：fd 相对删除，`unlink`/`rmdir` 走 dir_fd，**从不跟随链接**；树内/叶子的链接只删链接本身；**迭代、无深度上限**（每层一个 fd，
+  只受进程 fd 上限约束，触顶抛 `TreeTooDeepError`、已删部分不回滚）；删除过程中被换成链接 / 常规文件的目录（顶层与嵌套一视同仁）**直接 unlink 那个链接/文件**，租户不能靠竞态把自己的树留下。
 - `split_under_base(path, base)`：词法还原 (realpath(base), 相对尾段)，接受 base 的真实路径与配置拼写（相对/符号链接），租户尾段
   永不 resolve——对尾段做 realpath 会在"较晚的时刻"穿过已放好的链接，再 NOFOLLOW 打开就成了对受害者树的合法访问。
 - 所有 fd 在每条路径上都关闭（有 fd 泄漏测试）。
@@ -52,34 +55,52 @@ stub: false
 
 被 [[artifact/_artifact_impl/confinement]] 的 `*_confined` 一族封装后供 artifact 的 raw_access / user_edit / freshness / heal /
 registration / commit / url_artifact 使用；被 backend 的 `agents/artifacts.py`（office-asset 上传）、`agents/files.py`
-（下载/上传/**删除**）、`manyfold/files.py`（read/write）直接使用；路由侧经 [[backend/routes/_confined_response]] 的
-`open_tenant_file` / `ConfinedFileResponse` 使用（agents/attachments、inbox、transcription/public、artifacts/public、files）。
+（下载 / 上传 / 删除 / **目录树列表**）、`manyfold/files.py`（read / write / **list / stat**）、`auth.py`（删 agent）、
+`arena_onboarding.py` / `arena_provisioning_service.py` 直接使用；路由侧经 [[backend/routes/_confined_response]] 的
+`open_tenant_file` / `ConfinedFileResponse` 使用（agents/attachments、inbox、transcription/public、artifacts/public、files、manyfold）。
+其余使用者：`attachment_storage`、`message_bus/_bus_attachment_impl`、`bundle/{builder,importer,skill_backup,skill_secrets}`、
+`marketplace/.../install_pipeline`（内容哈希）、`services/skill_sync_service`、`migration/applier`、`bootstrap/profiles`、
+`module_system/{data_access/workspace_cwd,managed_channel_ingress}`、`agent_runtime/.../step_3_agent_loop`、teams `routes`、skill 插件、
+narramessenger `_matrix_send`。
 
 ### 平台支持
 
 **Windows 不受支持**（没有 `dir_fd` / `O_NOFOLLOW`）：缺原语时所有操作抛 `ConfinedIOUnsupported`，调用方按"拒绝"处理，
 **绝不**回落到按路径串的实现。Linux 与 macOS（桌面端）满足。
 
-### 本 PR 已转换的删除 / 列表 / 元数据位置
+### 本 PR 已转换的位置（按类）
 
-- 技能安装 / 启停 / 物化 / 元数据 / 扫描：见 [[skill_module]]（`copy_tree` + `rename_within` + `write_atomic` + `list_dir`）；importer 的 `copy_skill_into_agent` 同。
-- 删除：`skill_module.py` 的 `remove_skill`（`skills/<name>` 与 `.disabled/<name>`）与 `install_from_dir` 的替换、`bundle/importer.py`
-  `copy_skill_into_agent` 的替换、`teams/routes.py` 的共享目录清空、`backend/routes/auth.py` 的 agent workspace 清理、
-  `agents/files.py` 的删除——全部 `remove_tree`。**删除目标必须是词法路径**：`ensure_within_directory` 的返回值已 `resolve()`，
-  会把被换成链接的目录解析成受害者的真实路径，之后的受限遍历反而放行。
-- 列表 / 元数据：`agents/files.py` 的 `_build_tree`、`manyfold/files.py` 的 `list` 与 `stat`——`list_dir` / `lstat`；链接条目按链接报告。
-- 验证过的"不需要转换"：整 workspace 的删除里，`{base}/{user}` 是执行器的绑定挂载点（`executor_protocol.py:200`、
-  `_bus_attachment_impl.py` 的说明），租户无法替换它本身；`plugins/builtin.channels.lark/.../_lark_workspace.py:109` 作用于
-  `~/.narranexus/lark_workspaces/<agent>`（`LARK_WORKSPACE_BASE`），不在任何租户挂载内。
+- **读 / 服务**：artifact raw / edit / freshness / heal 元数据 / office 版本轮询；`agents/files.py` 下载；attachments、inbox、transcription 路由；
+  manyfold read；`attachment_storage` 解析与索引读；bus 附件解析 / 哈希 / 边车读；`_matrix_send` 出站媒体；`managed_channel_ingress` 附件；
+  arena 凭据读回；`dir_is_builtin`；skill 内容哈希；skill 扫描 / 解析（`skill_module`）。
+- **写 / 建目录**：artifact 保存 / url tab / office-asset；`agents/files.py` 上传；manyfold write；`attachment_storage` 上传与索引；bus 暂存 / 上传 / 边车；
+  arena `install_skill`；bootstrap `Bootstrap.md` 与欢迎 artifact；CLI CWD 与 agent 工作目录创建；skill 安装 / 物化 / 元数据；`copy_skill_into_agent`；`migration/applier` 技能复制。
+- **改名 / 复制**：skill 启停（`rename_within`）；skill 安装 / 物化 / 复制（`copy_tree`）；bus 暂存（`link_or_copy`）。
+- **删除**：`remove_skill`、skill 安装替换、`copy_skill_into_agent` / `applier` 替换、team 共享目录清空、agent 删除、`agents/files.py` 删除——全部 `remove_tree`。
+  **删除目标必须是词法路径**：`ensure_within_directory` 的返回值已 `resolve()`，会把被换成链接的目录解析成受害者的真实路径，之后的受限遍历反而放行。
+- **列表 / stat / 打包**：`_build_tree`、manyfold `list` / `stat`、bundle 导出的 workspace tar 与 skill zip、`list_unbackedup`、对账（`skill_sync_service`）、
+  内置技能扫描——`list_dir` / `iter_tree` / `lstat`；链接条目按链接报告（打包时跳过）。
+- 验证过的"不需要转换"：整 workspace 的删除里，`{base}/{user}` 是执行器的绑定挂载点（`executor_protocol.py:200`、`_bus_attachment_impl.py` 的说明），
+  租户无法替换它本身；`plugins/builtin.channels.lark/.../_lark_workspace.py` / `lark_cli_client.py` 作用于 `~/.narranexus/lark_workspaces/<agent>`
+  （`LARK_WORKSPACE_BASE`），不在任何租户挂载内。
 
-### 仍**未转换**的 by-path 位置（精确清单与原因）
+### 完整性声明（口径）与仍**未转换**的位置
 
-- `backend/routes/office_watch/proxy.py` `/office-watch/open` 与 `utils/office_watch.py`（`Popen` officecli）：把路径交给**另一个进程**，
-  无法传 fd；仅由 `resolve_watch_file` 做检查。已知并接受。
-- 技能的**暂存区**一侧：`skill_module.py` 的 zip / GitHub 解包（写入 `tempfile.mkdtemp()` 下的平台自有目录）与 `_find_skill_root` /
-  `parse_skill_package` 对 staging 的遍历——staging 不在任何租户挂载内，故不需要。
-- 其余 `rmtree` 均作用于平台临时目录 / 安装目录（`temp_dir`、`staging`、插件目录），不在租户树内；`backend/main.py:914/917` 服务前端构建产物。
-- 除此之外，本文档此前列出的全部租户树内 by-path 读/写/删/列表/stat 站点均已转换。
+扫描口径：`git grep -nE "agent_workspace_path|resolve_existing_workspace|base_working_path|get_workspace_path|team_shared_dir|bus_files_dir|user_shared_root" -- src backend plugins`
+命中的每个文件都已逐个检查。**除下表外**，其中对租户可写树的 by-path 读 / 写 / 删 / 列表 / stat 站点均已转换；下表是**全部**例外及原因：
+
+- `backend/routes/office_watch/proxy.py` `/office-watch/open` 与 `utils/office_watch.py`（`Popen` officecli）：把路径交给**另一个进程**，无法传 fd；仅由
+  `resolve_watch_file` 做检查。已知并接受。
+- `plugins/builtin.nexus_plugins_module/.../_nexus_plugins_impl/service.py` 的 `scaffold` / `edit` / `list`（agent 自己的插件草稿目录 `dev_root(workspace)`）：
+  经 CLI 脚手架库用 pathlib 写很多文件，仅靠 `check_inside` 的词法守卫；同一类，需要把脚手架库整体改为接受受限根，**未转换**。
+- `src/narranexus/platform/artifact/_artifact_impl/heal.py` `_scan_workspace_for_kind` 的 `os.walk` 发现阶段：只产生**候选名字**；每个候选的元数据与内容读取都已走受限路径，
+  被换成链接的候选被丢弃（链接目录不下降、其名字在 `_confined` 处被滤掉）。名字泄漏的窗口只剩 walk 与 `_confined` 之间。
+- `src/narranexus/platform/agent_runtime/executor_service.py`：执行器侧，以租户 uid 在容器内运行，本来就只能访问自己的挂载；不是后端读写租户树。
+- `backend/integrations/netmind/identity_migration.py:294-296`、`backend/migrations/m0002_workspace_nested_layout.py`、`backend/routes/admin/migration.py`：
+  一次性的**顶层**目录改名（`{base}/{old_user}` → `{base}/{new_user}` 或布局迁移），路径前缀与叶子都不在租户可写范围内（用户目录本身是挂载点）。
+- 技能的**暂存区**一侧：`skill_module.py` 的 zip / GitHub 解包（写入 `tempfile.mkdtemp()` 下的平台自有目录）与 `_find_skill_root` / `parse_skill_package` 对 staging 的遍历——staging 不在任何租户挂载内。
+- 其余 `rmtree` 均作用于平台临时目录 / 安装目录（`temp_dir`、`staging`、插件目录），不在租户树内；`backend/main.py:914/917` 服务前端构建产物；
+  `marketplace/.../artifact_store.py`、`secret_box.py` 位于 `base_working_path` 的**兄弟**目录 / 平台私有目录。
 
 ## 相关约束
 

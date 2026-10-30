@@ -1676,6 +1676,11 @@ class SkillModule(XYZBaseModule):
             )
         except FileNotFoundError:
             return False
+        except FileExistsError:
+            raise ValueError(
+                f"cannot disable skill '{skill_name}': a disabled copy with that name already "
+                "exists — remove it first"
+            ) from None
         except confined_io.ConfinedPathError as e:
             raise ValueError(f"refusing to disable skill '{skill_name}': {e}") from e
         logger.info(f"Disabled skill '{skill_name}'")
@@ -1694,6 +1699,12 @@ class SkillModule(XYZBaseModule):
             )
         except FileNotFoundError:
             return False
+        except FileExistsError:
+            raise ValueError(
+                f"cannot enable skill '{skill_name}': a skill with that name is already "
+                "installed (it was probably reinstalled while this copy was disabled) — "
+                "remove or disable the installed one first"
+            ) from None
         except confined_io.ConfinedPathError as e:
             raise ValueError(f"refusing to enable skill '{skill_name}': {e}") from e
         logger.info(f"Enabled skill '{skill_name}'")

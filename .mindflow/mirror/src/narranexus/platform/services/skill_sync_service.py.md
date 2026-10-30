@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/services/skill_sync_service.py
-last_verified: 2026-09-04
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 对账列表走受限路径
+
+`reconcile_workspace` 的 `skills/` 与 `.disabled/` 列表、`reconcile_all` 的 base → user → agent 三级遍历全部用 `confined_io.list_dir` / `lstat`：租户把 `agent_x` 目录
+换成指向别的租户 workspace 的链接，不会再被当作该 agent 的 workspace 去读取并记到攻击者的行上。
 
 ## 2026-08-04 — 对账有变更时刷新同伴发现行
 

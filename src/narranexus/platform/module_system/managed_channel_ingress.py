@@ -530,9 +530,12 @@ class ManagedChannelIngress:
             )
 
             user_id = await AgentRepository(db).resolve_owner(agent_id) or agent_id
+            # LEXICAL workspace on a realpath-ed base (never resolve()d): the
+            # candidate below IS resolved and compared against it, so a workspace
+            # dir swapped for a link to another tenant's tree fails the guard.
             workspace = resolve_existing_workspace(
                 agent_id, user_id, str(core_settings.base_working_path)
-            ).resolve(strict=False)
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"managed ingress: attachment workspace resolution failed for "
@@ -564,8 +567,19 @@ class ManagedChannelIngress:
                     if candidate.is_absolute()
                     else (workspace / rel).resolve(strict=False)
                 )
-                target.relative_to(workspace)  # escape guard
-                raw = await asyncio.to_thread(target.read_bytes)
+                lexical = workspace / target.relative_to(workspace)  # escape guard
+
+                def _read_confined(path=lexical) -> bytes:
+                    # through the link-free walk: the guard above is only a check
+                    from narranexus.platform.utils import confined_io
+
+                    croot, crel = confined_io.split_under_base(
+                        str(path), core_settings.base_working_path
+                    )
+                    with confined_io.open_read(croot, crel) as fh:
+                        return fh.read()
+
+                raw = await asyncio.to_thread(_read_confined)
                 name = str(ref.get("name", "") or target.name)
                 mime = sniff_mime_type(
                     raw,

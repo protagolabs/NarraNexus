@@ -4,6 +4,11 @@ stub: false
 last_verified: 2026-10-30
 ---
 
+## 2026-10-30（复审）— 度量失败有自己的错误
+
+`confined_dir_size`：过深 / 不可读（`ConfinedScanError`）→ `ArtifactTooLarge("artifact directory cannot be measured, so it is refused: …")`（413），**不再**报成 `ArtifactPathEscape`；
+只有链接 / 越界才是 `ArtifactPathEscape`。
+
 ## 2026-10-30（复审）— `split_under_base` 改为词法，新增 `confined_stat`
 
 `split_under_base(abs, base)` 现在只做词法归一（`abspath`，绝不 `realpath` 租户尾段），并同时接受 base 的真实路径与配置拼写

@@ -4,6 +4,15 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审）— 词法元数据路径；符号链接技能目录的可见性
+
+- 安装时 `.skill_meta.json` 与 `info.path` 用**词法** `skills_dir / name`，不用 `ensure_within_directory` 的返回值（它 `resolve()`：`skills`
+  链接在该瞬间存在时返回受害者的真实技能目录，换回链接再 rename 之后的元数据读-合并-重写就会落进受害者的 env_config）。
+- `enable_skill` / `disable_skill` 遇到命名冲突（例如禁用期间又重装了同名技能）抛 `ValueError` 并带明确说明，路由映射成 **409** 而不是笼统 500。
+- **符号链接的技能目录不再显示在技能面板里**：扫描 / 列表 / 解析都按 lstat 判断目录，链接不算（读作不存在，也读不到其 `SKILL.md`）。
+  **但 agent 的 CLI 仍会跟随这类链接**——它在容器里以租户身份运行，本来就能访问自己挂载里的一切；这里只是平台侧不再替它列出/读取。
+  如果有人用符号链接组织技能，会看到它们从 UI 消失，这是 fail closed 的代价。
+
 ## 2026-10-30（续）— 安装 / 启停 / 物化 / 元数据 / 扫描全部 fd 相对
 
 删除之外的同类写、改名、读也走 `utils/confined_io`（`skills`、`.disabled`、技能目录都在租户自己的挂载里，随时可被换成指向别的租户的链接）：
@@ -29,7 +38,7 @@ stub: false
 路径上有链接 → `ValueError("refusing ...")`；目标缺失 → False。**删除目标必须是词法路径**（`self.skills_dir / name`），**不能**用
 `ensure_within_directory` 的返回值——它会 `resolve()`，把被换成链接的 `skills` 解析成受害者的真实路径，之后的受限遍历反而放行。
 `skills_dir` 必须在 `settings.base_working_path` 之下（测试夹具要同步设置 `base_path`）。
-**未转换**：`install_from_dir` 之后的 `shutil.move(...)`/`mkdir`/元数据写入，以及 `disable_skill`/`enable_skill` 的 `shutil.move`
+**（以下已过时——这些现已全部转换，见本文件更靠前的『安装 / 启停 / 物化 / 元数据 / 扫描全部 fd 相对』条目）**：`install_from_dir` 之后的 `shutil.move(...)`/`mkdir`/元数据写入，以及 `disable_skill`/`enable_skill` 的 `shutil.move`
 （同一类的写/改名，非删除）；见 [[utils/confined_io]] 的清单。
 
 ## 2026-10-28 — skill_name 只能是单个目录名

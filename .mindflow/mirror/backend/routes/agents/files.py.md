@@ -17,7 +17,7 @@ stub: false
 - 上传 `open(filepath,"wb")` → `confined_io.make_dirs` + `write_atomic`（逐级 `O_NOFOLLOW`，叶子是链接时替换链接本身）。
 - **删除** `shutil.rmtree`/`unlink` → `confined_io.remove_tree`：dir_fd 逐级、`unlink`/`rmdir` 相对 fd；树内任何链接只删链接本身、
   绝不跟随；中间目录被换成链接 → 拒绝（404），受害者的树分毫不动。树深超过 256 → `ConfinedScanError`（404，已删部分不回滚）。
-**未转换**：`_build_tree` 的目录列表（`os.scandir(path)` 按串递归，目录在 `is_dir` 与递归之间被换成链接会泄漏受害者的
+**（下一句已过时——`_build_tree` 目录树列表现已转换为 fd 相对遍历，见本文件更靠前的『目录树列表改为 fd 相对遍历』条目；保留原句仅供对照）**：`_build_tree` 的目录列表（`os.scandir(path)` 按串递归，目录在 `is_dir` 与递归之间被换成链接会泄漏受害者的
 文件名/大小）——只读元数据，另行处理。
 
 ## 2026-10-30（auto-review #429）— 只对绝对路径和 `..`/NUL 记边界日志

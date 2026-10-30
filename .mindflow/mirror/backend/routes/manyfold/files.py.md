@@ -14,7 +14,7 @@ stub: false
 
 `read`：`_safe_resolve` 之后 `open_tenant_file` 打开一次，size 取自 fstat，流式从同一个对象读（目录 400 / 缺失 404 / 过大 413 不变）。
 `write`：`mkdir(parents)` + `write_bytes` 按串执行会穿过被换成链接的目录；现在 `confined_io.write_atomic(..., make_parents=True)`，
-链接 → 403。**未转换**：`stat` 与 `list` 两个只读元数据端点（`target.stat()` / `os.scandir` 按串），属于元数据泄漏面，另行处理。
+链接 → 403。（原写的『`stat` 与 `list` 未转换』已过时：两个端点现已转换为 `confined_io.list_dir` / `lstat`，见本文件更靠前的『list / stat 改为 fd 相对』条目。）
 
 ## 2026-08-10 — write 端点每次尝试落审计行(batch-2 §B)
 

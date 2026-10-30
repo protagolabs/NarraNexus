@@ -44,7 +44,7 @@ from narranexus.platform.utils.workspace_paths import (
     team_shared_dir,
 )
 
-from .errors import ArtifactPathEscape
+from .errors import ArtifactPathEscape, ArtifactTooLarge
 
 
 def owner_roots(
@@ -162,6 +162,13 @@ def confined_dir_size(abs_dir: str, base: Optional[str] = None) -> int:
     base_real, rel = split_under_base(abs_dir, base)
     try:
         return confined_io.dir_regular_bytes(base_real, rel)
+    except confined_io.SymlinkRefusedError as e:
+        raise ArtifactPathEscape(str(e)) from e
+    except confined_io.ConfinedScanError as e:
+        # Not a path escape: the tree is too deep / unreadable to be measured, so
+        # its size cannot be vouched for against the artifact limit — refuse it
+        # with its own message (413 like any over-limit artifact).
+        raise ArtifactTooLarge(f"artifact directory cannot be measured, so it is refused: {e}") from e
     except confined_io.ConfinedPathError as e:
         raise ArtifactPathEscape(str(e)) from e
 

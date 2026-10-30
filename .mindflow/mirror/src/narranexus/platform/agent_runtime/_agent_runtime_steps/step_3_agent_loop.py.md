@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-10-29
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — agent 工作目录创建走 `make_dirs`
+
+`os.makedirs` 按路径会顺着被换成链接的目录创建；现在经 `confined_io.make_dirs`（幂等）。
 
 ### 2026-10-29（管线审查 M-3）
 

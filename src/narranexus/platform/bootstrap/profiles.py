@@ -182,13 +182,21 @@ async def apply_bootstrap(
     # 1. workspace Bootstrap.md
     from narranexus.platform.utils.workspace_paths import agent_workspace_path
     workspace = agent_workspace_path(agent_id, user_id, base=settings.base_working_path)
-    workspace.mkdir(parents=True, exist_ok=True)
-    bs_file = workspace / "Bootstrap.md"
+    # Created / written / removed through the link-free walk below the base: the
+    # workspace is the tenant's own mount, so a swapped directory or a link
+    # planted at Bootstrap.md must never redirect these platform writes.
+    from narranexus.platform.utils import confined_io
+
+    ws_root, ws_rel = confined_io.split_under_base(str(workspace), settings.base_working_path)
+    confined_io.make_dirs(ws_root, ws_rel)
     md = profile.bootstrap_md(ctx)
     if md:
-        bs_file.write_text(md, encoding="utf-8")
-    elif bs_file.exists():
-        bs_file.unlink()
+        confined_io.write_atomic(ws_root, f"{ws_rel}/Bootstrap.md", md.encode("utf-8"))
+    else:
+        try:
+            confined_io.unlink(ws_root, f"{ws_rel}/Bootstrap.md")
+        except FileNotFoundError:
+            pass
 
     # 2. metadata merge
     repo = AgentRepository(db)
@@ -235,10 +243,14 @@ async def _create_welcome_artifact(
         if existing.title == welcome.title:
             return  # already created
 
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils import confined_io
+
     art_dir = workspace / welcome.subdir
-    art_dir.mkdir(parents=True, exist_ok=True)
     entry = art_dir / welcome.filename
-    entry.write_text(welcome.html, encoding="utf-8")
+    ws_root, art_rel = confined_io.split_under_base(str(art_dir), settings.base_working_path)
+    confined_io.make_dirs(ws_root, art_rel)
+    confined_io.write_atomic(ws_root, f"{art_rel}/{welcome.filename}", welcome.html.encode("utf-8"))
 
     await ArtifactService(db).register(
         agent_id=agent_id,

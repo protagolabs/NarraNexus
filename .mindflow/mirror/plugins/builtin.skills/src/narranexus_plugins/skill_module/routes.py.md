@@ -1,8 +1,12 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py
-last_verified: 2026-10-29
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — enable / disable 的名字冲突返回 409
+
+`SkillModule.enable_skill` / `disable_skill` 的 `ValueError`（同名技能已安装 / 已有禁用副本 / 拒绝的不安全路径）映射为 409 并带原文，不再落进 500。
 
 ## 2026-10-29 — 需求抽取改用 `build_helper_openai_client`
 

@@ -400,13 +400,116 @@ def test_remove_tree_refuses_a_symlinked_intermediate_directory(tree):
     assert (tree["outside"] / "secret.txt").exists()
 
 
-def test_remove_tree_too_deep_fails_closed(tree):
+def test_remove_tree_has_no_depth_cap(tree):
+    """A tenant tree deeper than any fixed cap must still be deleted (agent delete
+    / team wipe), not left behind."""
     p = os.path.join(tree["root"], "deep")
-    for _ in range(12):
+    for _ in range(600):
         p = os.path.join(p, "d")
-    os.makedirs(p)
-    with pytest.raises(cio.ConfinedScanError):
-        cio.remove_tree(tree["root"], "deep", max_depth=5)
+    # build with chdir-free relative steps (path length stays under PATH_MAX)
+    fd = os.open(tree["root"], os.O_RDONLY)
+    try:
+        cur = fd
+        os.mkdir("deep", dir_fd=cur)
+        for _ in range(601):
+            nxt = os.open("deep" if cur == fd else "d", os.O_RDONLY | os.O_DIRECTORY, dir_fd=cur)
+            if cur != fd:
+                os.close(cur)
+            cur = nxt
+            os.mkdir("d", dir_fd=cur)
+        if cur != fd:
+            os.close(cur)
+    finally:
+        os.close(fd)
+    cio.remove_tree(tree["root"], "deep")
+    assert not os.path.exists(os.path.join(tree["root"], "deep"))
+
+
+def test_remove_tree_reports_the_fd_budget_as_a_distinct_error(tree):
+    import resource
+
+    if not os.path.isdir("/proc/self/fd"):
+        pytest.skip("needs /proc/self/fd")
+    fd = os.open(tree["root"], os.O_RDONLY)
+    try:
+        os.mkdir("deep", dir_fd=fd)
+        cur = os.open("deep", os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+        for _ in range(60):
+            os.mkdir("d", dir_fd=cur)
+            nxt = os.open("d", os.O_RDONLY | os.O_DIRECTORY, dir_fd=cur)
+            os.close(cur)
+            cur = nxt
+        os.close(cur)
+    finally:
+        os.close(fd)
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (len(os.listdir("/proc/self/fd")) + 20, hard))
+    try:
+        with pytest.raises(cio.TreeTooDeepError):
+            cio.remove_tree(tree["root"], "deep")
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+    assert not isinstance(cio.TreeTooDeepError("x"), cio.SymlinkRefusedError)
+    cio.remove_tree(tree["root"], "deep")  # and with the budget back, it completes
+
+
+def test_remove_tree_unlinks_a_dir_swapped_for_a_file_or_link_during_the_walk(tree, monkeypatch):
+    """Nested: the listing says directory, the open finds a regular file / a link."""
+    base = os.path.join(tree["root"], "t")
+    os.makedirs(os.path.join(base, "sub_file"))
+    os.makedirs(os.path.join(base, "sub_link"))
+    real = cio._open_dir_at
+    swapped = []
+
+    def racing(parent_fd, name, *, create):
+        if name in ("sub_file", "sub_link") and name not in swapped:
+            swapped.append(name)
+            os.rmdir(name, dir_fd=parent_fd)
+            if name == "sub_file":
+                os.close(os.open(name, os.O_CREAT | os.O_WRONLY, 0o644, dir_fd=parent_fd))
+            else:
+                os.symlink(tree["outside"], name, dir_fd=parent_fd)
+        return real(parent_fd, name, create=create)
+
+    monkeypatch.setattr(cio, "_open_dir_at", racing)
+    cio.remove_tree(tree["root"], "t")
+    assert not os.path.exists(base)
+    assert sorted(os.listdir(tree["outside"])) == ["secret.txt"]
+    assert sorted(swapped) == ["sub_file", "sub_link"]
+
+
+def test_remove_tree_top_level_dir_swapped_for_a_link_unlinks_the_link(tree, monkeypatch):
+    os.makedirs(os.path.join(tree["root"], "top"))
+    real = cio._open_dir_at
+    state = []
+
+    def racing(parent_fd, name, *, create):
+        if name == "top" and not state:
+            state.append(1)
+            os.rmdir(name, dir_fd=parent_fd)
+            os.symlink(tree["outside"], name, dir_fd=parent_fd)
+        return real(parent_fd, name, create=create)
+
+    monkeypatch.setattr(cio, "_open_dir_at", racing)
+    cio.remove_tree(tree["root"], "top")
+    assert not os.path.lexists(os.path.join(tree["root"], "top"))
+    assert sorted(os.listdir(tree["outside"])) == ["secret.txt"]
+
+
+def test_over_depth_errors_are_distinct_from_a_link_refusal(tree, tmp_path, monkeypatch):
+    monkeypatch.setattr(cio, "_MAX_SCAN_DEPTH", 2)
+    deep = os.path.join(tree["root"], "d1", "d2", "d3", "d4")
+    os.makedirs(deep)
+    with pytest.raises(cio.TreeTooDeepError) as ei:
+        cio.dir_regular_bytes(tree["root"], "d1")
+    assert "deeper than" in str(ei.value) and not isinstance(ei.value, cio.SymlinkRefusedError)
+    src = tmp_path / "src"
+    q = src
+    for _ in range(5):
+        q = q / "x"
+    q.mkdir(parents=True)
+    with pytest.raises(cio.TreeTooDeepError):
+        cio.copy_tree(str(tmp_path), "src", tree["root"], "copy", max_depth=2)
 
 
 # ── minors: mode mask, fail-closed scan, fdopen failure ──────────────────────
@@ -657,3 +760,77 @@ def test_make_dirs_creates_a_missing_platform_root(tmp_path):
     root = str(tmp_path / "fresh" / "base")
     cio.make_dirs(root, "u/a/skills")
     assert os.path.isdir(os.path.join(root, "u", "a", "skills"))
+
+
+def test_rename_within_replaces_a_file_and_an_empty_dir_destination(tree):
+    root = tree["root"]
+    open(os.path.join(root, "src.txt"), "wb").write(b"new")
+    open(os.path.join(root, "dst.txt"), "wb").write(b"old")
+    cio.rename_within(root, "src.txt", "dst.txt")
+    assert _read(root, "dst.txt") == b"new"
+    os.makedirs(os.path.join(root, "srcdir"))
+    os.makedirs(os.path.join(root, "emptydir"))
+    cio.rename_within(root, "srcdir", "emptydir")
+    assert os.path.isdir(os.path.join(root, "emptydir"))
+    # a directory over a file, and a file over a directory, are type errors
+    open(os.path.join(root, "f"), "wb").close()
+    os.makedirs(os.path.join(root, "d2"))
+    with pytest.raises(NotADirectoryError):
+        cio.rename_within(root, "d2", "f")
+    open(os.path.join(root, "g"), "wb").close()
+    os.makedirs(os.path.join(root, "d3"))
+    with pytest.raises(IsADirectoryError):
+        cio.rename_within(root, "g", "d3")
+
+
+# ── link_or_copy / iter_tree ─────────────────────────────────────────────────
+
+
+def test_link_or_copy_hardlinks_when_possible_and_copies_otherwise(tree, monkeypatch):
+    root = tree["root"]
+    cio.link_or_copy(root, "a/b/f.txt", root, "linked.txt")
+    assert os.stat(os.path.join(root, "linked.txt")).st_ino == os.stat(os.path.join(root, "a", "b", "f.txt")).st_ino
+
+    def boom(*a, **k):
+        raise OSError(18, "EXDEV")
+
+    monkeypatch.setattr(cio.os, "link", boom)
+    cio.link_or_copy(root, "a/b/f.txt", root, "copied.txt")
+    assert _read(root, "copied.txt") == b"inside"
+    assert os.stat(os.path.join(root, "copied.txt")).st_ino != os.stat(os.path.join(root, "a", "b", "f.txt")).st_ino
+
+
+def test_link_or_copy_refuses_links_special_files_swapped_parents_and_existing_dst(tree):
+    root = tree["root"]
+    os.symlink(tree["outside"] / "secret.txt", os.path.join(root, "lnk"))
+    with pytest.raises(cio.NotARegularFileError):
+        cio.link_or_copy(root, "lnk", root, "out1")
+    os.symlink(tree["outside"], os.path.join(root, "evil"))
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.link_or_copy(root, "evil/secret.txt", root, "out2")
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.link_or_copy(root, "a/b/f.txt", root, "evil/out3")
+    with pytest.raises(FileExistsError):
+        cio.link_or_copy(root, "a/b/f.txt", root, "a/b/f.txt")
+    assert sorted(os.listdir(tree["outside"])) == ["secret.txt"]
+    assert not os.path.lexists(os.path.join(root, "out1"))
+
+
+def test_iter_tree_yields_dirs_and_regular_files_only_and_prunes(tree):
+    root = tree["root"]
+    os.symlink(tree["outside"], os.path.join(root, "a", "dlink"))
+    os.symlink(tree["outside"] / "secret.txt", os.path.join(root, "a", "flink"))
+    os.mkfifo(os.path.join(root, "a", "pipe"))
+    got = [r for r, _e in cio.iter_tree(root, "a")]
+    assert got == ["b", "b/f.txt"]
+    pruned = [r for r, _e in cio.iter_tree(root, "a", skip=lambda rel, is_dir: rel == "b")]
+    assert pruned == []
+
+
+def test_iter_tree_start_dir_errors_and_swapped_subdirs(tree):
+    root = tree["root"]
+    with pytest.raises(FileNotFoundError):
+        list(cio.iter_tree(root, "nope"))
+    os.symlink(tree["outside"], os.path.join(root, "evil"))
+    with pytest.raises(cio.SymlinkRefusedError):
+        list(cio.iter_tree(root, "evil"))

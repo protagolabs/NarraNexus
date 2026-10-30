@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审）— 量不出大小不再让提交半途而废
+
+用户编辑先写字节、后提交行：`entry_size_bytes` 失败（目录过深 / 不可读 / 越界）会让文件已变而行没跟上。现在失败降级为**沿用旧 size 并记日志**，hash / history / event 照常落库。
+
 ## 2026-10-30 — `entry_size_bytes` 的"顶层单文件"条件终于会命中
 
 旧实现用 `dirname(file_path)`（**相对 base** 的存储指针，形如 `<user>/<agent>/x.md`）判断 entry 是否在 workspace

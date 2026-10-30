@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/marketplace/_skill_marketplace_impl/install_pipeline.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `compute_content_hash` fd 相对
+
+遍历与读取走 `confined_io.iter_tree(strict=True)` + `open_read`：目录被换成链接时**抛错**而不是哈希受害者的文件（对账据此得出的 modified/installed 结论不会描述别人的文件）。
+顺序仍是原来的 `sorted(rglob)` 路径序、摘要格式不变，已记录的哈希依然有效；**差异**：技能内部的符号链接不再被读取（以前 `is_file()` 跟随链接读目标，现在跳过），
+含链接的技能会在下一次对账时被标成 modified 一次。
 
 ## 2026-10-28 — 安装侧与删除侧用同一道名字栅栏
 

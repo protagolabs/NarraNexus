@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import stat
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -106,13 +107,24 @@ def resolve_workspace_file(
     # all collapse), the root is not — the containment check is the real
     # guarantee whether the agent passed a relative or an absolute path.
     try:
-        target = resolve_inside_workspace(root, file_path)
+        resolved = resolve_inside_workspace(root, file_path)
+        # Return the LEXICAL path (workspace + the proven tail): the bytes are
+        # read through the link-free walk, so a directory swapped for a link
+        # after this check is refused instead of followed.
+        target = root / resolved.relative_to(Path(os.path.abspath(root)))
     except ValueError as e:
         raise MatrixSendError(
             "bad_path",
             f"file_path escapes the agent workspace: {file_path}",
         ) from e
-    if not target.is_file():
+    try:
+        from narranexus.platform.utils import confined_io
+
+        croot, crel = confined_io.split_under_base(str(target), settings.base_working_path)
+        regular = stat.S_ISREG(confined_io.lstat(croot, crel).st_mode)
+    except (OSError, ValueError):
+        regular = False
+    if not regular:
         raise MatrixSendError("not_found", f"no such file: {file_path}")
     return target
 
@@ -362,14 +374,23 @@ async def send_media_impl(
 
     # Size pre-check via stat() BEFORE reading — never pull an oversized
     # file fully into memory just to reject it.
-    size = target.stat().st_size
-    if max_bytes and size > max_bytes:
-        return {
-            "ok": False,
-            "error": "oversized",
-            "message": f"file is {size} bytes > cap {max_bytes}",
-        }
-    data = target.read_bytes()
+    from narranexus.platform.settings import settings as _settings
+    from narranexus.platform.utils import confined_io
+
+    try:
+        croot, crel = confined_io.split_under_base(str(target), _settings.base_working_path)
+        fh = confined_io.open_read(croot, crel)
+    except (OSError, ValueError):
+        return {"ok": False, "error": "not_found", "message": f"no such file: {target.name}"}
+    with fh:
+        size = os.fstat(fh.fileno()).st_size
+        if max_bytes and size > max_bytes:
+            return {
+                "ok": False,
+                "error": "oversized",
+                "message": f"file is {size} bytes > cap {max_bytes}",
+            }
+        data = fh.read()
 
     mime_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
     msgtype = msgtype_for_mime(mime_type)

@@ -659,3 +659,42 @@ def test_install_meta_write_uses_the_lexical_skill_path_not_a_resolved_one(ws, t
     own_meta = json.loads((ws["own"] / "skills" / "demo" / ".skill_meta.json").read_text(encoding="utf-8"))
     assert own_meta["source_type"] == "zip"
     assert info.path == str(ws["own"] / "skills" / "demo")
+
+
+def test_enable_after_a_reinstall_gives_a_clear_error(ws):
+    sm = _module()
+    _owner_skill(ws)
+    assert sm.disable_skill("demo") is True
+    _owner_skill(ws)  # reinstalled while the disabled copy is still there
+    with pytest.raises(ValueError, match="already installed"):
+        sm.enable_skill("demo")
+    with pytest.raises(ValueError, match="already exists"):
+        sm.disable_skill("demo")
+    assert (ws["own"] / "skills" / ".disabled" / "demo" / "SKILL.md").exists()
+    assert (ws["own"] / "skills" / "demo" / "SKILL.md").exists()
+
+
+def test_enable_route_maps_a_name_clash_to_409_not_500(ws, monkeypatch):
+    from fastapi import FastAPI
+
+    from narranexus_plugins.skill_module import routes as skill_routes
+
+    class _Clash:
+        def enable_skill(self, skill_name):
+            raise ValueError("cannot enable skill 'demo': a skill with that name is already installed")
+
+        def disable_skill(self, skill_name):
+            raise ValueError("cannot disable skill 'demo': a disabled copy with that name already exists")
+
+    async def fake_owner(request, agent_id):
+        return OWNER
+
+    monkeypatch.setattr(skill_routes, "require_workspace_agent_owner", fake_owner)
+    monkeypatch.setattr(skill_routes, "_get_skill_module", lambda agent_id, user_id: _Clash())
+    app = FastAPI()
+    app.include_router(skill_routes.router, prefix="/api/skills")
+    client = TestClient(app)
+    r = client.put(f"/api/skills/demo/enable?agent_id={A_OWN}")
+    assert r.status_code == 409 and "already installed" in r.json()["detail"]
+    r = client.put(f"/api/skills/demo/disable?agent_id={A_OWN}")
+    assert r.status_code == 409

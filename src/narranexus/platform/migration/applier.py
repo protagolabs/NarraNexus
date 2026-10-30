@@ -25,7 +25,6 @@ See reference/self_notebook/specs/2026-07-21-agent-migration-tech-design.md.
 from __future__ import annotations
 
 import asyncio
-import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -273,17 +272,26 @@ async def _copy_local_skill(agent_id: str, user_id: str, name: str, src: str) ->
     src_path = Path(src).expanduser()
     if not src_path.is_dir():
         return False
-    skills_root = (agent_workspace_path(agent_id, user_id) / "skills").resolve()
-    dest = (skills_root / safe).resolve()
-    # Defense-in-depth: the resolved dest must stay under skills_root.
-    if dest.parent != skills_root:
-        logger.warning(f"[migrate.apply] skill dest escaped skills/: {dest}")
-        return False
+    # LEXICAL destination (single safe segment below the agent's `skills/`): the
+    # tree is replaced fd-relative below the workspace base, so a `skills`
+    # directory swapped for a link to another tenant's tree is refused instead of
+    # followed (delete + copy by path would act on the victim). The SOURCE is the
+    # importing user's own local directory (any path; its leaf is O_NOFOLLOW).
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils import confined_io
+
+    skills_dir = agent_workspace_path(agent_id, user_id) / "skills"
+    dest = skills_dir / safe
+
     def _copy() -> None:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.exists():
-            shutil.rmtree(dest, ignore_errors=True)
-        shutil.copytree(src_path, dest)
+        root, skills_rel = confined_io.split_under_base(str(skills_dir), settings.base_working_path)
+        confined_io.make_dirs(root, skills_rel)
+        try:
+            confined_io.remove_tree(root, f"{skills_rel}/{safe}")
+        except FileNotFoundError:
+            pass
+        src_root, src_rel = confined_io.split_source(str(src_path), settings.base_working_path)
+        confined_io.copy_tree(src_root, src_rel, root, f"{skills_rel}/{safe}")
 
     # rmtree + copytree are blocking filesystem work — keep them off the loop.
     await asyncio.to_thread(_copy)

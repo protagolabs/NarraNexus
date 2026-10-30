@@ -55,6 +55,11 @@ class ConfinedScanError(ConfinedPathError):
     directory). Callers that enforce a size limit must refuse, not undercount."""
 
 
+class TreeTooDeepError(ConfinedScanError):
+    """A directory tree is deeper than the recursion cap of the scan / copy
+    that met it (or exhausted the process's file-descriptor budget)."""
+
+
 class NotARegularFileError(OSError):
     """The leaf exists but is a directory, FIFO, device, ... — not servable."""
 
@@ -462,7 +467,7 @@ def dir_regular_bytes(root: str, rel: str) -> int:
                     continue
                 if entry.is_dir(follow_symlinks=False):
                     if depth >= _MAX_SCAN_DEPTH:
-                        raise ConfinedScanError(
+                        raise TreeTooDeepError(
                             f"directory tree deeper than {_MAX_SCAN_DEPTH} levels"
                         )
                     try:
@@ -516,6 +521,12 @@ def rename_within(root: str, src_rel: str, dst_rel: str, *, make_dst_parents: bo
     directory can neither receive the moved entry nor lose one that was never
     ours. A link leaf is renamed as a link, never followed. A non-empty
     destination directory raises FileExistsError (nothing is merged or nested).
+
+    Destination semantics are those of ``renameat``: an existing FILE
+    destination is replaced atomically (the source must be a file too — a
+    directory over a file raises NotADirectoryError); an existing EMPTY
+    directory destination is replaced (the source must be a directory — a file
+    over a directory raises IsADirectoryError).
     """
     src_parts = _split(src_rel)
     dst_parts = _split(dst_rel)
@@ -661,7 +672,7 @@ def copy_tree(
 
 def _copy_dir_fds(src_fd: int, dst_fd: int, depth: int, max_depth: int) -> None:
     if depth > max_depth:
-        raise ConfinedScanError(f"directory tree deeper than {max_depth} levels")
+        raise TreeTooDeepError(f"directory tree deeper than {max_depth} levels")
     with os.scandir(src_fd) as it:
         entries = list(it)
     for entry in entries:
@@ -706,7 +717,7 @@ def _copy_dir_fds(src_fd: int, dst_fd: int, depth: int, max_depth: int) -> None:
         # sockets / FIFOs / devices are not part of a skill: skipped
 
 
-def remove_tree(root: str, rel: str, *, max_depth: int = 256) -> None:
+def remove_tree(root: str, rel: str) -> None:
     """Delete the file, link or directory tree at ``root/rel`` without ever
     following a link.
 
@@ -714,47 +725,95 @@ def remove_tree(root: str, rel: str, *, max_depth: int = 256) -> None:
     tree is removed with ``unlink`` / ``rmdir`` relative to directory fds. A
     symlink ANYWHERE inside the tree (or as the leaf) is unlinked itself — its
     target is never touched, so a link planted to another tenant's tree costs
-    that tenant nothing. A tree deeper than ``max_depth`` raises
-    ConfinedScanError and is left partially intact rather than recursing without
-    bound. Missing leaf → FileNotFoundError.
+    that tenant nothing. An entry that changes type under the walk is handled
+    where it stands: a directory swapped for a link or a regular file between
+    the listing and the open is UNLINKED (the link / file itself), at the top
+    level and nested alike, so a tenant cannot leave its own tree behind by
+    racing the delete. Iterative (no recursion, no depth cap): one open fd per
+    level, so only the process's fd limit bounds the depth — hitting it raises
+    TreeTooDeepError with the tree left partially intact. Missing leaf →
+    FileNotFoundError.
     """
     parts = _split(rel)
     parent_fd = _walk(root, parts[:-1])
-
-    def rm_dir_contents(dir_fd: int, depth: int) -> None:
-        if depth > max_depth:
-            raise ConfinedScanError(f"directory tree deeper than {max_depth} levels")
-        with os.scandir(dir_fd) as it:
-            entries = list(it)
-        for entry in entries:
-            if entry.is_dir(follow_symlinks=False):
-                try:
-                    child = _open_dir_at(dir_fd, entry.name, create=False)
-                except FileNotFoundError:
-                    continue
-                except SymlinkRefusedError:
-                    # swapped for a link since the listing: remove the link itself
-                    os.unlink(entry.name, dir_fd=dir_fd)
-                    continue
-                try:
-                    rm_dir_contents(child, depth + 1)
-                finally:
-                    os.close(child)
-                os.rmdir(entry.name, dir_fd=dir_fd)
-            else:
-                os.unlink(entry.name, dir_fd=dir_fd)  # file, or the link itself
-
     try:
         name = parts[-1]
         st = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        if stat_mod.S_ISDIR(st.st_mode):
-            child = _open_dir_at(parent_fd, name, create=False)
-            try:
-                rm_dir_contents(child, 1)
-            finally:
-                os.close(child)
-            os.rmdir(name, dir_fd=parent_fd)
-        else:
+        if not stat_mod.S_ISDIR(st.st_mode):
             os.unlink(name, dir_fd=parent_fd)
+            return
+        try:
+            top_fd = _open_dir_at(parent_fd, name, create=False)
+        except (SymlinkRefusedError, NotADirectoryError):
+            os.unlink(name, dir_fd=parent_fd)  # swapped since the stat: remove it as it stands
+            return
+        _remove_dir_contents(top_fd)
+        os.rmdir(name, dir_fd=parent_fd)
     finally:
         os.close(parent_fd)
+
+
+def _remove_dir_contents(top_fd: int) -> None:
+    """Remove everything below the open directory ``top_fd`` (closes it).
+
+    Explicit stack of ``(fd, pending entries, name-in-parent)`` frames; a
+    finished child is ``rmdir``-ed through the previous frame's fd, so nothing
+    holds more than one fd per level.
+    """
+
+    def _entries(fd: int) -> list:
+        with os.scandir(fd) as it:
+            return list(it)
+
+    stack = [(top_fd, _entries(top_fd), None)]
+    try:
+        while stack:
+            fd, entries, child_name = stack[-1]
+            if not entries:
+                stack.pop()
+                os.close(fd)
+                if stack:
+                    os.rmdir(child_name, dir_fd=stack[-1][0])
+                continue
+            entry = entries.pop()
+            if not entry.is_dir(follow_symlinks=False):
+                try:
+                    os.unlink(entry.name, dir_fd=fd)  # file, or the link itself
+                except FileNotFoundError:
+                    pass
+                continue
+            try:
+                child = _open_dir_at(fd, entry.name, create=False)
+            except FileNotFoundError:
+                continue
+            except (SymlinkRefusedError, NotADirectoryError):
+                # swapped for a link / regular file since the listing: remove
+                # that link / file itself, never its target
+                try:
+                    os.unlink(entry.name, dir_fd=fd)
+                except FileNotFoundError:
+                    pass
+                continue
+            except OSError as e:
+                if e.errno in (errno.EMFILE, errno.ENFILE):
+                    raise TreeTooDeepError(
+                        "directory tree too deep for the process file-descriptor limit"
+                    ) from e
+                raise
+            try:
+                child_entries = _entries(child)
+            except OSError as e:
+                os.close(child)
+                if e.errno in (errno.EMFILE, errno.ENFILE):
+                    raise TreeTooDeepError(
+                        "directory tree too deep for the process file-descriptor limit"
+                    ) from e
+                raise
+            stack.append((child, child_entries, entry.name))
+    except BaseException:
+        for fd, _entries_left, _name in stack:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        raise

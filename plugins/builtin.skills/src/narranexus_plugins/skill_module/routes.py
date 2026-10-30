@@ -478,6 +478,10 @@ async def disable_skill(
 
     except HTTPException:
         raise
+    except ValueError as e:
+        # A name clash (e.g. reinstalled while a disabled copy exists) or a
+        # refused unsafe path: a clear 409 instead of an opaque 500.
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to disable skill: {e}")
         raise HTTPException(status_code=500, detail="Skill operation failed.")
@@ -505,6 +509,10 @@ async def enable_skill(
 
     except HTTPException:
         raise
+    except ValueError as e:
+        # A name clash (e.g. reinstalled while a disabled copy exists) or a
+        # refused unsafe path: a clear 409 instead of an opaque 500.
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to enable skill: {e}")
         raise HTTPException(status_code=500, detail="Skill operation failed.")

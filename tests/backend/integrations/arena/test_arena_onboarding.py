@@ -472,6 +472,9 @@ def test_provision_warm_path_retries_bind_from_workspace_key(monkeypatch, tmp_pa
     )
     import narranexus.platform.utils.workspace_paths as wp_mod
     monkeypatch.setattr(wp_mod, "agent_workspace_path", lambda *a, **kw: tmp_path)
+    # the credentials are read through the link-free walk below base_working_path
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)
 
     seen = {}
 

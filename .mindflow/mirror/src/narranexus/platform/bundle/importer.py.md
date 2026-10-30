@@ -15,7 +15,7 @@ stub: false
 
 原来 `target.exists()` + `shutil.rmtree(target)`，`skills` 被换成链接时会删受害者的技能目录。现在对**词法**路径
 （`skills_base / safe_name`，不是 `ensure_within_directory` 的 resolve 结果）做 `confined_io.remove_tree`；链接 →
-`ConfinedPathError`（ValueError），导入 fail closed。其后的 `mkdir` / `copy_skill_dir` 仍按路径写（已知未转换）。
+`ConfinedPathError`（ValueError），导入 fail closed。（原写的『其后的 `mkdir` / `copy_skill_dir` 仍按路径写』已过时：它们已转为 `make_dirs` + `copy_tree`，`copy_skill_dir` 函数已删除，见本文件更靠前的『整个流程 fd 相对』条目。）
 
 ## 2026-10-30 — 路径校验前移到 preflight；产物行归属钉死
 

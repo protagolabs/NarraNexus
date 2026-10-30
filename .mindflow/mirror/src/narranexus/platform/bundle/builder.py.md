@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/bundle/builder.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 导出打包 fd 相对
+
+`_pack_workspace_sync` / `_zip_dir` / `_builtin_skill_relpaths` 原来 `os.walk` + `tar.add(path)`：islink 检查之后目录被换成链接，就会把受害者的文件打进属主的导出。
+现在统一经 `_walk_confined`（`confined_io.iter_tree`：逐级 `O_NOFOLLOW`，逐项 lstat，迭代无递归）列目录，文件内容用受限 fd 读，`TarInfo` 由 `fstat` 构造后
+`tar.addfile(ti, fileobj)`；**链接、FIFO、socket 一律不入包**；排除规则按路径段判断，所以剪枝目录等价于排除其下所有文件。
+目录成员仍写入（含 `.` 根）；权限位 `& 0o777`。`dir_is_builtin` 也读受限路径。
 
 ## 2026-10-28（PR #419 review I-2）— `BundleForbidden`
 
