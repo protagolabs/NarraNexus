@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/ui/Markdown.tsx
-last_verified: 2026-08-14
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 原始 HTML 先净化再进 DOM
+
+正文来源用户控制不了（agent 回复、队友、inbox 里的外部 IM、bundle 的 Team 简介），而这里跑在 app 同源上，所以 `rehypeRaw` 之后必须紧跟 `rehypeSanitize`，
+调用方的 `rehypePlugins` 排在净化**之后**（mention 的 class / test id 才不会被洗掉）。Chrome 实测未净化时 `<iframe srcdoc>`、`<script async src>`（React 19 会提升到 head）、
+`<base>`、`<embed>/<object>`、`<form>`、`<style>` 全都能进 DOM。
+
+- schema 基于 `defaultSchema`，只加一处：`strip` 增加 `style`。不在 schema 里的元素默认是**解包**（文字留下），不 strip 的话被删的样式表会变成消息正文。
+- **脚注**：sanitizer 给每个 id 加 `user-content-` 前缀，remark-rehype 默认也加一次，id 就变成两层而 href 只有一层，脚注链接落空。所以 `remarkRehypeOptions.clobberPrefix: ''`，
+  前缀只由 sanitizer 加；`a` 组件把站内 `#x` 改写成 `#user-content-x`，脚注和 agent 写的锚点都落在加过前缀的 id 上。被否决：`clobber: []`（重新打开 DOM clobbering）。
+- **`a` 组件**：`{...props}` 放在 computed `target/rel` 之前。放在后面时 `rel="opener"` 能覆盖 noopener（反向 tabnabbing）。
+- 行为变化：原始 HTML 上的 `style` 与 `class` 属性被丢弃（除 schema 白名单），这是有意的——否则 agent 能用 Tailwind 类或 fixed 定位盖住整个界面。
+- 依赖：`rehype-sanitize` 钉精确版本 6.0.0，进 `vendor-markdown` manualChunk。
+
+**Gotcha**
+- **触发**：往这里传的 rehype 插件把 raw 文本写回 properties → **症状**：绕过净化 → **根因**：调用方插件运行在 sanitizer 之后。
+- **触发**：新增依赖 class 的 markdown 样式（如给 raw `<div class>` 写 CSS）→ **症状**：class 被净化掉、样式不生效 → **根因**：`defaultSchema` 只放行 language-*、task list、footnote 几个 class；需要就显式扩 schema。
+- 测试走真实 remark/rehype 管线（`components/ui/__tests__/Markdown.test.tsx`），断言看整个 document，因为 React 19 会把部分标签提升到 head。
 
 ## 2026-08-14 (二) — rehypePlugins 用真类型
 
@@ -36,11 +54,11 @@ Central point for Markdown rendering so every surface (chat bubbles, awareness t
 
 ## 上下游关系
 - **被谁用**: `MessageBubble`, `AwarenessPanel`, `InboxPanel`, `AgentInboxPanel`, `EntityCard`.
-- **依赖谁**: `react-markdown`, `remark-gfm`, `rehype-raw`.
+- **依赖谁**: `react-markdown`, `remark-gfm`, `rehype-raw`, `rehype-sanitize`.
 
 ## 设计决策
 
-`rehype-raw` is enabled — the agent backend can send HTML inside Markdown (e.g., from job reports). This is intentional but means XSS is possible if untrusted content is rendered. Current threat model: content comes only from the user's own agents.
+`rehype-raw` is enabled — the agent backend can send HTML inside Markdown (e.g., from job reports). Everything it parses goes through `rehype-sanitize` right after (see the 2026-10-30 entry): the content is not trusted, even from the user's own agents, because those relay third-party text.
 
 `compact` mode adds `markdown-compact` CSS class — the actual compact styles live in a global stylesheet, not in this file.
 
