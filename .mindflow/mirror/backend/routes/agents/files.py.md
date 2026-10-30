@@ -4,6 +4,15 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 拒绝路径的 surface 分类（`_refused_path_surface`）
+
+`agent_files.path` 第一条签名日志就封号，所以只留给人手输入的穿越、绝对路径、NUL。其余按代码分：
+- 原始值里没有 `..` 段和前导 `/`，只有经过反斜杠替换才变成穿越 → `agent_files.listed_name`。POSIX 上 `a\\..\\b` 是一个合法文件名，被注入的 agent 能创建它，文件浏览器列出后原样发回，用户只是点了一下。
+- 链接解析分支 → `agent_files.link_escape`，链接也是 agent 能放的。
+- 服务调用 → 全部 `service_files.path`。
+
+反斜杠替换保留，桌面端要用。行格式和签名不变。
+
 ## 2026-10-30（PR #433 review I2）— 目录树一次到达 workspace、之下按父 fd 打开、离开事件循环
 
 上一版每个目录都 `confined_io.list_dir(base, 完整路径)`，即**从 base 起重走整条路径**：最坏 5000 目录 × 约 19 次 `openat`
@@ -39,7 +48,7 @@ workspace 内部链接指向共享 base 之外（agent 自己的 `venv/bin/pytho
 ## 2026-10-30 — 越界路径记边界日志
 
 `_resolve_within_workspace` 新增必填关键字 `actor`。`..` 段、NUL、realpath 落在 workspace
-外这三种情况调用 `log_boundary_violation("agent_files.path")`；点开头的文件名仍拒绝但不记
+外这三种情况调用 `log_boundary_violation`（surface 见上方 2026-10-30 分类）；点开头的文件名仍拒绝但不记
 （这是"不提供隐藏文件"的策略，不是探测信号）。workspace 被换成符号链接时记
 `agent_files.workspace_symlink`。
 

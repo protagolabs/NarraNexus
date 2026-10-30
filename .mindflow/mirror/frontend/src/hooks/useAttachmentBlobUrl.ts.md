@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/hooks/useAttachmentBlobUrl.ts
-last_verified: 2026-04-29
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 返回 `{url,type}`，新增 `canOpenAttachmentBlob`
+
+blob: URL 继承 app 的源：导航过去就是同源文档，SVG 文档会执行脚本，`rel=noopener` 和 `Content-Disposition` 都管不到。所以 hook 把 blob 类型一起返回，
+只有 png/jpeg/gif/webp 允许变成 `<a href>`，其他（含空类型）只能是 `<img>`，SVG 在 `<img>` 里不执行脚本。白名单放这里，[[useBusAttachmentBlobUrl.ts]] 共用。
 
 # useAttachmentBlobUrl.ts — Authed binary fetch → blob: URL
 

@@ -74,7 +74,17 @@ async def setup(db_client, monkeypatch, tmp_path):
     @app.middleware("http")
     async def _identity(request: Request, call_next):
         request.state.user_id = request.headers.get("X-User-Id") or None
+        # What auth_middleware sets after verifying each service credential.
+        kind = request.headers.get("X-Test-Service")
+        if kind == "nx":
+            request.state.nx_service_authed = True
+        elif kind == "manyfold":
+            request.state.manyfold_authed = True
         return await call_next(request)
+
+    @app.get("/probe")
+    async def _probe(request: Request, agent_id: str = ""):
+        return await own_mod.require_owned_workspace_agent(request, agent_id)
 
     app.include_router(files_mod.router, prefix="/api/agents")
     app.include_router(att_mod.router, prefix="/api/agents")
@@ -450,7 +460,7 @@ def test_link_into_another_tenant_is_logged(setup, boundary_lines):
     assert r.status_code == 400
     assert "victim-secret" not in r.text
     hits = boundary_lines()
-    assert len(hits) == 1 and "surface=agent_files.path" in hits[0]
+    assert len(hits) == 1 and "surface=agent_files.link_escape" in hits[0]
 
 
 def test_workspace_swapped_for_a_link_is_logged(setup, boundary_lines):
@@ -463,3 +473,108 @@ def test_workspace_swapped_for_a_link_is_logged(setup, boundary_lines):
     hits = boundary_lines()
     assert len(hits) == 1 and "surface=agent_files.workspace_symlink" in hits[0]
     assert f"actor={OWNER}" in hits[0]
+
+
+# --- the surface is chosen in code, never parsed from text -----------------------
+# agent_route.agent_id and agent_files.path suspend the account on the first
+# signed line, so they may only ever mean "the owner typed this". Anything an
+# injected agent can make happen lands on a surface that only alerts.
+
+AS_SERVICE = {**AS_OWNER, "X-Test-Service": "nx"}
+AS_GATEWAY = {**AS_OWNER, "X-Test-Service": "manyfold"}
+# On disk these are ONE file name each. Only the desktop backslash handling turns
+# them into traversal, after the file browser listed them and sent them back.
+PLANTED_NAMES = ["a\\..\\b", "..\\x", "\\etc\\passwd", "x\\..\\..\\y"]
+
+
+def _surfaces(lines) -> list[str]:
+    return [part for line in lines for part in line.split() if part.startswith("surface=")]
+
+
+@pytest.mark.parametrize("headers", [AS_SERVICE, AS_GATEWAY], ids=["nx", "manyfold"])
+def test_service_identity_agent_id_gets_the_service_surface(setup, boundary_lines, headers):
+    r = setup["client"].get("/api/agents/.x/files", headers=headers)
+    assert r.status_code == 404
+    assert _surfaces(boundary_lines()) == ["surface=service_route.agent_id"]
+
+
+def test_session_identity_agent_id_stays_on_the_owner_surface(setup, boundary_lines):
+    r = setup["client"].get("/api/agents/.x/files", headers=AS_OWNER)
+    assert r.status_code == 404
+    assert _surfaces(boundary_lines()) == ["surface=agent_route.agent_id"]
+
+
+def test_empty_agent_id_is_refused_without_a_line(setup, boundary_lines):
+    r = setup["client"].get("/probe", params={"agent_id": ""}, headers=AS_OWNER)
+    assert r.status_code == 404
+    assert boundary_lines() == []
+
+
+@pytest.mark.parametrize("name", PLANTED_NAMES)
+def test_a_planted_name_listed_and_sent_back_is_not_a_typed_path(setup, boundary_lines, name):
+    own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
+    (own_ws / name).write_text("planted", encoding="utf-8")
+    client = setup["client"]
+
+    listed = client.get(f"/api/agents/{OWNED_AGENT}/files", headers=AS_OWNER).json()["tree"]
+    # Dot-led names are hidden from the listing; the rest really do reach the UI.
+    assert (name in [node["path"] for node in listed]) is not name.startswith(".")
+
+    r = client.get(
+        f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": name}, headers=AS_OWNER
+    )
+    assert r.status_code == 400
+    assert _surfaces(boundary_lines()) == ["surface=agent_files.listed_name"]
+
+
+def test_a_planted_name_through_delete_is_not_a_typed_path(setup, boundary_lines):
+    from urllib.parse import quote
+
+    own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
+    (own_ws / "a\\..\\b").write_text("planted", encoding="utf-8")
+    r = setup["client"].delete(
+        f"/api/agents/{OWNED_AGENT}/files/{quote('a\\..\\b', safe='')}", headers=AS_OWNER
+    )
+    assert r.status_code == 400
+    assert _surfaces(boundary_lines()) == ["surface=agent_files.listed_name"]
+
+
+@pytest.mark.parametrize(
+    "typed",
+    ["../x", "a/../../b", "/etc/passwd", "../a\\b", "nul\x00byte"],
+)
+def test_a_typed_traversal_stays_on_the_owner_surface(setup, boundary_lines, typed):
+    r = setup["client"].get(
+        f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": typed}, headers=AS_OWNER
+    )
+    assert r.status_code == 400
+    assert _surfaces(boundary_lines()) == ["surface=agent_files.path"]
+
+
+@pytest.mark.parametrize("bad", ["../x", "/etc/passwd", "a\\..\\b", "nul\x00byte"])
+def test_service_identity_path_gets_the_service_surface(setup, boundary_lines, bad):
+    r = setup["client"].get(
+        f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": bad}, headers=AS_SERVICE
+    )
+    assert r.status_code == 400
+    assert _surfaces(boundary_lines()) == ["surface=service_files.path"]
+
+
+def test_service_identity_link_gets_the_service_surface(setup, boundary_lines):
+    own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
+    (own_ws / "link.json").symlink_to(setup["secret"])
+    r = setup["client"].get(
+        f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": "link.json"}, headers=AS_SERVICE
+    )
+    assert r.status_code == 400
+    assert _surfaces(boundary_lines()) == ["surface=service_files.path"]
+
+
+def test_the_owners_own_backslash_free_names_stay_quiet(setup, boundary_lines):
+    own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
+    (own_ws / "plain name.txt").write_text("ok", encoding="utf-8")
+    r = setup["client"].get(
+        f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": "plain name.txt"}, headers=AS_OWNER
+    )
+    assert r.status_code == 200
+    assert boundary_lines() == []

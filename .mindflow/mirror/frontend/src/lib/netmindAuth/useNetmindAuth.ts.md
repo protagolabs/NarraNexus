@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/netmindAuth/useNetmindAuth.ts
-last_verified: 2026-08-12
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — OAuth postMessage 校验来源
+
+任何窗口都能向这里 postMessage，接受一个 code 就会把用户登录成 code 的主人（login CSRF）。现在保存 `window.open` 的返回值，要求 `e.source === popup` 且 `e.origin` 等于 `accountsUrl` 的源；
+popup 被拦（null）或还没打开时什么都不接受。已确认线上 `accounts.netmind.ai/auth.html` 自己调用 `window.opener.postMessage({type:'auth',code,state},'*')`，所以来源就是 accounts 源。
+
+`state` 没有本地比对：`auth.html` 从 provider 回调参数里取 state，它由 NetMind 后端的 `/user/loginMsg/<type>` 流程生成，这个页面只传 `authApi` 参数，发起时拿不到任何可比的值。比对留在 NetMind 的 `/user/userCallBack`。
+桌面端走 Rust 桥 + 轮询，不经过这个 listener。
 
 ## 2026-08-12 — 登录失败模糊文案（防账户枚举，Mark item 2）
 

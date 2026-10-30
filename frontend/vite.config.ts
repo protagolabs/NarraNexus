@@ -45,7 +45,7 @@ export default defineConfig({
           // ReactFlow + d3 dependencies (only used by JobsPanel, lazy loaded)
           'vendor-reactflow': ['reactflow'],
           // Markdown rendering (used by multiple panels, but not required for initial load)
-          'vendor-markdown': ['react-markdown', 'remark-gfm', 'rehype-raw'],
+          'vendor-markdown': ['react-markdown', 'remark-gfm', 'rehype-raw', 'rehype-sanitize'],
           // ECharts (only loaded when an echarts artifact tab is opened, ~700 KB)
           'vendor-echarts': ['echarts'],
           // Radix UI component library

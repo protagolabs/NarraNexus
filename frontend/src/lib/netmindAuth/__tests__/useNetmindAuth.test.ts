@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { useNetmindAuth } from '../useNetmindAuth';
 import { NetmindApiError } from '../request';
+import { getNetmindConfig } from '@/lib/runtimeConfig';
 
 const netmindPost = vi.fn();
 // Keep the real NetmindApiError (the hook does `instanceof`); override the call.
@@ -192,17 +193,119 @@ describe('useNetmindAuth OAuth callback', () => {
     expect(result.current.bindInfo).toMatchObject({ bandType: 2, identifyCode: 'idc' });
   });
 
-  test('window postMessage{type:auth} drives the OAuth callback', async () => {
+});
+
+describe('useNetmindAuth OAuth popup message', () => {
+  const AUTH = { type: 'auth', code: 'c', state: 's' };
+  const accounts = () => new URL(getNetmindConfig().accountsUrl).origin;
+  const frames: HTMLIFrameElement[] = [];
+
+  // Real window objects: MessageEvent only accepts a real source.
+  function realWindow(): Window {
+    const frame = document.createElement('iframe');
+    document.body.appendChild(frame);
+    frames.push(frame);
+    return frame.contentWindow as Window;
+  }
+
+  function setup() {
     netmindPost.mockResolvedValue({ loginToken: 'msg-tok', user: { userSystemCode: 'c' } });
     netmindLogin.mockResolvedValue({ success: true, token: 'jwt' });
-    renderHook(() => useNetmindAuth());
+    const popup = realWindow();
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup);
+    const { result } = renderHook(() => useNetmindAuth());
+    return { popup, open, result };
+  }
+
+  async function post(init: MessageEventInit) {
     await act(async () => {
-      window.dispatchEvent(new MessageEvent('message', { data: { type: 'auth', code: 'c', state: 's' } }));
+      window.dispatchEvent(new MessageEvent('message', init));
       await Promise.resolve();
       await Promise.resolve();
     });
-    await waitFor(() => expect(netmindLogin).toHaveBeenCalled());
-    expect(netmindLogin).toHaveBeenCalledWith('msg-tok', undefined);
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    frames.splice(0).forEach((f) => f.remove());
+  });
+
+  function fakePopup(closed: boolean): Window {
+    netmindPost.mockResolvedValue({ loginToken: 'msg-tok', user: { userSystemCode: 'c' } });
+    netmindLogin.mockResolvedValue({ success: true, token: 'jwt' });
+    return { closed } as unknown as Window;
+  }
+
+  test('a null source counts only once our popup has closed', async () => {
+    const popup = fakePopup(true);
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+    const { result } = renderHook(() => useNetmindAuth());
+    act(() => result.current.startOAuth('GOOGLE'));
+    await post({ data: AUTH, origin: accounts(), source: null });
+    expect(netmindPost).toHaveBeenCalled();
+  });
+
+  test('a null source with the popup still open is ignored', async () => {
+    const popup = fakePopup(false);
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+    const { result } = renderHook(() => useNetmindAuth());
+    act(() => result.current.startOAuth('GOOGLE'));
+    netmindPost.mockClear();
+    await post({ data: AUTH, origin: accounts(), source: null });
+    expect(netmindPost).not.toHaveBeenCalled();
+  });
+
+  test('a null source from another origin is ignored', async () => {
+    const popup = fakePopup(true);
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+    const { result } = renderHook(() => useNetmindAuth());
+    act(() => result.current.startOAuth('GOOGLE'));
+    netmindPost.mockClear();
+    await post({ data: AUTH, origin: 'https://evil.example', source: null });
+    expect(netmindPost).not.toHaveBeenCalled();
+  });
+
+  test('the popup this page opened, from the accounts origin, drives the callback', async () => {
+    const { popup, open, result } = setup();
+    act(() => result.current.startOAuth('GOOGLE'));
+    expect(open).toHaveBeenCalledTimes(1);
+    await post({ data: AUTH, origin: accounts(), source: popup });
+    await waitFor(() => expect(netmindLogin).toHaveBeenCalledWith('msg-tok', undefined));
+  });
+
+  test('a message from the wrong origin is ignored', async () => {
+    const { popup, result } = setup();
+    act(() => result.current.startOAuth('GOOGLE'));
+    await post({ data: AUTH, origin: 'https://evil.example', source: popup });
+    expect(netmindPost).not.toHaveBeenCalled();
+  });
+
+  test('a message from another window is ignored, even with the right origin', async () => {
+    const { result } = setup();
+    act(() => result.current.startOAuth('GOOGLE'));
+    await post({ data: AUTH, origin: accounts(), source: realWindow() });
+    expect(netmindPost).not.toHaveBeenCalled();
+  });
+
+  test('a message with no source is ignored', async () => {
+    const { result } = setup();
+    act(() => result.current.startOAuth('GOOGLE'));
+    await post({ data: AUTH, origin: accounts() });
+    expect(netmindPost).not.toHaveBeenCalled();
+  });
+
+  test('nothing is accepted before a popup was opened', async () => {
+    const { popup } = setup();
+    await post({ data: AUTH, origin: accounts(), source: popup });
+    expect(netmindPost).not.toHaveBeenCalled();
+  });
+
+  test('a blocked popup leaves nothing to accept', async () => {
+    const { popup, open, result } = setup();
+    open.mockReturnValue(null);
+    act(() => result.current.startOAuth('GOOGLE'));
+    await post({ data: AUTH, origin: accounts(), source: popup });
+    expect(netmindPost).not.toHaveBeenCalled();
   });
 });
 

@@ -814,3 +814,63 @@ def test_tokenless_overflow_row_keeps_its_shape(monkeypatch):
     asyncio.run(mcp_auth._note_tokenless("usr_c", "POST", "/c", 7801))
     counts = rows[0]["detail"]["counts"]
     assert {"caller": "<overflow>", "method": "", "path": "", "port": 0, "n": 2} in counts
+
+
+# --- OwnerScopedPolicy on an id that cannot exist -------------------------------
+
+
+@pytest.fixture
+def policy_caller(monkeypatch, db_client):
+    """Cloud mode with a verified token, over the real policy and a real db."""
+    from types import SimpleNamespace
+
+    from narranexus.platform.module_system.identity import mcp_auth as mcp_auth_mod
+
+    async def _db():
+        return db_client
+
+    mcp_auth_mod._owner_cache.clear()
+    monkeypatch.setattr("narranexus.platform.utils.deployment_mode.is_cloud_mode", lambda: True)
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", _db)
+    monkeypatch.setattr(
+        mcp_auth_mod, "verified_caller_for_tool_call", lambda: SimpleNamespace(user_id="usr_me")
+    )
+
+    def set_mode(mode: str):
+        monkeypatch.setattr(mcp_auth_mod, "auth_mode", lambda: mode)
+        return mcp_auth_mod.check_agent_ownership
+
+    return set_mode
+
+
+async def _denials(db_client) -> int:
+    rows = await db_client.execute(
+        "SELECT event_type FROM instance_executor_audit WHERE event_type=%s",
+        ("mcp_auth_denied",),
+    )
+    return len(rows)
+
+
+@pytest.mark.parametrize("agent_id", [".x", "..", "a/b", ".x/files#"])
+async def test_policy_denies_an_id_that_is_not_one_segment(policy_caller, db_client, agent_id):
+    message = await policy_caller("enforce")(agent_id)
+    assert message and "does not own" in message
+    assert await _denials(db_client) == 1
+
+
+async def test_audit_mode_records_a_malformed_id_and_lets_it_through(policy_caller, db_client):
+    assert await policy_caller("audit")(".x") is None
+    assert await _denials(db_client) == 1
+
+
+async def test_a_well_formed_unknown_agent_stays_fail_open(policy_caller, db_client):
+    assert await policy_caller("enforce")("agent_nobody") is None
+    assert await _denials(db_client) == 0
+
+
+async def test_own_agent_is_allowed_and_a_foreign_one_denied(policy_caller, db_client):
+    await db_client.insert("agents", {"agent_id": "agent_mine", "agent_name": "m", "created_by": "usr_me"})
+    await db_client.insert("agents", {"agent_id": "agent_theirs", "agent_name": "t", "created_by": "usr_x"})
+    check = policy_caller("enforce")
+    assert await check("agent_mine") is None
+    assert "does not own" in (await check("agent_theirs") or "")

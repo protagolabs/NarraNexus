@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/chat/AttachmentImage.tsx
-last_verified: 2026-04-29
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 只有位图能点开
+
+`zoomable` 的 `<a href=blob:>` 只在 `canOpenAttachmentBlob(type)` 时包上。SVG 等其他类型只渲染 `<img>`：blob 文档跑在 app 源上，打开 SVG 附件等于同源执行它的脚本。
 
 # AttachmentImage.tsx — Hook-host wrapper around useAttachmentBlobUrl
 

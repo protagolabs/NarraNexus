@@ -70,6 +70,20 @@ _DENY_UNKNOWN = "unknown"      # agent does not exist -> 404-class
 _DENY_NOT_OWNER = "not_owner"  # exists, not yours -> 403-class
 
 
+def is_service_caller(request: Request) -> bool:
+    """True when a service credential, not a person's session, made this call.
+
+    Decided from what ``auth_middleware`` verified, never from the request text.
+    A boundary line on a person's surface suspends that account on first hit, so
+    a call an injected agent can make (the executor's identity token) or a
+    gateway token must not land on one.
+    """
+    state = request.state
+    return bool(
+        getattr(state, "nx_service_authed", False) or getattr(state, "manyfold_authed", False)
+    )
+
+
 def _caller_user_id(request: Request) -> Optional[str]:
     """The authenticated caller, or None in local mode."""
     uid = getattr(request.state, "user_id", None)
@@ -157,7 +171,8 @@ async def require_owned_workspace_agent(request: Request, agent_id: str) -> str:
       no local-mode pass-through, because the thing being protected is the
       filesystem, not a bot binding;
     - the segment must be path-safe (``safe_id_segment``) BEFORE any lookup,
-      so ``..`` / ``%2e%2e`` / ``a/b`` never reach a ``Path`` join;
+      so ``..`` / ``%2e%2e`` / ``a/b`` never reach a ``Path`` join. An empty id
+      is refused too but stays quiet: it is a missing value, not a probe;
     - unknown and not-owned both answer 404 — a filesystem-facing route must
       not tell a caller which other users' agent ids exist;
     - a failed lookup still raises 503 from ``_deny_reason``.
@@ -170,8 +185,12 @@ async def require_owned_workspace_agent(request: Request, agent_id: str) -> str:
         safe_id_segment(agent_id, label="agent_id")
     except ValueError:
         # No product surface ever builds such an id; it is the 2026-10-28
-        # traversal shape (or a variant of it).
-        log_boundary_violation("agent_route.agent_id", actor=user_id, detail=agent_id)
+        # traversal shape (or a variant of it). agent_route.agent_id means "the
+        # account owner typed this" and bans on the first signed line, so a
+        # service caller gets its own surface.
+        if agent_id:
+            surface = "service_route.agent_id" if is_service_caller(request) else "agent_route.agent_id"
+            log_boundary_violation(surface, actor=user_id, detail=agent_id)
         raise HTTPException(status_code=404, detail="agent not found")
     reason = await _deny_reason(request, agent_id, user_id=user_id)
     if reason is not None:

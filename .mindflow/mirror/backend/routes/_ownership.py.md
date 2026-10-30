@@ -4,6 +4,11 @@ stub: false
 last_verified: 2026-10-30
 ---
 
+## 2026-10-30 — surface 由代码决定：`is_service_caller`
+
+Owner 策略：`agent_route.agent_id` 上第一条签名日志就封号，所以这个 surface 只能表示"账号主人亲手输入"。服务调用（`request.state.nx_service_authed` / `manyfold_authed`，由 auth_middleware 验证后设置）
+记 `service_route.agent_id`，只告警；被注入的 agent 持有的 executor 身份不能让主人被封。空 agent_id 仍 404 但不记日志：它是缺参，不是探测。判断只看验证过的 state，绝不解析请求内容。
+
 ## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
 
 `file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。

@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/module_system/data_access/channel_store.py
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — `_seg` 不再有第二份
+
+原来是 [[store.py]] `_seg` 的副本，点段修复要改两处，改为直接 import。
 
 ## 2026-09-07 — `_ChannelSpecs._build` 变成纯读，并删掉死 import
 
