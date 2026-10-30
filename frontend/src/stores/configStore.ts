@@ -9,6 +9,9 @@ import { api } from '@/lib/api';
 import { resetSessionGuard } from '@/lib/sessionGuard';
 import { useTeamsStore } from './teamsStore';
 import type { AgentInfo } from '@/types';
+import { isSafeAgentId } from '@/lib/agentIdentity/agentIdSafety';
+import { ownsAnyAgent, pickDefaultAgent } from '@/lib/agentIdentity/defaultAgent';
+import { pickGuideAgent } from '@/lib/agentIdentity/guideAgent';
 
 export type { AgentInfo };
 
@@ -25,6 +28,11 @@ interface ConfigState {
   // Agent state
   agentId: string;
   agents: AgentInfo[];
+  /** The agent list was fetched from the server in THIS session. `agents` is
+   * persisted and may be a previous session's (stale) list; code that must
+   * judge against the current list waits for this. Forced false on rehydrate,
+   * so a stored value never counts. */
+  agentsLoaded: boolean;
 
   // Awareness update tracking (red dot notification)
   awarenessUpdatedAgents: string[];
@@ -53,6 +61,7 @@ export const useConfigStore = create<ConfigState>()(
       email: '',
       agentId: '',
       agents: [],
+      agentsLoaded: false,
       awarenessUpdatedAgents: [],
 
       // Actions
@@ -64,6 +73,7 @@ export const useConfigStore = create<ConfigState>()(
         resetSessionGuard();
         set({
           isLoggedIn: true,
+          agentsLoaded: false,
           userId,
           token: token || '',
           role: role || '',
@@ -96,6 +106,7 @@ export const useConfigStore = create<ConfigState>()(
           email: '',
           agentId: '',
           agents: [],
+          agentsLoaded: false,
           awarenessUpdatedAgents: [],
         });
         // Symmetric reset — see comment in login(). Logging out and back
@@ -105,17 +116,63 @@ export const useConfigStore = create<ConfigState>()(
         useTeamsStore.setState({ teams: [], loaded: false });
       },
 
-      setAgentId: (id) => set({ agentId: id }),
+      // '' clears the selection; anything else must be a possible agent id, or a
+      // crafted link / stale state would make every panel request it (see
+      // lib/agentIdentity/agentIdSafety.ts).
+      setAgentId: (id) => {
+        if (id && !isSafeAgentId(id)) {
+          // The id is caller- (often link-) controlled: say that it was
+          // refused, never what it was.
+          console.warn('[agent-id] refusing an unsafe agent id');
+          return;
+        }
+        set({ agentId: id });
+      },
 
       setAgents: (agents) => set({ agents }),
 
       refreshAgents: async () => {
         const { userId } = get();
         if (!userId) return;
+        const selectedAtStart = get().agentId;
         try {
           const res = await api.getAgents();
+          // A response for a session that has since logged out / switched
+          // user must not land in the new one (it could even select one of the
+          // previous user's agents).
+          if (get().userId !== userId) return;
           if (res.success) {
-            set({ agents: res.agents });
+            // A selection the server does not list (deleted, foreign, or from a
+            // crafted link) would otherwise persist and make every panel request
+            // it on every load, a stream of 403/404s. It is cleared, not swapped
+            // for another agent: a silent switch mid-chat would send the user's
+            // next message to an agent they did not pick (the sidebar's mount
+            // pass picks the viewer's own default on the next full page load;
+            // within this session it stays empty). Only a
+            // selection that was already current when this request started is
+            // judged: one made while it was in flight (a just-created agent)
+            // may postdate it.
+            const { agentId } = get();
+            const stale = agentId !== '' && agentId === selectedAtStart
+              && !res.agents.some((a) => a.agent_id === agentId);
+            // A new user's first agent (the guide) is provisioned after login
+            // returns, so login and the sidebar's mount pass found nothing of
+            // theirs to select. At the moment the viewer's FIRST own agent
+            // appears — none in the list before, some now — with nothing
+            // selected before or during this request, it is selected. Keyed
+            // on that transition, not on bootstrap_active (which every
+            // not-yet-chatted own agent carries): a veteran's cleared selection
+            // is never refilled, so "cleared, not swapped" holds.
+            const firstOwn = agentId === '' && selectedAtStart === ''
+              && !ownsAnyAgent(get().agents, userId) && ownsAnyAgent(res.agents, userId)
+              // The guide login made for them first (imports in the welcome
+              // flow may be newer); otherwise their newest own agent.
+              ? (pickGuideAgent(res.agents, userId)?.agent_id || pickDefaultAgent(res.agents, userId)) : '';
+            set({
+              agents: res.agents,
+              agentsLoaded: true,
+              ...(stale ? { agentId: '' } : firstOwn ? { agentId: firstOwn } : {}),
+            });
           } else {
             // Keeping the previous list is deliberate (a backend hiccup must
             // not blank the sidebar) — being SILENT about it was not. The
@@ -156,6 +213,14 @@ export const useConfigStore = create<ConfigState>()(
     }),
     {
       name: 'narra-nexus-config',
+      // A persisted selection from before the check (or a hand-edited one) must
+      // not come back unchecked on reload.
+      merge: (persisted, current) => {
+        const restored = { ...current, ...(persisted as Partial<ConfigState>) };
+        if (restored.agentId && !isSafeAgentId(restored.agentId)) restored.agentId = '';
+        restored.agentsLoaded = false; // describes this session, never a stored one
+        return restored;
+      },
     }
   )
 );

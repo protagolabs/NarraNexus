@@ -1,8 +1,33 @@
 ---
 code_file: src/narranexus/platform/bundle/builder.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
+## 2026-10-30（PR #433 review M3）— 导出遇到进不去的子目录直接失败
+
+`_walk_confined` 新增 `strict`：`_pack_workspace_sync` 与 `_zip_dir` 传 `strict=True`，子目录进不去（属主 chmod 000、遍历中被换成链接）
+时导出抛错，而不是只在服务端打一行 WARNING、静默少一棵子树（用户要到导入时才发现）。`_builtin_skill_relpaths` 保持宽松（只是找内置技能根）。
+只容忍**起点**不存在 / 被换成链接（→ 空结果 + WARNING）；起点不可读在 strict 下同样抛错（非 strict 仍是 WARNING + 空）：起点在 `walk_tree` 的第一次 `next()` 打开、先于任何节点，
+所以 `except` 只包第一次 `next()`；之后的错误原样冒出——包住整个迭代会把 strict 的失败又吞成静默截断。
+这与旧 dev 行为相比是**收紧**（旧 `os.walk` 也静默跳过）。测试：`test_export_with_an_unenterable_subdir_fails_instead_of_dropping_it`、
+`test_export_of_a_missing_start_dir_is_empty_not_an_error`。
+
+## 2026-10-30（复审 2）— 线性遍历，过深直接报错
+
+`_walk_confined` 现在包 `confined_io.walk_tree`：每个文件由 `node.open_file()` 相对当前持有的目录 fd 一次 `openat` 打开（原先每个文件都从根重走）。
+超过 `MAX_TREE_DEPTH`（64）抛 `TreeTooDeepError`——**导出绝不静默丢内容**；进不去的子目录的处理以下方 PR #433 review M3 条目为准。
+
+## 2026-10-30 — 导出打包 fd 相对
+
+`_pack_workspace_sync` / `_zip_dir` / `_builtin_skill_relpaths` 原来 `os.walk` + `tar.add(path)`：islink 检查之后目录被换成链接，就会把受害者的文件打进属主的导出。
+现在统一经 `_walk_confined`（`confined_io.iter_tree`：逐级 `O_NOFOLLOW`，逐项 lstat，迭代无递归）列目录，文件内容用受限 fd 读，`TarInfo` 由 `fstat` 构造后
+`tar.addfile(ti, fileobj)`；**链接、FIFO、socket 一律不入包**；排除规则按路径段判断，所以剪枝目录等价于排除其下所有文件。
+目录成员仍写入（含 `.` 根）；权限位 `& 0o777`。`dir_is_builtin` 也读受限路径。
 
 ## 2026-10-28（PR #419 review I-2）— `BundleForbidden`
 

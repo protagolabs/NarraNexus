@@ -23,7 +23,7 @@ from typing import Any, Optional
 from loguru import logger
 
 from narranexus.platform.repository.team_workspace_repository import TeamFileRepository
-from narranexus.platform.utils.workspace_paths import team_shared_dir
+from narranexus.platform.utils.fs.workspace_paths import team_shared_dir
 
 #: Cap on one listing. Large enough that a real team folder fits, small enough
 #: that a runaway one cannot blow up the model's context in a single call.

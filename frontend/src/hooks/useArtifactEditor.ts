@@ -24,6 +24,7 @@ import type { Artifact } from '@/types/artifact';
 import { artifactsApi, ArtifactEditConflictError } from '@/services/artifactsApi';
 import { sha256Hex } from '@/lib/sha256';
 import { readDraft, sweepStaleDrafts, writeDraft } from '@/lib/artifactEditing/drafts';
+import { guardedFetch } from '@/lib/guardedFetch';
 
 export interface ArtifactEditorState {
   status: 'loading' | 'ready' | 'error';
@@ -70,7 +71,7 @@ export function useArtifactEditor(artifact: Artifact, url: string | null): Artif
   });
 
   const loadFrom = useCallback(async (rawUrl: string): Promise<void> => {
-    const r = await fetch(rawUrl);
+    const r = await guardedFetch(rawUrl);
     if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
     const buf = await r.arrayBuffer();
     const hash = await sha256Hex(buf);

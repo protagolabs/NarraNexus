@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/hooks/useArtifactEditor.ts
-last_verified: 2026-08-20
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -49,3 +49,11 @@ TextDecoder fatal:true——解不动的文档不进编辑面(错误态=只读),
 lib/artifactEditing/drafts.ts(无 React);hook 只消费。**清理先于
 恢复由控制流保证**:loadFrom 在 readDraft 前调 sweepStaleDrafts
 (幂等),不再依赖 effect 声明顺序(r3 M2)。
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

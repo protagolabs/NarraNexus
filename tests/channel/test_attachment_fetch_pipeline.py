@@ -32,7 +32,7 @@ import pytest
 
 from narranexus.platform.channel.inbox_recorder import im_thread_id
 
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 from narranexus.platform.channel.channel_audit_events import (
     EVENT_ATTACHMENT_PERSISTED,

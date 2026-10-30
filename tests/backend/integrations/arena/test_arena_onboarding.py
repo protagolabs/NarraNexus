@@ -105,7 +105,14 @@ def test_register_explicit_name_raises_on_409():
         onb.register(name="Already_Taken_Name")
 
 
-def test_install_skill_writes_files_consumable_by_skillmodule(tmp_path: Path):
+def _base_at(monkeypatch, tmp_path: Path) -> None:
+    # the skill is written through the link-free walk below base_working_path
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)
+
+
+def test_install_skill_writes_files_consumable_by_skillmodule(tmp_path: Path, monkeypatch):
+    _base_at(monkeypatch, tmp_path)
     onb = ArenaOnboarder(http_client=_FakeClient([]))
     creds = ArenaCredentials(
         api_key="arena_sk_xyz",
@@ -161,7 +168,8 @@ def test_register_targets_configured_api_base():
     ]
 
 
-def test_install_skill_api_url_follows_api_base(tmp_path: Path):
+def test_install_skill_api_url_follows_api_base(tmp_path: Path, monkeypatch):
+    _base_at(monkeypatch, tmp_path)
     # The agent's runtime calls read ARENA_API_URL from the installed skill env;
     # it must match the api_base the agent registered against, so a dev agent
     # calls the dev Arena, never prod.
@@ -338,7 +346,7 @@ def _stub_cold_path(monkeypatch, svc, fake_onboarder_cls):
     import narranexus.platform.module_system._module_impl.instance_factory as if_mod
     monkeypatch.setattr(if_mod, "InstanceFactory", _IF)
 
-    import narranexus.platform.utils.workspace_paths as wp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wp_mod
     monkeypatch.setattr(wp_mod, "agent_workspace_path", lambda *a, **kw: Path("/tmp/nx_ws"))
 
     async def _noop_aw(self, *a, **kw):
@@ -462,8 +470,11 @@ def test_provision_warm_path_retries_bind_from_workspace_key(monkeypatch, tmp_pa
     (skill_dir / "credentials.json").write_text(
         json.dumps({"api_key": "arena_sk_fromfile", "agent_id": "arena_1"})
     )
-    import narranexus.platform.utils.workspace_paths as wp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wp_mod
     monkeypatch.setattr(wp_mod, "agent_workspace_path", lambda *a, **kw: tmp_path)
+    # the credentials are read through the link-free walk below base_working_path
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)
 
     seen = {}
 

@@ -10,20 +10,14 @@
  * plugin's own `activate(host)`) — no change required here.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Link as LinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { useConfigStore } from '@/stores';
-
-
-/**
- * Props every IM-channel config component must accept. The parent passes
- * ``onBindStateChange`` so that bind/unbind/test in the child fans out to
- * the parent's connected-badge refresh — otherwise the parent badge stays
- * stale until the user manually clicks "Refresh status".
- */
+// Each channel card gets `onBindStateChange={refreshConnected}` so bind/unbind/test in
+// the child refreshes the connected badges here (ChannelConfigProps lives in the registry).
 import { CHANNELS, sortedChannels, useRegistryEntries, type ChannelStatus } from '@/platform/registries';
 import './registerBuiltinChannels';
 
@@ -31,6 +25,11 @@ export function IMChannelsSection() {
   // Rows come from the ui.channels registry: builtins register in
   // registerBuiltinChannels.ts (owner = the channel plugin), channel plugins
   // add theirs; a disabled builtin's row is gone with the plugin.
+  // `channels` feeds `refreshConnected`'s deps, so it must be referentially
+  // stable: the registry snapshot is cached until the registry changes, and
+  // `sortedChannels` returns the same array for the same snapshot. An unstable
+  // array here refired the mount effect after every `setStatusMap` — an
+  // unbounded credential-probe loop that tripped the edge flood ban (2026-10-30).
   const channels = sortedChannels(useRegistryEntries(CHANNELS));
   const { t } = useTranslation();
   const { agentId } = useConfigStore();
@@ -40,12 +39,18 @@ export function IMChannelsSection() {
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
   const [statusMap, setStatusMap] = useState<Record<string, ChannelStatus>>({});
 
+  // Rounds can overlap (agent switch, re-open, Refresh, a child's bind change);
+  // only the latest one may write, or a slow round for the previous agent would
+  // paint its badges over the current agent's.
+  const roundRef = useRef(0);
   const refreshConnected = useCallback(async () => {
+    const round = ++roundRef.current; // before the agentId check: clearing the agent also retires in-flight rounds
     if (!agentId) return;
-    const entries = await Promise.all(
+    const results = await Promise.all(
       channels.map(async (ch) => [ch.id, await ch.value.fetchStatus(agentId)] as const),
     );
-    setStatusMap(Object.fromEntries(entries));
+    if (round !== roundRef.current) return;
+    setStatusMap(Object.fromEntries(results));
   }, [agentId, channels]);
 
   // Pre-fetch on mount and whenever the active agent changes, so the
@@ -56,7 +61,7 @@ export function IMChannelsSection() {
   // session) look like they hadn't taken effect.
   //
   // react-hooks/set-state-in-effect flags this because refreshConnected
-  // calls setConnectedMap. The rule prefers Suspense / React Query /
+  // calls setStatusMap. The rule prefers Suspense / React Query /
   // SWR for server-state mount fetches; we use raw useEffect across
   // this codebase (see LarkConfig, SlackConfig) so adopting that here
   // would be an out-of-scope refactor. Disabling per-call with the
@@ -77,20 +82,14 @@ export function IMChannelsSection() {
   }
 
   const handleToggleSection = useCallback(() => {
-    setSectionOpen((open) => {
-      const nextOpen = !open;
-      // Refresh again on each open so a stale state from earlier in
-      // the session (binding changed in another tab, MCP-triggered
-      // bind/unbind from the agent chat) gets corrected as soon as
-      // the user reveals the panel. The initial mount fetch lives in
-      // the useEffect above — this is the "user is actively looking
-      // at it again" refresh.
-      if (nextOpen) {
-        void refreshConnected();
-      }
-      return nextOpen;
-    });
-  }, [refreshConnected]);
+    const nextOpen = !sectionOpen;
+    setSectionOpen(nextOpen);
+    // Refresh again on each open so a stale state from earlier in the session
+    // (binding changed in another tab, MCP-triggered bind/unbind from the agent
+    // chat) gets corrected as soon as the user reveals the panel. Kept out of
+    // the state updater: updaters must be pure (StrictMode runs them twice).
+    if (nextOpen) void refreshConnected();
+  }, [sectionOpen, refreshConnected]);
 
   const connectedCount = channels.filter((c) => statusMap[c.id] === 'active').length;
   const totalCount = channels.length;

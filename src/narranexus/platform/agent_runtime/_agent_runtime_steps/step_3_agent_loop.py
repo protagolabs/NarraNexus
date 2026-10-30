@@ -89,6 +89,31 @@ _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 # package's __init__ eager-imports step_3_agent_loop). Imported above.
 
 
+def ensure_agent_workspace_dir(agent_working_path: str, base_working_path: str) -> None:
+    """Create the agent's workspace dir (idempotent) through the link-free walk
+    below ``base_working_path``.
+
+    ``{base}/{user_id}/{agent_id}`` lives in the tenant-writable per-user mount,
+    so a swapped directory is refused instead of followed into another tenant's
+    tree — and the refusal is deliberately FAIL-CLOSED: a user on the DESKTOP who
+    made ``{base}/{user_id}`` or the agent directory a symbolic link themselves
+    (e.g. to keep workspaces on another disk) gets this turn refused with an
+    actionable message instead of silently working through the link. Replace the
+    link with a real directory (or point ``base_working_path`` at the target).
+    """
+    from narranexus.platform.utils.fs import confined_io
+
+    try:
+        root, rel = confined_io.split_under_base(agent_working_path, base_working_path)
+        confined_io.make_dirs(root, rel)
+    except confined_io.ConfinedPathError as e:
+        raise RuntimeError(
+            f"The agent workspace {agent_working_path!r} cannot be used: {e}. "
+            "A directory on its path is a symbolic link (or it is outside the "
+            "workspace base), which is refused for safety. Replace the link with "
+            "a real directory, or set the workspace base to the link's target."
+        ) from e
+
 def _executor_target(ensured) -> tuple[str | None, str | None]:
     """(executor URL, executor API token) for this turn's driver.
 
@@ -2003,10 +2028,9 @@ async def step_3_agent_loop(
     # Set up Agent working directory
     from narranexus.platform.settings import settings
     working_path = settings.base_working_path
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
     agent_working_path = str(agent_workspace_path(ctx.agent_id, ctx.user_id, base=working_path))
-    if not os.path.exists(agent_working_path):
-        os.makedirs(agent_working_path)
+    ensure_agent_workspace_dir(agent_working_path, working_path)
 
     # What this turn may reach outside its own workspace: the bus attachment
     # dir (user-wide by design — the bus stages one copy per owner and every
@@ -2020,7 +2044,7 @@ async def step_3_agent_loop(
     # (see `_resolve_entry` and `list_for_agent_context`), and it is not
     # read-only: the confinement layers inspect `file_path` and shell paths,
     # so the grant covers Write, Edit and rm.
-    from narranexus.platform.utils.workspace_paths import turn_accessible_roots
+    from narranexus.platform.utils.fs.workspace_paths import turn_accessible_roots
     _turn_extra = ctx.trigger_extra_data or {}
     extra_accessible_roots = turn_accessible_roots(
         ctx.user_id, team_id=str(_turn_extra.get("bus_team_id") or ""), base=working_path

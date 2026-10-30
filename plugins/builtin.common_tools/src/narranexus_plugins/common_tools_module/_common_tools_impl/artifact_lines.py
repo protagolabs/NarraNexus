@@ -30,7 +30,7 @@ from narranexus.platform.schema.artifact_schema import (
     URL_TAB_CONTENT_FILENAME,
 )
 from narranexus.platform.settings import settings
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 
 def format_artifact_lines(

@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/lib/sessionGuard.ts
-last_verified: 2026-08-06
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 会话探测改走 `rawFetch`
+
+全局 `fetch` 现在被替换成守卫包装（[[guardedFetch]] `installGlobalFetchGuard`），探测
+`/api/auth/session` 改用 `rawFetch`（保存的原生 fetch），保持不受守卫：被拒会被误读成会话已死、把
+用户登出。它只在真实 401 之后运行，自身不会循环。
+
+## 2026-10-30 — 探测遇到 403 `account_suspended` 也触发退出
+
+WebSocket 的 AuthError（含封号）走 `confirmSessionDeath` → 探测 `/api/auth/session`；封号账号这里拿到 403，原本
+被当成 "unknown"、不登出，于是 WS 不停重连。探测仍走上一条所述的 `rawFetch`（不受守卫），拿到响应后调
+[[authFailure]] `noteAccountSuspended`，封号即派发退出事件。
 
 # sessionGuard.ts — 强制登出前的第二意见
 

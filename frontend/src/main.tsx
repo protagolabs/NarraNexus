@@ -14,6 +14,9 @@ import {
 } from './lib/manyfoldFragmentAuth'
 import { installExternalLinkInterceptor } from './lib/externalLinkInterceptor'
 import { captureInboundEntry } from './lib/netmindAuth/tokenInbound'
+import { MOCK_ENABLED } from './lib/mock/flag'
+import { installGlobalFetchGuard } from './lib/guardedFetch'
+import { installMockApi } from './lib/api'
 
 // Run BEFORE the first render so the App tree never observes a
 // "logged-out" state when the user was sent here via Manyfold's
@@ -33,6 +36,10 @@ captureInboundEntry()
 // See lib/externalLinkInterceptor.ts for the rationale.
 installExternalLinkInterceptor()
 
+// Before any plugin can load: plugin bundles call the global fetch directly,
+// so it is routed through the request-loop guard (own-backend requests only).
+installGlobalFetchGuard()
+
 // User plugins: declarative metadata now, code on activation. Never blocks
 // the first render; a failure costs one error report. See platform/loader.ts.
 void bootPlugins()
@@ -47,12 +54,35 @@ const queryClient = new QueryClient({
   },
 })
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </QueryClientProvider>
-  </StrictMode>,
-)
+function render() {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </QueryClientProvider>
+    </StrictMode>,
+  )
+}
+
+// Mock mode (?mock=1, dev/demo only) loads its fixtures on demand, before the
+// first render, so the production entry chunk never carries them. If they fail
+// to load, say so instead of rendering real data under the "Mock data" banner.
+if (MOCK_ENABLED) {
+  // Two handlers, not .catch: only a failed import is reported as one, never
+  // an error thrown while rendering.
+  import('./lib/mock').then(
+    (m) => {
+      installMockApi(m.mockApi)
+      render()
+    },
+    (e) => {
+      console.error('[mock] failed to load the mock API layer', e)
+      document.getElementById('root')!.textContent =
+        'Mock mode failed to load (see the console). Open the page with ?mock=0 to use the real backend.'
+    },
+  )
+} else {
+  render()
+}

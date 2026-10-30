@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/message_bus/message_bus_trigger.py
-last_verified: 2026-09-13
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
 
 ## 2026-09-13（PR#401 review）— roster capabilities 编码、marker 单一来源、无 token 退路
 

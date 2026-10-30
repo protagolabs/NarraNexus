@@ -707,13 +707,23 @@ class ContextRuntime:
                 return
             status = await is_bootstrap_active(self.db, self.agent_id, agent_record.created_by, agent_record.agent_metadata)
             if status.present and not status.active:
+                # Through the link-free walk on the LEXICAL path: the presence
+                # check above is only a check, and a tenant can swap its agent
+                # dir for a link into another tenant's tree before this delete.
+                from narranexus.platform.utils.fs import confined_io
+
                 try:
-                    os.remove(status.bootstrap_path)
+                    root, rel = confined_io.split_under_base(
+                        str(status.bootstrap_path), settings.base_working_path
+                    )
+                    confined_io.unlink(root, rel)
                     logger.info(
                         f"        Auto-deleted Bootstrap.md after {status.event_count} events "
                         f"(threshold={status.threshold}, agent={self.agent_id})"
                     )
-                except OSError as rm_err:
+                except FileNotFoundError:
+                    pass
+                except (OSError, ValueError) as rm_err:
                     logger.warning(f"        Failed to auto-delete Bootstrap.md: {rm_err}")
                 return
             if status.active:

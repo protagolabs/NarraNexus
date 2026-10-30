@@ -22,16 +22,18 @@ from typing import List, Optional
 
 from loguru import logger
 
-from narranexus.platform.artifact._artifact_impl import registration
+from narranexus.platform.artifact._artifact_impl import confinement, registration
 from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactError,
     ArtifactNotFound,
+    ArtifactPathEscape,
 )
 from narranexus.platform.artifact._artifact_impl.notify import stage_artifact_event
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact, HealCandidate, HealResult
 from narranexus.platform.settings import settings
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.logging import log_boundary_violation
+from narranexus.platform.utils.fs.workspace_paths import (
     resolve_inside_workspace,
     team_shared_dir,
 )
@@ -82,6 +84,16 @@ def _confined(path: str, search_root: str) -> Optional[str]:
         return None
 
 
+def _confined_is_file(abs_path: str) -> bool:
+    """True when ``abs_path`` is a regular file reachable through a link-free
+    walk below the workspace base (never a by-path ``isfile``)."""
+    try:
+        with confinement.open_confined_read(abs_path):
+            return True
+    except (OSError, ArtifactPathEscape):
+        return False
+
+
 def _scan_workspace_for_kind(workspace_root: str, kind: str) -> List[HealCandidate]:
     """Return up to `_HEAL_MAX_CANDIDATES` files in the workspace whose
     extension matches the artifact kind, sorted newest-first by mtime.
@@ -108,8 +120,12 @@ def _scan_workspace_for_kind(workspace_root: str, kind: str) -> List[HealCandida
             if real is None:
                 continue
             try:
-                st = os.stat(real)
-            except OSError:
+                # size/mtime come from an fd opened through the link-free walk;
+                # a candidate whose confined open fails (swapped directory,
+                # vanished, not a regular file) is DROPPED — it must not appear
+                # with fabricated metadata, and heal ranks by mtime.
+                st = confinement.confined_stat(real)
+            except (OSError, ArtifactPathEscape):
                 continue
             found.append(
                 HealCandidate(
@@ -230,7 +246,7 @@ async def heal_artifact(
     if art is None or art.agent_id != agent_id:
         raise ArtifactNotFound("artifact not found")
 
-    from narranexus.platform.utils.workspace_paths import (
+    from narranexus.platform.utils.fs.workspace_paths import (
         resolve_existing_workspace,
         resolve_workspace_relative_file,
     )
@@ -247,6 +263,10 @@ async def heal_artifact(
         search_root = str(team_shared_dir(user_id, art.team_id, base))
     if os.path.islink(search_root):
         logger.warning(f"heal_artifact: {artifact_id} scope root is a symlink, refusing: {search_root}")
+        # In cloud mode the heal route authenticated the caller as this owner
+        # (it refuses anyone else); local mode is single-user. Either way the
+        # caller and the owner are the same account.
+        log_boundary_violation("artifact.heal_symlink", actor=user_id, owner=user_id, detail=search_root)
         return HealResult(
             recovered=False,
             candidates=[],
@@ -261,7 +281,7 @@ async def heal_artifact(
         existing_abs = _confined(
             str(resolve_workspace_relative_file(art.file_path, agent_id, user_id, base)), search_root
         )
-        if existing_abs is not None and os.path.isfile(existing_abs):
+        if existing_abs is not None and _confined_is_file(existing_abs):
             return HealResult(
                 recovered=True,
                 artifact=art,

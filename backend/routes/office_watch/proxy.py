@@ -56,7 +56,7 @@ from backend.routes.office_watch import _token as office_watch_token
 from backend.routes.artifacts._token import TokenError
 from narranexus.platform.agent_framework.loop.broker_client import ensure_executor, wait_until_ready
 from narranexus.platform.agent_runtime.executor_protocol import executor_auth_headers
-from narranexus.platform.artifact import office_lock_present
+from narranexus.platform.artifact import ArtifactPathEscape, confined_stat, office_lock_present
 from narranexus.platform.utils.deployment_mode import is_cloud_mode
 from narranexus.platform.utils.office_watch import (
     OFFICE_LIVE_KIND,
@@ -292,7 +292,7 @@ async def _lookup_office_file(request: Request, artifact_id: str) -> tuple[str, 
     """
     from narranexus.platform.repository.artifact_repository import ArtifactRepository
     from narranexus.platform.utils.db.db_factory import get_db_client
-    from narranexus.platform.utils.workspace_paths import resolve_workspace_relative_file
+    from narranexus.platform.utils.fs.workspace_paths import resolve_workspace_relative_file
 
     user_id = await resolve_current_user_id(request)
     repo = ArtifactRepository(await get_db_client())
@@ -472,8 +472,11 @@ async def office_watch_version(request: Request, artifact_id: str) -> dict:
         # local-disk concept, reported false there.
         return {**(await _file_version_in_executor(user_id, agent_id, rel)), "lock": False}
     try:
-        st = os.stat(abs_path)
-    except OSError:
+        # Through the confined (O_NOFOLLOW) walk, never a by-path stat: a
+        # directory swapped for a link must not turn this poll into a
+        # size/mtime/lock oracle on another tenant's tree.
+        st = confined_stat(abs_path)
+    except (OSError, ArtifactPathEscape):
         raise HTTPException(status_code=404, detail="file not found")
     # `lock` = a desktop Office app holds the ~$ owner-lock on the file; the
     # viewer greys its direct-edit bar on it (officecli writes would race the

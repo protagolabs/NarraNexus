@@ -6,7 +6,7 @@
  *
  * Features:
  * 1. Tiered polling — high-freq (10s): agentInbox, mid-freq (30s): teams/jobs/awareness/socialNetwork
- * 2. Background message detection (15s): polls chat history to detect new messages from jobs/lark
+ * 2. Background message detection (15s): one /chat-latest call per 200 agents compares each agent's newest conversation row
  * 3. Visibility API — pauses all polling when the tab is hidden, refreshes immediately on re-focus
  * 4. Exposes refreshAll() for full data reload after agent execution completes
  *
@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 import { isGuideCoachmarkPending } from '@/lib/guideCoachmark';
 import { teamHasUnread } from '@/lib/unread';
 import type { ToastItem } from '@/stores/chatStore';
+import { ownsAnyAgent } from '@/lib/agentIdentity/defaultAgent';
 
 // ── Polling interval config ─────────────────────
 
@@ -33,6 +34,9 @@ const MID_FREQ_INTERVAL = 30_000; // 30s
 
 /** Background message check interval */
 const BG_MESSAGE_INTERVAL = 15_000; // 15s
+/** Agent ids per /api/agents/chat-latest call. Must not exceed the server's
+ *  CHAT_LATEST_MAX_AGENTS (chat_module/_chat_latest.py) — change both together. */
+const CHAT_LATEST_CHUNK = 200;
 
 // ── Hook ────────────────────────────────────────
 
@@ -104,14 +108,16 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
   // preview) and must not be fast-polled indefinitely.
   useEffect(() => {
     if (!userId || !isGuideCoachmarkPending()) return;
-    if (useConfigStore.getState().agents.length > 0) return;
+    // Own agents only: the list also carries every public agent on the
+    // platform, so a non-empty list says nothing about the guide being there.
+    if (ownsAnyAgent(useConfigStore.getState().agents, userId)) return;
     let attempts = 0;
     const id = window.setInterval(() => {
       // Count BEFORE the hidden skip so the ~20s cap is wall-clock time, not
       // foreground time — a backgrounded tab must not keep this interval
       // armed indefinitely (the 30s tick covers late returns).
       attempts += 1;
-      if (attempts > 10 || useConfigStore.getState().agents.length > 0) {
+      if (attempts > 10 || ownsAnyAgent(useConfigStore.getState().agents, userId)) {
         window.clearInterval(id);
         return;
       }
@@ -211,24 +217,35 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
       const activeAid = agentIdRef.current;
       if (!uid) return;
 
-      const agents = useConfigStore.getState().agents;
       const { isAgentStreaming } = useChatStore.getState();
+      // One /chat-latest call per chunk of the agent list — it used to be one
+      // simple-chat-history call per agent per tick. Same signal: the newest
+      // row of each agent's conversation tab (include='chat' — never peer/team
+      // activity, which would fire a false "replied to you"). Agents with a live
+      // session are skipped.
+      const polled = useConfigStore.getState().agents.filter((a) => !isAgentStreaming(a.agent_id));
 
-      for (const agent of agents) {
-        const aid = agent.agent_id;
-        // Skip if this agent is currently streaming (live session in progress)
-        if (isAgentStreaming(aid)) continue;
-
+      for (let i = 0; i < polled.length; i += CHAT_LATEST_CHUNK) {
+        const chunk = polled.slice(i, i + CHAT_LATEST_CHUNK);
+        let latest: Record<string, string>;
         try {
-          // include='chat' ONLY: the "new message → toast + badge" signal must
-          // mean a real reply to the owner, not the agent's peer/team activity
-          // (a2a / message_bus). Those live in the activity stream now and would
-          // otherwise fire a "replied to you" toast on every peer turn.
-          const response = await api.getSimpleChatHistory(aid, 5, 0, 'chat');
-          if (!response.success || response.messages.length === 0) continue;
+          const response = await api.getChatLatest(chunk.map((a) => a.agent_id));
+          if (!response.success) {
+            // A whole chunk (up to 200 agents) gets no reply notice this tick:
+            // say so, or a persistent failure is invisible.
+            console.warn('[bg-replies] chat-latest refused:', response.error);
+            continue;
+          }
+          latest = response.latest;
+        } catch (err) {
+          console.warn('[bg-replies] chat-latest poll failed; retrying next tick:', err);
+          continue;
+        }
 
-          const latestMsg = response.messages[response.messages.length - 1];
-          const latestTs = latestMsg.timestamp || '';
+        for (const agent of chunk) {
+          const aid = agent.agent_id;
+          const latestTs = latest[aid] || '';
+          if (!latestTs) continue; // nothing in the conversation tab yet
           const knownTs = latestTimestampRef.current[aid] || '';
 
           if (!knownTs) {
@@ -257,8 +274,6 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
             }
             // Active agent — ChatPanel's own polling will pick up the new messages
           }
-        } catch {
-          // Silently ignore per-agent polling errors
         }
       }
     };

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from narranexus.platform.utils.workspace_paths import safe_id_segment
+from narranexus.platform.utils.fs.workspace_paths import safe_id_segment
 
 
 @pytest.mark.parametrize("name", [".hidden", "..", "a/b"])

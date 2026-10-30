@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/lib/mock/index.ts
-last_verified: 2026-09-24
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 补 `getChatLatest` 桩
+
+按「方法集与 api.ts 同步」契约补齐，返回空 `latest`（mock 模式不弹后台新回复）。
+
+## 2026-10-30 — 开关拆到 `flag.ts`，本文件改为按需加载
+
+`MOCK_ENABLED` / `setMockEnabled` 移到 [[flag]]；本文件只剩 `mockApi` 与 fixtures，
+由 [[main]] 在 mock 模式下 `import('./lib/mock')` 后交给 `installMockApi`，生产
+首屏不再携带（入口 chunk 约 −28KB）。除 type-only 外不许任何源码静态引用本文件或
+fixtures，两道闸见 [[flag]]（源码扫描按解析后的路径比对 + 构建产物标记串检查）。
 
 ## 2026-09-24 ui.toolRenderers（第 18 个注册表）
 

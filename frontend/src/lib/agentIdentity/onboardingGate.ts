@@ -37,7 +37,7 @@
  * silently disappear for all of them, which is exactly the bug above.
  */
 
-import { api } from './api';
+import { api } from '../api';
 import { pickGuideAgent } from './guideAgent';
 
 /** Resolved answers, per user. `undefined` = not asked yet this session. */
@@ -62,9 +62,10 @@ export function owesWelcomeFlow(userId: string): Promise<boolean> {
           .getAgents()
           .then((r) => {
             const agents = r.agents ?? [];
-            const guide = pickGuideAgent(agents);
-            // Everything except the one agent login made for them.
-            return agents.filter((a) => a.agent_id !== guide?.agent_id).length;
+            const guide = pickGuideAgent(agents, userId);
+            // The viewer's own agents except the one login made for them —
+            // the list also carries every public agent on the platform.
+            return agents.filter((a) => a.created_by === userId && a.agent_id !== guide?.agent_id).length;
           })
           .catch(() => 0),
         api

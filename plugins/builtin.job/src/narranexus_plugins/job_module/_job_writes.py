@@ -147,12 +147,11 @@ async def _resolve_job_owner(db, agent_id: str, supplied: str) -> str:
     execution loaded a context belonging to nobody, while the agent reported
     success.
 
-    Fixed HERE rather than in ``_mcp_identity.resolve_caller_user_id``, which
-    overrides placeholders only and documents why a mismatching REAL value can
-    be legitimate on the generic path. That judgement is about identity in
-    general; "whose job is this" is a narrower question with an answer in the
-    database, so it is answered where the row is written — one site, covering
-    the local MCP process and the cloud seam route alike.
+    ``_mcp_identity.resolve_caller_user_id`` now replaces a mismatching value
+    with the injected turn owner, but only when an identity WAS injected; this
+    write-site check also covers the paths without injection (a direct client,
+    the cloud seam route) and answers from the database ("whose job is this"
+    has a ground truth, ``agents.created_by``) — one site for every caller.
 
     Fails open. ``resolve_owner`` returns "" for "no such agent" and None for
     "the query failed"; neither is evidence the caller was wrong, and blanking

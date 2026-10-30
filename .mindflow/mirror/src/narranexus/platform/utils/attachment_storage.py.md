@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/utils/attachment_storage.py
-last_verified: 2026-09-13
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 上传、day index、解析全部走受限 fd
+
+`{workspace}/user_upload_files/<date>/` 是租户可写的。原来的 `_write_index` 以**固定名** `_index.json.tmp` 做普通 `open("w")`，目标文件也按路径创建：
+在该名字上植入符号链接，后端就会顺着它写（别的租户的文件，或任何服务账号可写的路径；悬空链接会创建新文件），**无需竞态**。现在：目录用 `make_dirs`、
+文件用 `open_new`（`O_EXCL|O_NOFOLLOW`）、索引用 `write_atomic`（随机 temp 名）、读索引用 `open_read`；解析 `resolve_attachment_path` / `get_attachment_metadata`
+改成词法拼接 + 受限存在判断 + `list_dir` 列日期目录，返回路径建立在 `realpath(base)` 上（从不 `resolve()` 租户尾段）。
+`workspace` 必须在 `settings.base_working_path` 之下，否则 `ConfinedPathError`（`ValueError`，上传路由已按 400/失败响应处理）。
 
 ## 2026-09-13（PR#401 review 🟡2 同类）— `on_disk_suffix` 与当前轮附件列表编码
 
@@ -62,7 +70,7 @@ Upstream callers:
   `format_attachments_for_system_prompt`
 
 Downstream:
-- `narranexus.platform.utils.file_safety` for `sanitize_filename` /
+- `narranexus.platform.utils.fs.file_safety` for `sanitize_filename` /
   `ensure_within_directory` — re-used so all upload paths share the
   same sandbox semantics
 - `narranexus.platform.settings` for `base_working_path`

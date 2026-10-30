@@ -20,6 +20,7 @@ import io
 import json
 import os
 import shutil
+import stat as stat_mod
 import tarfile
 import tempfile
 import zipfile
@@ -28,14 +29,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from loguru import logger
 
-from narranexus.platform.utils.workspace_paths import refuse_symlinked_dir
+from narranexus.platform.utils.fs.workspace_paths import refuse_symlinked_dir
 
 from narranexus.platform.bundle.team_bulletin_transfer import (
     collect_bulletin_for_export,
 )
 
 from narranexus.platform.utils.db.db_factory import get_db_client
-from narranexus.platform.utils.file_safety import ensure_within_directory, sanitize_filename
+from narranexus.platform.utils.fs.file_safety import ensure_within_directory, sanitize_filename
 from .channel_credential_tables import CHANNEL_CREDENTIALS_KEY
 from .security import (
     bytes_sha256,
@@ -684,7 +685,7 @@ async def build_bundle(
                 set(selection.artifact_selection.get(aid, [])) if selection.artifact_selection is not None else None
             )
             art_rows_raw = await db.get("instance_artifacts", {"agent_id": aid})
-            from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+            from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
             ws_prefix = f"{agent_workspace_relpath(aid, user_id)}/"
             legacy_flat_prefix = f"{aid}_{user_id}/"
@@ -1365,7 +1366,7 @@ async def _pack_workspace(
     from narranexus.platform.settings import settings as core_settings
 
     base = Path(core_settings.base_working_path)
-    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
     candidates = [
         base / agent_workspace_relpath(agent_id, user_id),  # canonical (current layout)
@@ -1393,25 +1394,74 @@ def _builtin_skill_relpaths(src: Path) -> set:
     """Return workspace-relative roots of built-in skill dirs under `skills/`.
 
     A skill dir is built-in when its `.skill_meta.json` has `builtin: true`.
-    These ship with the app and are excluded from workspace exports.
+    These ship with the app and are excluded from workspace exports. Listed
+    through the link-free walk (``_walk_confined``): a swapped ``skills``
+    directory lists as empty.
     """
     roots: set = set()
     skills_dir = src / "skills"
-    if not skills_dir.is_dir():
-        return roots
-    for d in skills_dir.iterdir():
-        if not d.is_dir() or d.name.startswith("."):
+    for rel, node in _walk_confined(src, only_dir="skills", recurse=False):
+        if not node.is_dir or node.entry.name.startswith("."):
             continue
-        if _dir_is_builtin(d):
-            roots.add(f"skills/{d.name}")
+        if _dir_is_builtin(skills_dir / node.entry.name):
+            roots.add(f"skills/{node.entry.name}")
     return roots
+
+
+def _walk_confined(
+    src: Path, *, skip=None, only_dir: str = "", recurse: bool = True, strict: bool = False
+):
+    """Yield ``(rel_posix, TreeNode)`` for every directory and regular file under
+    ``src`` (or under ``src/only_dir``) — ``confined_io.walk_tree`` (linear time:
+    one held fd per level, files opened with one ``openat`` via
+    ``node.open_file()`` while the walk is on that entry) with the export's
+    logging. Links and special files are never yielded. A tree deeper than
+    ``confined_io.MAX_TREE_DEPTH`` raises TreeTooDeepError. A missing start dir
+    (or one swapped for a link) yields nothing with a WARNING. A subdirectory
+    that cannot be entered (unreadable, swapped for a link mid-walk) is skipped
+    with a WARNING — or, with ``strict=True`` (the export packers), raises: an
+    export must not silently lose a subtree. ``src`` below the workspace base is
+    walked from the base; anywhere else (staging) its parent is trusted and the
+    leaf is O_NOFOLLOW."""
+    from narranexus.platform.settings import settings as core_settings
+    from narranexus.platform.utils.fs import confined_io
+
+    root, base_rel = confined_io.split_source(str(src), core_settings.base_working_path)
+    start = "/".join(p for p in (base_rel, only_dir) if p)
+    walker = confined_io.walk_tree(root, start, skip=skip, recurse=recurse, strict=strict)
+    # Only the START failing is tolerated: walk_tree opens it on the first
+    # next(), before any node. Errors after that (a strict subdir failure, a
+    # too-deep tree) propagate — catching them here would turn the strict
+    # export back into a silent truncation.
+    try:
+        first = next(walker, None)
+    except confined_io.TreeTooDeepError:
+        raise
+    except (FileNotFoundError, NotADirectoryError, confined_io.ConfinedPathError) as e:
+        # missing, or the start dir swapped for a link / a file
+        logger.warning(f"bundle export: {start!r} not walked: {e}")
+        return
+    except OSError as e:
+        if strict:
+            raise  # an unreadable start dir is content the export would lose
+        logger.warning(f"bundle export: {start!r} not walked: {e}")
+        return
+    if first is None:
+        return
+
+    def _rel(node) -> str:
+        return f"{only_dir}/{node.rel}" if only_dir else node.rel
+
+    yield _rel(first), first
+    for node in walker:
+        yield _rel(node), node
 
 
 def _pack_workspace_sync(
     src: Path, out: Path, excl_set: set, user_id: str = "", scrub_skill_secrets: bool = False
 ) -> Path:
-    # os.walk follows the TOP-LEVEL path even with followlinks=False: a
-    # workspace dir swapped for a symlink would pack another tenant's tree.
+    # A workspace dir swapped for a symlink would pack another tenant's tree:
+    # refuse it up front (the walk below is O_NOFOLLOW anyway).
     refuse_symlinked_dir(src, label="workspace")
     from narranexus.platform.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
 
@@ -1430,76 +1480,71 @@ def _pack_workspace_sync(
     def _is_builtin_skill_path(name: str) -> bool:
         return any(name == root or name.startswith(root + "/") for root in builtin_skill_roots)
 
-    def filter_func(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
-        name = tarinfo.name
-        if name.startswith("./"):
-            name = name[2:]
-        # never include symlinks
-        if tarinfo.issym() or tarinfo.islnk():
-            return None
-        # user explicit excludes
-        if name in excl_set:
-            return None
-        # built-in skills (shipped with the app, not user data)
-        if _is_builtin_skill_path(name):
-            return None
-        # sensitive default-skip
-        if is_sensitive_path(name):
-            return None
-        # volume default-skip
-        if is_volume_path(name):
-            return None
-        return tarinfo
+    def _skip(rel: str, is_dir: bool) -> bool:
+        # user explicit excludes, built-in skills (shipped with the app, not user
+        # data), sensitive default-skip, volume default-skip. The predicates are
+        # path-segment based, so pruning a directory equals excluding every file
+        # below it.
+        return (
+            rel in excl_set
+            or _is_builtin_skill_path(rel)
+            or is_sensitive_path(rel)
+            or is_volume_path(rel)
+        )
 
+    rewrite = bool(user_id or scrub_skill_secrets)
     with tarfile.open(out, "w:gz") as tar:
-        # If we need to rewrite file bytes before adding (user_id scrub and/or
-        # skill env_config scrub), walk manually. Otherwise, fast path.
-        if user_id or scrub_skill_secrets:
-            for root, dirs, files in os.walk(src):
-                for fn in files:
-                    full = Path(root) / fn
-                    rel_to_src = full.relative_to(src)
-                    rel_str = str(rel_to_src).replace("\\", "/")
-                    if rel_str in excl_set:
-                        continue
-                    if _is_builtin_skill_path(rel_str):
-                        continue
-                    if is_sensitive_path(rel_str) or is_volume_path(rel_str):
-                        continue
-                    if full.is_symlink():
-                        continue
-                    arcname = f"./{rel_str}"
-                    if full.suffix.lower() in text_extensions:
-                        try:
-                            sz = full.stat().st_size
-                        except OSError:
-                            sz = 0
-                        if 0 < sz <= text_rewrite_max_bytes:
-                            try:
-                                content = full.read_text(encoding="utf-8")
-                            except (OSError, UnicodeDecodeError):
-                                tar.add(full, arcname=arcname, filter=filter_func)
-                                continue
-                            original = content
-                            # Skill secrets: blank .skill_meta.json env_config
-                            # values when the export didn't opt into them.
-                            if scrub_skill_secrets and fn == SKILL_META_FILENAME:
-                                scrubbed = scrub_skill_meta(content)
-                                if scrubbed is not None:
-                                    content = scrubbed
-                            # user_id → owner placeholder.
-                            if user_id and user_id in content:
-                                content = content.replace(user_id, placeholder)
-                            if content != original:
-                                data = content.encode("utf-8")
-                                ti = tarfile.TarInfo(name=arcname)
-                                ti.size = len(data)
-                                ti.mtime = full.stat().st_mtime
-                                tar.addfile(ti, fileobj=io.BytesIO(data))
-                                continue
-                    tar.add(full, arcname=arcname, filter=filter_func)
-        else:
-            tar.add(src, arcname=".", filter=filter_func)
+        root_ti = tarfile.TarInfo(".")
+        root_ti.type = tarfile.DIRTYPE
+        root_ti.mode = 0o755
+        tar.addfile(root_ti)
+        for rel, node in _walk_confined(src, skip=_skip, strict=True):
+            entry, is_dir = node.entry, node.is_dir
+            arcname = f"./{rel}"
+            if is_dir:
+                ti = tarfile.TarInfo(arcname)
+                ti.type = tarfile.DIRTYPE
+                ti.mode = stat_mod.S_IMODE(entry.st.st_mode) & 0o777
+                ti.mtime = entry.st.st_mtime
+                tar.addfile(ti)
+                continue
+            try:
+                fh = node.open_file()
+            except (OSError, ValueError) as e:  # vanished, or swapped for a link
+                logger.warning(f"bundle export: {rel!r} skipped: {e}")
+                continue
+            with fh:
+                st = os.fstat(fh.fileno())
+                if rewrite and Path(rel).suffix.lower() in text_extensions and 0 < st.st_size <= text_rewrite_max_bytes:
+                    raw = fh.read()
+                    try:
+                        content = raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        content = None
+                    if content is not None:
+                        original = content
+                        # Skill secrets: blank .skill_meta.json env_config
+                        # values when the export didn't opt into them.
+                        if scrub_skill_secrets and entry.name == SKILL_META_FILENAME:
+                            scrubbed = scrub_skill_meta(content)
+                            if scrubbed is not None:
+                                content = scrubbed
+                        # user_id → owner placeholder.
+                        if user_id and user_id in content:
+                            content = content.replace(user_id, placeholder)
+                        if content != original:
+                            data = content.encode("utf-8")
+                            ti = tarfile.TarInfo(name=arcname)
+                            ti.size = len(data)
+                            ti.mtime = st.st_mtime
+                            tar.addfile(ti, fileobj=io.BytesIO(data))
+                            continue
+                    fh.seek(0)
+                ti = tarfile.TarInfo(name=arcname)
+                ti.size = st.st_size
+                ti.mtime = st.st_mtime
+                ti.mode = stat_mod.S_IMODE(st.st_mode) & 0o777
+                tar.addfile(ti, fileobj=fh)
     return out
 
 
@@ -1518,7 +1563,7 @@ async def _find_skill_dir(
     base = Path(core_settings.base_working_path)
     dir_name = skill_dir or skill_name
     for aid in agent_ids:
-        from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+        from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
         candidates = [
             base / agent_workspace_relpath(aid, user_id) / "skills" / dir_name,  # canonical (current layout)
@@ -1540,29 +1585,39 @@ def _zip_dir(src: Path, dst: Path, scrub_secrets: bool = False) -> None:
     ``env_config`` values inside ``.skill_meta.json``, so a full_copy skill does
     not leak secrets when the exporter didn't opt in.
 
-    Raises ValueError when ``src`` itself is a symlink: ``os.walk`` follows the
-    top-level path even with ``followlinks=False``."""
+    Raises ValueError when ``src`` itself is a symlink. Walked and read
+    fd-relative (``_walk_confined``): a directory swapped for a link after that
+    check lists as absent, and a link entry is never followed into the archive
+    (its target can be anything the backend can read)."""
     refuse_symlinked_dir(src, label="skill directory")
     from narranexus.platform.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
 
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, _, files in os.walk(src):
-            for fn in files:
-                full = Path(root) / fn
-                rel = full.relative_to(src)
-                if full.is_symlink():
-                    # Never follow a link into the archive: its target can be
-                    # anything the backend can read (2026-10-28).
-                    continue
-                if scrub_secrets:
-                    if is_sensitive_path(str(rel).replace("\\", "/")):
+        for rel, node in _walk_confined(src, strict=True):
+            entry = node.entry
+            if node.is_dir:
+                continue
+            if scrub_secrets and is_sensitive_path(rel):
+                continue
+            try:
+                fh = node.open_file()
+            except (OSError, ValueError) as e:
+                logger.warning(f"bundle export: {rel!r} skipped: {e}")
+                continue
+            with fh:
+                if scrub_secrets and entry.name == SKILL_META_FILENAME:
+                    scrubbed = scrub_skill_meta(fh.read().decode("utf-8"))
+                    if scrubbed is not None:
+                        zf.writestr(rel, scrubbed)
                         continue
-                    if fn == SKILL_META_FILENAME:
-                        scrubbed = scrub_skill_meta(full.read_text(encoding="utf-8"))
-                        if scrubbed is not None:
-                            zf.writestr(str(rel), scrubbed)
-                            continue
-                zf.write(full, arcname=str(rel))
+                    fh.seek(0)
+                info = zipfile.ZipInfo(rel)
+                st = os.fstat(fh.fileno())
+                info.date_time = datetime.fromtimestamp(st.st_mtime).timetuple()[:6]
+                info.external_attr = (stat_mod.S_IMODE(st.st_mode) & 0o777) << 16
+                info.compress_type = zipfile.ZIP_DEFLATED
+                with zf.open(info, "w", force_zip64=st.st_size >= 2**31 - 1) as dst_f:
+                    shutil.copyfileobj(fh, dst_f)
 
 
 def _compute_integrity_sha256(tmpdir: Path) -> str:

@@ -2519,7 +2519,9 @@
     "actionFailedTitle": "Das hat nicht funktioniert",
     "savedTo": "Gespeichert unter {{path}}",
     "downloadFailed": "Download fehlgeschlagen: {{error}}",
-    "doneTitle": "Fertig"
+    "doneTitle": "Fertig",
+    "requestBlocked": "Zu viele Anfragen. Bitte gleich erneut versuchen.",
+    "requestSlow": "Der Server antwortet langsam. Bitte gleich erneut versuchen."
   },
   "toast": {
     "view": "Ansehen",
@@ -2597,6 +2599,7 @@
   },
   "appBanners": {
     "sessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an. (zum Schließen klicken)",
+    "accountSuspended": "Dieses Konto ist nicht verfügbar. Sie wurden abgemeldet. (zum Schließen klicken)",
     "sessionExpiringSoon": "Deine Sitzung läuft in {{time}} ab. Melde dich ab und wieder an, um Arbeit nicht zu verlieren. (zum Schließen klicken)",
     "circuitPausedQuota": "Dieser Agent wurde nach wiederholten Kontingent-/Guthabenfehlern pausiert. Behebe den Anbieter und setze ihn dann fort.",
     "circuitPausedAuth": "Dieser Agent wurde nach wiederholten Authentifizierungsfehlern pausiert. Authentifiziere dich erneut oder setze einen Anbieter, dann fortsetzen.",

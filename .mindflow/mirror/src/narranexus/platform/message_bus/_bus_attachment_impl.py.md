@@ -1,8 +1,24 @@
 ---
 code_file: src/narranexus/platform/message_bus/_bus_attachment_impl.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（PR #433 review M4/M5）— 两处小加固
+
+- `_new_target` 使用 `sanitize_filename` 的返回值（之前只靠它抛异常、丢弃返回值，读起来像"已处理"）。当前输入是平台生成的
+  `file_id + suffix`，恒等变换，`target.stem == file_id` 不变（`resolve_shared_file_by_id` 按前缀匹配依赖它）。
+- `build_bus_markers` 词法拼出的路径必须仍在 `realpath(base)` 之下，否则跳过该条。只构造提示词字符串、不碰磁盘；`rel_path` 今天只由
+  `_bus_att_dict` 写入，这条断言防的是将来别的写入方。测试：`test_build_bus_markers_skips_a_rel_path_that_leaves_the_base`。
+
+## 2026-10-30 — 暂存 / 哈希 / 边车 / 共享区全部 fd 相对
+
+原来 `_resolve_ref_to_source` 返回 realpath，再按路径 `os.link` / `copy2` / 读哈希 / `stat`，共享区目录与文件也按路径创建：发送方把自己的某个目录
+换成链接，平台就会把**别的租户的文件**链接/复制进发送方的共享区（跨租户读取）。现在：
+- 来源路径是**词法**的（workspace + 已证明的尾段），所有后续访问逐级 `O_NOFOLLOW`；`confined_io.link_or_copy` 在两个父目录 fd 上 `linkat`（源必须是常规文件），失败才字节复制；
+- `_new_target` 用 `make_dirs`，写入用 `open_new` / `write_atomic`，`_bus_att_dict` 的 size 取自受限 `lstat`，边车读写走 `open_read` / `write_atomic`；
+- `resolve_shared_file_by_id` / `resolve_shared_file_for_user` 改成 `list_dir` + 词法候选 + 受限常规文件判断（被换成链接的 `_shared` / `bus_files` / 日期目录读作不存在）；
+- `_content_hash(path, base=None)` 与 `_find_duplicate(..., base=None)` 多了可选 `base`。
 
 ## 2026-10-28 — 工作区相对 ref 走 `resolve_inside_workspace`，workspace 根不再 resolve
 
@@ -53,7 +69,7 @@ ref, base)`。顺序很重要——发送方自己的 upload 优先，共享区�
 `{base}/{user_id}/_shared/bus_files` 内；`owner_user_id` 由工具从 `agents.created_by` 查出、
 `agent_id` 被注入身份强制覆盖，模型操纵不了——**跨用户不可能**。同 owner 内确有扩面：共享区按
 用户扁平（不按 team 分区），所以 agent A 现在能按 id 解析到它从未加入的团队群里人类上传的
-文件、再经 `team_share_file` 转进它所在的团队。但 `utils/workspace_paths.py::turn_accessible_roots`
+文件、再经 `team_share_file` 转进它所在的团队。但 `utils/fs/workspace_paths.py::turn_accessible_roots`
 早已把整棵 `bus_files` 树无条件授予每个回合（注释明写 "user-wide by design"），这只是省掉了
 "先 Read 再按工作区相对路径附上"一步，不是新的读取原语。工具 docstring（`message_agent` /
 `team_share_file`）同批改成与实现一致（原来写"只能分享你实际拥有的文件"）。真正收口属于共享区

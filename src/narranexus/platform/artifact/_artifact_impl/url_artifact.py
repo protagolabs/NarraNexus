@@ -28,7 +28,7 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from narranexus.platform.artifact._artifact_impl import registration
+from narranexus.platform.artifact._artifact_impl import confinement, registration
 from narranexus.platform.artifact._artifact_impl.embed_probe import probe_url
 from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactContentGone,
@@ -48,6 +48,7 @@ from narranexus.platform.schema.artifact_schema import (
     UrlArtifactDoc,
 )
 from narranexus.platform.settings import settings
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.url_safety import UnsafeUrlError, assert_public_http_url
 
 _URL_TABS_DIR = "tabs"
@@ -80,9 +81,12 @@ def _read_doc(abs_path: str) -> UrlArtifactDoc:
     # A missing doc is a REAL state under the pointer model (the agent can
     # move/delete workspace files) — surface it as 410, not a bare
     # FileNotFoundError that the route would turn into a 500 + traceback.
+    # Opened through the confined walk (every component O_NOFOLLOW below the
+    # base): the caller proved ``abs_path`` under the owner's roots, but a
+    # directory swapped for a link since then must not be read through.
     try:
-        with open(abs_path, "r", encoding="utf-8") as f:
-            return UrlArtifactDoc.model_validate_json(f.read())
+        with confinement.open_confined_read(abs_path) as f:
+            return UrlArtifactDoc.model_validate_json(f.read().decode("utf-8"))
     except FileNotFoundError as e:
         raise ArtifactContentGone("URL-tab doc is missing on disk") from e
 
@@ -141,16 +145,32 @@ def _reject_self_origin(url: str, *, extra_origins: tuple[str, ...] = ()) -> Non
             raise ArtifactError("refusing to open a URL tab pointing at this app's own origin")
 
 
+def _make_tab_dir(tab_dir_abs: str) -> None:
+    """Create ``tabs/<slug>`` as REAL directories, walking every component
+    below the base with O_NOFOLLOW.
+
+    This is the proof-and-create step for a new tab: nothing is written
+    anywhere until the whole path is shown link-free, and the creation itself
+    never recurses through a link (a tenant-planted ``tabs -> <victim dir>``
+    used to receive the doc via ``os.makedirs``). A link on the path raises
+    ArtifactPathEscape with nothing created beyond it.
+    """
+    base_real, rel = confinement.split_under_base(tab_dir_abs)
+    try:
+        confined_io.make_dirs(base_real, rel)
+    except confined_io.ConfinedPathError as e:
+        raise ArtifactPathEscape(str(e)) from e
+
+
 def _write_doc(abs_path: str, doc: UrlArtifactDoc) -> None:
     # Atomic write: a truncate-in-place crash (e.g. during a set_embed_mode
     # toggle) would leave a half-written doc that _read_doc can't parse,
-    # bricking the tab. Write a sibling temp file then os.replace (atomic on
-    # POSIX) so a reader always sees either the old or the new complete doc.
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    tmp_path = f"{abs_path}.{os.getpid()}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        f.write(doc.model_dump_json(indent=2))
-    os.replace(tmp_path, abs_path)
+    # bricking the tab. Temp file + rename (both via the parent dir's fd) so a
+    # reader always sees either the old or the new complete doc, and the write
+    # can never be redirected through a link swapped in after the caller's
+    # confinement check. The directory must already exist (_make_tab_dir
+    # creates it for a new tab; set_embed_mode only rewrites an existing doc).
+    confinement.write_confined_atomic(abs_path, doc.model_dump_json(indent=2).encode("utf-8"))
 
 
 def _write_content(dir_abs: str, *, url: str, title: str, page_text: Optional[str]) -> None:
@@ -166,12 +186,9 @@ def _write_content(dir_abs: str, *, url: str, title: str, page_text: Optional[st
             "JavaScript). Ask the user what they need from this page._"
         )
     content = f"# {title}\n\nSource: {url}\n\n---\n\n{body}\n"
-    abs_path = os.path.join(dir_abs, URL_TAB_CONTENT_FILENAME)
-    os.makedirs(dir_abs, exist_ok=True)
-    tmp_path = f"{abs_path}.{os.getpid()}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        f.write(content)
-    os.replace(tmp_path, abs_path)
+    confinement.write_confined_atomic(
+        os.path.join(dir_abs, URL_TAB_CONTENT_FILENAME), content.encode("utf-8")
+    )
 
 
 async def open_url(
@@ -232,6 +249,8 @@ async def open_url(
     rel_entry = f"{_URL_TABS_DIR}/{slug}/{_DOC_FILENAME}"
     abs_entry = _doc_abs_path(agent_id, user_id, rel_entry)
     resolved_title = (title or url)[:200]
+    # Prove the target dir link-free and create it BEFORE any write.
+    _make_tab_dir(os.path.dirname(abs_entry))
     _write_doc(abs_entry, UrlArtifactDoc(url=url, title=resolved_title, embed=verdict))
     # Sibling file the agent can Read (surfaced in the artifact state block).
     _write_content(os.path.dirname(abs_entry), url=url, title=resolved_title, page_text=page_text)
@@ -270,25 +289,26 @@ async def set_embed_mode(
     if art is None or art.agent_id != agent_id or art.kind != URL_ARTIFACT_KIND:
         raise ArtifactNotFound("URL artifact not found")
 
-    from narranexus.platform.artifact._artifact_impl.confinement import confine_entry
-
     # Read AND rewrite only a doc proven to sit under the owner's roots; a
     # folder swapped for a link would otherwise aim the atomic rewrite at
     # another tenant's tab (2026-10-28). Out-of-roots reads as not-found.
     try:
-        abs_entry = confine_entry(
+        abs_entry = confinement.confine_entry(
             art.file_path, art.agent_id, art.user_id,
             settings.base_working_path, team_id=art.team_id,
         )
+        doc = _read_doc(abs_entry)
     except ArtifactPathEscape:
         raise ArtifactNotFound("URL artifact not found") from None
-    doc = _read_doc(abs_entry)
     if doc.embed is None:
         # No probe verdict on disk (shouldn't happen for a real URL tab, but be
         # defensive): synthesize an iframe default to hang the override on.
         doc.embed = EmbedVerdict(recommended="iframe", reason="no-blocking-headers")
     doc.embed.user_override = mode
-    _write_doc(abs_entry, doc)
+    try:
+        _write_doc(abs_entry, doc)
+    except ArtifactPathEscape:
+        raise ArtifactNotFound("URL artifact not found") from None
 
     # Bump updated_at so the frontend's refetch sees a change. update_title with
     # the unchanged title is a deliberate no-op-content / touch-timestamp write

@@ -29,7 +29,7 @@ from __future__ import annotations
 import pytest
 
 from narranexus.platform.message_bus._bus_attachment_impl import stage_path_into_team
-from narranexus.platform.utils.workspace_paths import agent_workspace_path
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
 AGENT = "agent_a"
 USER = "user_1"
@@ -127,9 +127,9 @@ async def test_a_share_hashes_the_source_at_most_once(env, monkeypatch):
     calls = {"n": 0}
     real = impl._content_hash
 
-    def counting(path):
+    def counting(path, *args, **kwargs):
         calls["n"] += 1
-        return real(path)
+        return real(path, *args, **kwargs)
 
     monkeypatch.setattr(impl, "_content_hash", counting)
 

@@ -1,7 +1,11 @@
 ---
 code_file: src/narranexus/platform/module_system/__init__.py
-last_verified: 2026-09-07
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — 导出 `external_user_id`
+
+插件工具用它标注"`user_id` 是第三方平台 id"，见 `_mcp_identity.py.md`。
 
 ## 2026-09-07 — caller identity 的**服务端**解析器也转公开（批 6c，A2-1）
 

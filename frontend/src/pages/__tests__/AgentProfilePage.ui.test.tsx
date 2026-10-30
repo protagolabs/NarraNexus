@@ -168,6 +168,28 @@ import AgentProfilePage from '../AgentProfilePage';
 import { api } from '@/lib/api';
 
 describe('AgentProfilePage', () => {
+  test.each(['%2E%2E', '%252E%252E', '.hidden', 'a%2Fb', '%E0%A4%A'])(
+    'an unsafe or malformed id (%s) renders as missing and is never requested or selected',
+    (param) => {
+      // A crafted link must not make the viewer's browser send ids the backend
+      // logs as tenant-boundary violations (the edge bans on several of them).
+      vi.mocked(api.getDashboardStatus).mockClear();
+      configState.setAgentId.mockClear();
+      configState.refreshAgents.mockClear();
+      render(
+        <MemoryRouter initialEntries={[`/app/agents/${param}`]}>
+          <Routes>
+            <Route path="/app/agents/:agentId" element={<AgentProfilePage />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      expect(screen.getByText('pages.agentProfile.missingAgent')).toBeTruthy();
+      expect(api.getDashboardStatus).not.toHaveBeenCalled();
+      expect(configState.setAgentId).not.toHaveBeenCalled();
+      expect(configState.refreshAgents).not.toHaveBeenCalled();
+    },
+  );
+
   test('groups work in Overview and agent configuration in Capabilities', () => {
     render(
       <MemoryRouter initialEntries={['/app/agents/agent-1']}>

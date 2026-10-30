@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/bundle/security.py
-last_verified: 2026-08-18
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
 
 ## 2026-08-18 — skill 归档准入校验收敛到这里
 

@@ -125,4 +125,40 @@ describe('AgentList — agent row ⋯ menu', () => {
     expect(h.navigate).not.toHaveBeenCalled();
     expect(useConfigStore.getState().agentId).toBe('a1');
   });
+
+  it("deleting the agent on screen never lands on a stranger's newer public agent", async () => {
+    // /api/auth/agents lists every public agent, newest first; remaining[0]
+    // would select one the viewer cannot read (every panel then 403s).
+    const PUBLIC = { agent_id: 'p1', name: 'Public', created_by: 'stranger' };
+    useConfigStore.setState({ agents: [PUBLIC, ALPHA, BRAVO] as never });
+    h.getAgents.mockResolvedValue({ success: true, agents: [PUBLIC, BRAVO], count: 2 });
+    render(<AgentList />, { wrapper: MemoryRouter });
+    openMenuOf('Alpha');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await screen.findByText('Delete agent');
+    const buttons = screen.getAllByRole('button', { name: 'Delete' });
+    fireEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(h.navigate).toHaveBeenCalledWith('/app/dashboard'));
+    expect(useConfigStore.getState().agentId).toBe('a2');
+  });
+});
+
+describe('AgentList — default selection on mount', () => {
+  it("picks the viewer's own agent, not a stranger's newer public one", async () => {
+    const PUBLIC = { agent_id: 'p1', name: 'Public', created_by: 'stranger' };
+    useConfigStore.setState({ agentId: '', agents: [PUBLIC, ALPHA] as never });
+    h.getAgents.mockResolvedValue({ success: true, agents: [PUBLIC, ALPHA], count: 2 });
+    render(<AgentList />, { wrapper: MemoryRouter });
+    await waitFor(() => expect(useConfigStore.getState().agentId).toBe('a1'));
+  });
+
+  it('with only public agents of others, nothing is selected', async () => {
+    const PUBLIC = { agent_id: 'p1', name: 'Public', created_by: 'stranger' };
+    useConfigStore.setState({ agentId: '', agents: [PUBLIC] as never });
+    h.getAgents.mockResolvedValue({ success: true, agents: [PUBLIC], count: 1 });
+    render(<AgentList />, { wrapper: MemoryRouter });
+    await waitFor(() => expect(h.getAgents).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(useConfigStore.getState().agentId).toBe('');
+  });
 });

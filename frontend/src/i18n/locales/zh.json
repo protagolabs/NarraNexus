@@ -3034,7 +3034,9 @@
     "savedTo": "已保存到 {{path}}",
     "downloadFailed": "下载失败：{{error}}",
     "doneTitle": "已完成",
-    "edit": "编辑"
+    "edit": "编辑",
+    "requestBlocked": "请求过多，请稍后再试。",
+    "requestSlow": "服务响应较慢，请稍后再试。"
   },
   "toast": {
     "view": "查看",
@@ -3112,6 +3114,7 @@
   },
   "appBanners": {
     "sessionExpired": "登录已过期，请重新登录。（点击关闭）",
+    "accountSuspended": "该账号当前不可用，已退出登录。（点击关闭）",
     "sessionExpiringSoon": "登录将在 {{time}} 后过期。请重新登录以免丢失工作内容。（点击关闭）",
     "circuitPausedQuota": "该智能体因多次额度/余额失败已暂停，修复其服务商配置后即可恢复。",
     "circuitPausedAuth": "该智能体因多次身份验证失败已暂停，请重新验证或设置服务商后恢复。",

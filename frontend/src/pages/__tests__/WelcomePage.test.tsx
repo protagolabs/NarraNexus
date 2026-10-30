@@ -65,6 +65,7 @@ const GUIDE = {
   agent_id: 'agt_guide',
   name: 'Wren',
   bootstrap_active: true,
+  created_by: 'u_new',
   bootstrap_greeting: 'I just woke up.\n\n---\n\n我刚醒过来。',
   bound_channels: [],
 };

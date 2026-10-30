@@ -1,8 +1,23 @@
 ---
 code_file: plugins/builtin.skills/src/narranexus_plugins/skill_module/routes.py
-last_verified: 2026-10-29
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
+## 2026-10-30 — 需求提取读 SKILL.md 走受限读取
+
+`_extract_requirements_via_llm` 在 study 回合之后读 `skills/<name>/SKILL.md` 交给 helper LLM。那一回合在租户
+自己的执行器里跑，可以把 `skills/<name>` 换成指向别的租户的链接；按路径读会把对方的 SKILL.md 送给 LLM，
+提取出的 env / 二进制名再写进攻击者自己的 meta。现在用 `skill_module._read_confined_text`（词法路径，
+逐级 `O_NOFOLLOW`），拿不到就直接返回。
+
+## 2026-10-30 — enable / disable 的名字冲突返回 409
+
+`SkillModule.enable_skill` / `disable_skill` 的 `ValueError`（同名技能已安装 / 已有禁用副本 / 拒绝的不安全路径）映射为 409 并带原文，不再落进 500。
 
 ## 2026-10-29 — 需求抽取改用 `build_helper_openai_client`
 

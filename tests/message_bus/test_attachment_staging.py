@@ -25,7 +25,7 @@ from narranexus.platform.message_bus._bus_attachment_impl import (
     store_bus_attachment_meta,
     store_bytes_into_bus,
 )
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.fs.workspace_paths import (
     agent_workspace_path,
     bus_files_dir,
     team_shared_dir,
@@ -125,7 +125,7 @@ async def test_missing_ref_is_skipped_not_raised(tmp_path):
 async def test_copy_fallback_when_hardlink_fails(tmp_path, monkeypatch):
     _write_workspace_file(tmp_path, "a.txt", b"payload")
 
-    def _boom(src, dst):
+    def _boom(*args, **kwargs):  # the link is made via dir fds now (src_dir_fd/dst_dir_fd kwargs)
         raise OSError("EXDEV: cross-device link")
 
     monkeypatch.setattr(os, "link", _boom)
@@ -159,6 +159,16 @@ def test_build_bus_markers_shape(tmp_path):
     assert 'name="report.pdf"' in marker
     assert 'from="agent_x"' in marker
     assert json.dumps(str(tmp_path))[:-1] in marker  # absolute path rebuilt from base
+
+
+def test_build_bus_markers_skips_a_rel_path_that_leaves_the_base(tmp_path):
+    """PR #433 review M5: rel_path is joined lexically; a row whose rel_path
+    climbs out of the base must not put that path into the prompt."""
+    atts = [
+        {"file_id": "att_x", "original_name": "x.txt", "rel_path": "../../etc/passwd"},
+        {"file_id": "att_y", "original_name": "y.txt", "rel_path": "/etc/shadow"},
+    ]
+    assert build_bus_markers(atts, from_agent="agent_x", base=str(tmp_path / "base")) == ""
 
 
 def test_build_bus_markers_empty():

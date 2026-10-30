@@ -18,13 +18,15 @@ import os
 
 import pytest
 
+from narranexus.platform.utils.logging._security import BOUNDARY_MARKER
+
 from narranexus.platform.artifact import (
     ArtifactNotFound,
     ArtifactPathEscape,
     ArtifactService,
 )
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -327,6 +329,30 @@ async def test_heal_refuses_a_workspace_swapped_for_a_link(env):
     row = await env["repo"].get_by_id(env["artifact_id"])
     assert row.file_path == before.file_path
     assert row.content_hash == before.content_hash
+
+
+@pytest.mark.asyncio
+async def test_heal_symlinked_root_emits_one_boundary_line(env):
+    """The refusal above is the one heal branch an honest tenant cannot reach,
+    so it is the one that feeds the boundary alert (owner = the tenant)."""
+    import shutil
+    from loguru import logger
+
+    victim = _victim_workspace(env)
+    shutil.rmtree(env["workspace"])
+    os.symlink(victim, env["workspace"])
+    lines: list[str] = []
+    sink_id = logger.add(lines.append, level="WARNING", format="{message}")
+    try:
+        await env["service"].heal(
+            agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+        )
+    finally:
+        logger.remove(sink_id)
+    hits = [line for line in lines if BOUNDARY_MARKER in line]
+    assert len(hits) == 1
+    assert "surface=artifact.heal_symlink" in hits[0]
+    assert "actor=user_y" in hits[0] and "owner=user_y" in hits[0]
 
 
 @pytest.mark.asyncio

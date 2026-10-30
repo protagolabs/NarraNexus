@@ -1,8 +1,24 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/registration.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
+## 2026-10-30（复审）— `_dir_size` fail closed
+
+`dir_regular_bytes` 超过深度上限或遇到不可读目录时现在抛 `ConfinedScanError`（映射为 `ArtifactPathEscape`，注册被拒），
+而不是少算：这个总数用来执行 `MAX_ARTIFACT_BYTES`，静默跳过会让租户把字节藏在深层/不可读目录下绕过上限。
+
+## 2026-10-30 — hash 与 size 不再被链接带偏
+
+`compute_entry_hash` 经 `sha256_of_confined` 读（链接 → 返回 None，不是别人的 hash）；`_dir_size` 现在 fd 相对遍历，
+**只数常规文件、跳过一切符号链接**（原先 `os.path.getsize` 会跟随文件链接，把别的租户文件的大小写进自己的行）；
+顶层单文件模式的 `getsize` 也改为 `confined_file_size`。`_dir_size` 的参数必须在 `base_working_path` 之下，否则
+`ArtifactPathEscape`。
 
 ## 2026-10-28 — 注册时 workspace/team 根为字面路径且拒绝符号链接
 

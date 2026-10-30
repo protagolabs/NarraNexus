@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/pages/BundleExportPage.tsx
-last_verified: 2026-08-20
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `?agents=` 快捷入口只取查看者自己的 agent
+
+TeamDetailPage 跳转带的 `agents=<csv>` 是链接可控输入。先按 [[agentIdSafety.ts]] 丢掉形状不安全
+的 id，再等 agent 列表就绪后**只保留 `created_by === userId` 的**：团队只能包含 owner 自己的
+agent（teams 路由拒绝加别人的），所以合法跳转不丢东西；而任意多个格式合法的外来 id 每个都会触发
+5 个 owner-gated 预览读、成串 403/404，正撞监控 v2 的封 IP 线（#434 审查 C-1）。持久化的 `agents`
+在冷启动时可能是上一次会话的旧列表（可能缺少在别的设备新建、链接里点名的 agent），所以过滤
+等 `configStore.agentsLoaded`（本次会话已从服务端取过列表）后才在依赖
+`[agents, agentsLoaded, userId]` 的 effect 里应用一次（ref 暂存待用 id）；查看者一个自有 agent
+都没有时 ref 保留，等有了再应用。
 
 ## 2026-08-20 — `embedded` 模式(内嵌进 Dashboard 导出标签页)
 
@@ -122,3 +133,11 @@ Added an opt-in `include_channel_credentials` checkbox + a strong plaintext-secr
 
 - `listSkills` / `getSocialNetworkList` / `listFiles` 这些 backend endpoint 的实际返回字段名我没 100% 对齐（A3/A4 不确定项），可能在某些 tab 显示空 → 测试时若空就是字段名不对，调对齐即可。
 - `RadioCard` 默认勾选逻辑写在 `useEffect([JSON.stringify(skillsForAgents), ...])`，对深嵌套对象用 stringify 兜底；性能足够。
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

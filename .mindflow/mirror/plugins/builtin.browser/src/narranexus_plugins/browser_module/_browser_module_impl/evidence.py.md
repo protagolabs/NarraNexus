@@ -1,8 +1,14 @@
 ---
 code_file: plugins/builtin.browser/src/narranexus_plugins/browser_module/_browser_module_impl/evidence.py
-last_verified: 2026-09-22
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审 2）— 截图证据经受限 fd 写入
+
+`mkdtemp(dir=workspace)` + `write_bytes` + `unlink` + `rmdir` 全按路径，workspace 被换成链接就会把截图写进别的租户的树。现在：随机目录名 + `make_dirs`，
+图片用 `open_new`（`O_EXCL|O_NOFOLLOW`，权限 0600），注册失败时 `remove_tree` 清理；workspace 必须在 `settings.base_working_path` 之下，被换成链接 → `ValueError`（调用方已按"证据未保存"处理）。
+`resolve_agent_workspace_cwd` 的调用方（lark_cli_client / narra_cli_client 的 subprocess cwd）见 [[utils/fs/confined_io]] 的例外清单。
 
 # Screenshot evidence
 

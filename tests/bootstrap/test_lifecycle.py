@@ -31,6 +31,9 @@ def _workspace_with_md(monkeypatch, tmp_path):
     """Bootstrap.md present at the resolved workspace."""
     (tmp_path / "Bootstrap.md").write_text("bootstrap")
     monkeypatch.setattr(lifecycle, "resolve_existing_workspace", lambda *a, **k: tmp_path)
+    # presence is tested through the link-free walk below base_working_path
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path.parent), raising=False)
     return tmp_path
 
 

@@ -98,7 +98,7 @@ async def _seed_agent(db, agent_id, agent_name, user_id="test_user"):
 
 
 def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     d = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     d.mkdir(parents=True, exist_ok=True)
@@ -358,7 +358,7 @@ async def test_full_copy_failure_degrades_like_the_zip_branch(
     ],
 )
 async def test_import_rejects_an_archive_ref_that_escapes_the_bundle(
-    db_client, tmp_workspace_root, tmp_path, archives_root, archive_ref
+    db_client, tmp_workspace_root, tmp_path, archives_root, archive_ref, monkeypatch
 ):
     """Mirror image of the export-side `skill_dir` hole: `archive_ref` comes from
     the manifest of the bundle being imported — from whoever produced it — and
@@ -369,7 +369,14 @@ async def test_import_rejects_an_archive_ref_that_escapes_the_bundle(
     Driven through the real preflight+confirm path, not by calling the helper:
     a unit test of the helper stays green if a call site forgets to use it (it
     did, on the first draft of this test).
+
+    Since 2026-10-30 preflight refuses such a bundle outright
+    (tests/bundle/test_preflight_path_gate.py). This test switches that gate
+    off to keep proving confirm's own check — the second line that still
+    holds if a tree changes between preflight and confirm.
     """
+    from narranexus.platform.bundle import importer as importer_mod
+    monkeypatch.setattr(importer_mod, "_reject_escaping_bundle_paths", lambda *_a, **_k: None)
     from narranexus.platform.bundle.builder import ExportSelection, build_bundle
     from narranexus.platform.bundle.importer import preflight, confirm
     from narranexus.platform.bundle.skill_backup import prepare_archive_target

@@ -36,7 +36,7 @@ from narranexus.platform.artifact import ArtifactService
 from narranexus.platform.artifact import ArtifactNotFound, ArtifactPathEscape
 from narranexus.platform.artifact._artifact_impl.registration import workspace_root
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
-from narranexus.platform.utils.workspace_paths import team_shared_dir
+from narranexus.platform.utils.fs.workspace_paths import team_shared_dir
 
 AGENT = "agent_a"
 USER = "user_1"
@@ -560,7 +560,7 @@ async def test_the_registered_path_is_readable_by_a_teammates_turn(env):
     """The point of the whole rule: what lands in the row must sit under a root
     that turn_accessible_roots grants to ANY member of this team."""
     from narranexus.platform.settings import settings as sa
-    from narranexus.platform.utils.workspace_paths import turn_accessible_roots
+    from narranexus.platform.utils.fs.workspace_paths import turn_accessible_roots
 
     res = await env["svc"].register(
         agent_id=AGENT, user_id=USER, session_id=None, kind="text/markdown",

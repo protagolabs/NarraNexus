@@ -29,7 +29,7 @@ from narranexus.platform.artifact._artifact_impl.user_edit import (
 )
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema import Artifact
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath, team_shared_dir
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath, team_shared_dir
 
 OWNER, VICTIM = "user_owner", "user_victim"
 A_OWN, A_VIC = "agent_own000000", "agent_vic000000"

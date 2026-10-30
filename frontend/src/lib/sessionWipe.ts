@@ -24,7 +24,7 @@
  */
 
 import { useConfigStore, useChatStore, usePreloadStore } from '@/stores';
-import { clearOnboardingGateCache } from './onboardingGate';
+import { clearOnboardingGateCache } from './agentIdentity/onboardingGate';
 
 export function wipeAllSessionData(): void {
   // 1. In-memory store state, so the UI reacts immediately (and persist gets a

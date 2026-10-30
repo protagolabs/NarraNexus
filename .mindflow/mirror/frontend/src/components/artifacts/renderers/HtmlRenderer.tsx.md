@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/HtmlRenderer.tsx
-last_verified: 2026-08-20
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -137,3 +137,11 @@ postMessage 跨 blob origin 可达);②message 监听:只认**自己 iframe**
 
 提交侧 TextDecoder fatal:true——解码失败按 anchor-failed 走「交给 AI」
 横幅,**绝不 PUT**(I4 的第四个落点,此前三处已记本处漏记)。
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

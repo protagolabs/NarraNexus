@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/hooks/useAgentActions.ts
-last_verified: 2026-09-11
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 删除当前 agent 后改用 `pickDefaultAgent`
+
+原来取 `remaining[0]`；列表含全平台公开 agent 且按创建时间倒序，删掉自己的当前 agent
+后常落到陌生人最新的公开 agent 上，各面板随即成串 403（监控 v2 按失败数封 IP）。
+现在取查看者自己的下一个 agent，没有则 `''`（`if (next) setActiveAgent(next)` 已处理）。
 
 # useAgentActions.ts — shared rename / delete for one agent
 

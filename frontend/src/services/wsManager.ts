@@ -8,7 +8,7 @@
 import { useChatStore } from '@/stores/chatStore';
 import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
-import { MOCK_ENABLED } from '@/lib/mock';
+import { MOCK_ENABLED } from '@/lib/mock/flag';
 import { isAuthErrorMessage, reportWsAuthFailure } from './wsAuthError';
 import { parseBackendTs } from '@/lib/backendTs';
 import {
@@ -553,11 +553,15 @@ class WebSocketManager {
     }
   }
 
-  /** Close all connections */
+  /** Close all connections and cancel every pending reconnect (sign-out:
+   *  a scheduled retry would otherwise keep reconnecting for a dead session). */
   closeAll(): void {
     for (const [agentId] of this.connections) {
       this.close(agentId);
     }
+    for (const t of this.reconnectTimers.values()) clearTimeout(t);
+    this.reconnectTimers.clear();
+    this.reconnectAttempts.clear();
   }
 
   /** Check if an agent has an active connection */

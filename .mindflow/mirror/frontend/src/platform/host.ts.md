@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/platform/host.ts
-last_verified: 2026-09-07
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -52,3 +52,16 @@ gap where any plugin could call any OTHER plugin's route.
 (`packages/narranexus-contracts/src/narranexus/contracts/__init__.py`'s `API_VERSIONS["ui"]`); a
 cross-check test in `host.test.tsx` asserts the two numbers match (both `1` as of 2026-09-07 —
 briefly drifted to frontend `1` / Python `0`, caught by this test before it shipped).
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.
+
+Plugins' reads through this helper share the host page's request-loop
+budgets (and, across tabs, the origin's), so a plugin stuck in a read loop can
+push the whole page into refusals; that traffic would count toward the same IP
+ban at the edge.

@@ -2,8 +2,9 @@
  * Mock API layer — intercepts `api.*` calls in dev so the UI can
  * render realistic data without a running backend.
  *
- * Enable with `?mock=1` in URL (persists to localStorage),
- * disable with `?mock=0`, or toggle in the dev banner.
+ * The switch lives in `./flag.ts`. This module (and the fixtures) is loaded
+ * by main.tsx only when mock mode is on, so the production entry chunk never
+ * carries it; nothing else may import it statically.
  */
 
 import type {
@@ -20,6 +21,7 @@ import type {
   SocialNetworkSearchResponse,
   ChatHistoryResponse,
   SimpleChatHistoryResponse,
+  ChatLatestResponse,
   EventLogResponse,
   CreateAgentResponse,
   UpdateAgentResponse,
@@ -65,34 +67,6 @@ import {
   mockAwareness,
   mockDashboardAgents,
 } from './fixtures';
-
-/* ─────────────────────────────── toggle ─────────── */
-
-const STORAGE_KEY = 'narranexus.mock.enabled';
-
-/** Read ?mock=0|1 from URL; persist to localStorage. Returns final state. */
-function resolveMockFlag(): boolean {
-  if (typeof window === 'undefined') return false;
-  const url = new URL(window.location.href);
-  const q = url.searchParams.get('mock');
-  if (q === '1' || q === 'true') {
-    localStorage.setItem(STORAGE_KEY, '1');
-    return true;
-  }
-  if (q === '0' || q === 'false') {
-    localStorage.removeItem(STORAGE_KEY);
-    return false;
-  }
-  return localStorage.getItem(STORAGE_KEY) === '1';
-}
-
-export const MOCK_ENABLED = resolveMockFlag();
-
-export function setMockEnabled(enabled: boolean) {
-  if (enabled) localStorage.setItem(STORAGE_KEY, '1');
-  else localStorage.removeItem(STORAGE_KEY);
-  window.location.reload();
-}
 
 /* ─────────────────────────────── helpers ─────────── */
 
@@ -232,6 +206,9 @@ export const mockApi = {
       narrative_count: mockNarratives.length,
       event_count: mockChatEvents.length,
     });
+  },
+  async getChatLatest(_agentIds: string[]): Promise<ChatLatestResponse> {
+    return ok({ success: true, latest: {} });
   },
   async getSimpleChatHistory(
     _agentId: string,

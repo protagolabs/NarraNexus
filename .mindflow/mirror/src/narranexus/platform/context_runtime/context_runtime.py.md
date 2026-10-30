@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/context_runtime/context_runtime.py
-last_verified: 2026-09-22
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — Bootstrap.md 自动删除走受限 unlink
+
+`_settle_bootstrap` 删除超阈值的 `Bootstrap.md` 改为 `confined_io.split_under_base` + `unlink`（词法路径）。
+`bootstrap_file_present` 的检查只是检查，删除前 agent 目录可能已被换成指向别的租户的链接；按路径
+`os.remove` 会删掉对方的文件。已不存在视为已删，其它失败只记 warning。
 
 ## 2026-09-22 - Runtime conversation scopes for MCP permissions
 
@@ -229,8 +235,8 @@ bearer——字段数约定见 [[_mcp_identity]])。
 `agent_id_headers(...)` 增传 `user_id=self.user_id`——回合属主与 agent
 身份走同一注入点、同一双通道（header + bearer 第 5 位）。`self.user_id`
 可能为 None（无属主的触发回合），builder 对 None 省略 header、bearer 尾
-字段掉落，服务端回退用模型参数。服务端的弱纪律（占位符才注入、None 不
-碰、mismatch 只计量）见 [[_mcp_identity]] 2026-08-04 条。
+字段掉落，服务端回退用模型参数。服务端的解析规则（现行：占位符与不一致的
+值都让位于注入的回合所有者，None 不碰；2026-08-04 上线时 mismatch 只计量）见 [[_mcp_identity]]。
 
 ## 2026-08-04 — 声明收集点 TypeError 单列(review)
 

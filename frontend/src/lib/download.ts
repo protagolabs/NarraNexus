@@ -27,6 +27,7 @@
  */
 
 import { isTauri, downloadFileViaTauri } from './tauri';
+import { guardedFetch } from './guardedFetch';
 
 export interface DownloadFileOptions {
   /** Absolute URL of the file to download. */
@@ -69,7 +70,7 @@ export async function downloadFile(opts: DownloadFileOptions): Promise<string | 
   }
 
   // Browser path: fetch with auth headers → Blob → object URL → click.
-  const res = await fetch(url, {
+  const res = await guardedFetch(url, {
     headers: authHeaders,
   });
   if (!res.ok) {

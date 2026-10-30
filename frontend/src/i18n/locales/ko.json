@@ -2518,7 +2518,9 @@
     "actionFailedTitle": "실행되지 않았습니다",
     "savedTo": "{{path}} 에 저장했습니다",
     "downloadFailed": "다운로드 실패: {{error}}",
-    "doneTitle": "완료"
+    "doneTitle": "완료",
+    "requestBlocked": "요청이 너무 많습니다. 잠시 후 다시 시도하세요.",
+    "requestSlow": "서버 응답이 느립니다. 잠시 후 다시 시도하세요."
   },
   "toast": {
     "view": "보기",
@@ -2596,6 +2598,7 @@
   },
   "appBanners": {
     "sessionExpired": "세션이 만료되었습니다. 다시 로그인해 주세요. (클릭하여 닫기)",
+    "accountSuspended": "이 계정은 사용할 수 없습니다. 로그아웃되었습니다. (클릭하여 닫기)",
     "sessionExpiringSoon": "세션이 {{time}} 후 만료됩니다. 작업 내용을 잃지 않으려면 로그아웃 후 다시 로그인하세요. (클릭하여 닫기)",
     "circuitPausedQuota": "이 에이전트는 반복된 할당량/잔액 실패로 일시 중지되었습니다. 공급자를 수정한 후 재개하세요.",
     "circuitPausedAuth": "이 에이전트는 반복된 인증 실패로 일시 중지되었습니다. 재인증하거나 공급자를 설정한 후 재개하세요.",

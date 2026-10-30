@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/services/artifactsApi.ts
-last_verified: 2026-08-19
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -94,3 +94,11 @@ scope=context 的取数封装:agent 完整感知面(自有 pinned ∪ team),面�
 
 PUT /content;409 解析结构化 detail 抛 ArtifactEditConflictError
 (.currentHash)——调用方靠 instanceof 分流,别改成普通 Error。
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

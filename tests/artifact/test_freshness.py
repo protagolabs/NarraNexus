@@ -27,7 +27,7 @@ from narranexus.platform.artifact import ArtifactService
 from narranexus.platform.artifact._artifact_impl.freshness import office_lock_present
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema import Artifact
-from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
+from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
 
 WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
@@ -119,7 +119,11 @@ async def test_missing_entry_reports_missing_without_commits(env):
     assert await _history(env["db"], "art_fresh001") == []
 
 
-def test_office_lock_present(tmp_path):
+def test_office_lock_present(tmp_path, monkeypatch):
+    # The probe runs through the confined walk below base_working_path (it is
+    # only ever called on a confined entry), so the doc must live under it.
+    from narranexus.platform.settings import settings as sa
+    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
     doc = tmp_path / "Q3 deck.pptx"
     doc.write_bytes(b"pk")
     assert office_lock_present(str(doc)) is False
@@ -162,3 +166,28 @@ async def test_null_hash_row_with_changed_bytes_is_still_fresh(env):
     assert row.content_hash == _sha("# rewritten while unfingerprinted\n")
     assert await _history(env["db"], "art_fresh001") == []
     assert await _events(env["db"]) == []
+
+
+async def test_null_hash_row_claims_the_hash_even_when_size_is_unmeasurable(env, monkeypatch):
+    """PR #433 review I1: measuring a directory entry can now raise (too deep,
+    unreadable, a link swapped in). The legacy-row claim must still write the
+    hash — keeping the previous size — or the fast screen never arms and every
+    render re-hashes the entry."""
+    import narranexus.platform.artifact._artifact_impl.freshness as freshness_mod
+    from narranexus.platform.artifact._artifact_impl.errors import ArtifactTooLarge
+
+    await env["db"].update(
+        "instance_artifacts", {"artifact_id": "art_fresh001"}, {"content_hash": None}
+    )
+
+    def unmeasurable(abs_entry, artifact):
+        raise ArtifactTooLarge("tree too deep to measure")
+
+    monkeypatch.setattr(freshness_mod, "entry_size_bytes", unmeasurable)
+    art = await env["repo"].get_by_id("art_fresh001")
+    verdict = await env["svc"].refresh_external_state(art)
+    assert verdict == "fresh"
+    row = await env["repo"].get_by_id("art_fresh001")
+    assert row.content_hash == _sha("# v1\n")
+    assert row.size_bytes == 5
+    assert await _history(env["db"], "art_fresh001") == []

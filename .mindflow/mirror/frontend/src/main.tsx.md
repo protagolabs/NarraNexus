@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/main.tsx
-last_verified: 2026-09-03
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `bootPlugins()` 之前安装全局 fetch 守卫
+
+`installGlobalFetchGuard()` 必须早于任何插件加载：插件 bundle 直接调全局 `fetch`，安装之后它们发往
+本站后端的读请求才走请求循环守卫（见 [[guardedFetch]]）。测试钉住调用顺序。
+
+## 2026-10-30 — mock 模式首帧前按需加载 fixtures
+
+首帧渲染包进 `render()`。`MOCK_ENABLED`（[[flag]]）为真时先 `import('./lib/mock')`
+再 `installMockApi(m.mockApi)`，之后才 render：首帧起 `mockApi` 覆盖的方法走 mock，
+其余方法（以及直接用 guardedFetch 的 `bootPlugins`）照旧打真实后端。加载失败时
+console.error 并在 #root 写一行提示（用 `?mock=0` 回真实后端），**不** render——
+否则会在「Mock data」角标下展示真实数据，误导开发者。用 `.then(onLoaded, onFailed)`
+两个回调而不是 `.catch`：render 自身抛错不会被误报成「mock 加载失败」。测试钉住
+install 在 render 之前、失败分支不 render。
+非 mock 模式同步 render，与之前一致。目的：fixtures 不进生产入口 chunk。
 
 ## 2026-09-03（批 2d）— `bootPlugins()`
 

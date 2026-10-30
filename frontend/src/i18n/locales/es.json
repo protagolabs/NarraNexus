@@ -2519,7 +2519,9 @@
     "actionFailedTitle": "No se pudo completar",
     "savedTo": "Guardado en {{path}}",
     "downloadFailed": "Error al descargar: {{error}}",
-    "doneTitle": "Listo"
+    "doneTitle": "Listo",
+    "requestBlocked": "Demasiadas solicitudes. Inténtalo de nuevo en breve.",
+    "requestSlow": "El servidor responde con lentitud. Inténtalo de nuevo en breve."
   },
   "toast": {
     "view": "Ver",
@@ -2597,6 +2599,7 @@
   },
   "appBanners": {
     "sessionExpired": "Tu sesión ha expirado. Vuelve a iniciar sesión. (haz clic para cerrar)",
+    "accountSuspended": "Esta cuenta no está disponible. Se ha cerrado la sesión. (haz clic para cerrar)",
     "sessionExpiringSoon": "Tu sesión caduca en {{time}}. Cierra sesión y vuelve a entrar para no perder tu trabajo. (haz clic para cerrar)",
     "circuitPausedQuota": "Este agente está pausado tras fallos repetidos de cuota/saldo. Corrige su proveedor y luego reanúdalo.",
     "circuitPausedAuth": "Este agente está pausado tras fallos repetidos de autenticación. Vuelve a autenticarte o configura un proveedor y luego reanúdalo.",

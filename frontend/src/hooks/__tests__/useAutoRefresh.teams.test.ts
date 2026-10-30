@@ -21,12 +21,13 @@ import { renderHook } from '@testing-library/react';
 // make the hook's `.then` throw and pin a contract the store does not have.
 const teamsRefresh = vi.fn(async () => {});
 const refreshAgents = vi.fn();
+const configAgents: { agents: Array<{ agent_id: string; created_by: string }> } = { agents: [] };
 
 vi.mock('@/stores', () => ({
   // `teams` is part of the store's shape, so the mock carries it — the woken-room
   // check reads it right after every refresh.
   useTeamsStore: { getState: () => ({ refresh: teamsRefresh, teams: [] }) },
-  useConfigStore: { getState: () => ({ refreshAgents, agents: [] }) },
+  useConfigStore: { getState: () => ({ refreshAgents, agents: configAgents.agents }) },
   useChatStore: { getState: () => ({ isAgentStreaming: () => false }) },
   useArtifactStore: (select: (s: unknown) => unknown) => select({ loadPinned: vi.fn() }),
   usePreloadStore: () => ({
@@ -51,6 +52,7 @@ const MID_WINDOW_MS = 45_000;
 beforeEach(() => {
   teamsRefresh.mockReset();
   refreshAgents.mockReset();
+  configAgents.agents = [];
   vi.useFakeTimers();
 });
 
@@ -99,6 +101,25 @@ describe('background refresh keeps the team rows current', () => {
       const callsAfterCap = refreshAgents.mock.calls.length;
       vi.advanceTimersByTime(10_000);
       expect(refreshAgents.mock.calls.length).toBe(callsAfterCap);
+    } finally {
+      window.localStorage.removeItem('nx-guide-coachmark');
+    }
+  });
+
+  test("strangers' public agents in the list do not stop the fast poll", () => {
+    // The agent list carries every public agent on the platform; a non-empty
+    // list says nothing about the new user's own guide having arrived.
+    configAgents.agents = [{ agent_id: 'public_1', created_by: 'stranger' }];
+    window.localStorage.setItem('nx-guide-coachmark', 'pending');
+    try {
+      renderHook(() => useAutoRefresh({ agentId: '', userId: 'usr_new' }));
+      vi.advanceTimersByTime(2_000);
+      expect(refreshAgents).toHaveBeenCalledTimes(1);
+      // Once an own agent is listed, the fast poll stops.
+      configAgents.agents = [...configAgents.agents, { agent_id: 'guide', created_by: 'usr_new' }];
+      vi.advanceTimersByTime(2_000);
+      vi.advanceTimersByTime(6_000);
+      expect(refreshAgents).toHaveBeenCalledTimes(1);
     } finally {
       window.localStorage.removeItem('nx-guide-coachmark');
     }

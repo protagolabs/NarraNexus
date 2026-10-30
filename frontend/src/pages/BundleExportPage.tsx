@@ -17,7 +17,7 @@
  * notice. User clicks Download to actually trigger the export.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
@@ -51,6 +51,8 @@ import type {
   BundleArtifactPreview,
   BundleMcpPreview,
 } from '@/types';
+import { guardedFetch } from '@/lib/guardedFetch';
+import { isSafeAgentId } from '@/lib/agentIdentity/agentIdSafety';
 
 const TABS: { id: TabId; labelKey: string; icon: any }[] = [
   { id: 'agents', labelKey: 'pages.bundleExport.tabs.agents', icon: Users },
@@ -138,7 +140,7 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
     else navigate(-1);
   };
   const [searchParams] = useSearchParams();
-  const { agents, userId } = useConfigStore();
+  const { agents, agentsLoaded, userId } = useConfigStore();
   const { teams, refresh: refreshTeams } = useTeamsStore();
   const { alert, confirm: confirmDialog, dialog } = useConfirm();
 
@@ -265,6 +267,7 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
   }, []);
 
   // Quick-launch from TeamDetailPage: ?team=<team_id>&agents=<csv>
+  const quickLaunchAgents = useRef<string[] | null>(null);
   useEffect(() => {
     const teamFromQuery = searchParams.get('team');
     const agentsFromQuery = searchParams.get('agents');
@@ -273,11 +276,28 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
       setBundleKind('team');
     }
     if (agentsFromQuery) {
-      const ids = agentsFromQuery.split(',').filter(Boolean);
-      if (ids.length > 0) setSelectedAgents(new Set(ids));
+      // Link-supplied ids are untrusted; they are applied below, once the agent
+      // list is known.
+      quickLaunchAgents.current = agentsFromQuery.split(',').filter(isSafeAgentId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Only the viewer's OWN agents are taken from the link: a team only ever holds
+  // its owner's agents (the teams route refuses anyone else's), and every other
+  // id — however many a crafted link carries — would fire the five per-agent
+  // preview reads below into 403/404s, the failures the edge bans an IP on.
+  // Judged against THIS session's list only: the persisted one may predate an
+  // agent the link names (created on another device), which would be dropped.
+  useEffect(() => {
+    const pending = quickLaunchAgents.current;
+    if (!pending || !userId || !agentsLoaded) return;
+    const own = new Set(agents.filter((a) => a.created_by === userId).map((a) => a.agent_id));
+    if (own.size === 0) return; // nothing of theirs yet; keep the link for when there is
+    quickLaunchAgents.current = null;
+    const ids = pending.filter((id) => own.has(id));
+    if (ids.length > 0) setSelectedAgents(new Set(ids));
+  }, [agents, agentsLoaded, userId]);
 
   // Team bundle: picking the team IS the selection — its live members
   // replace the agent set (agents that no longer exist locally are skipped).
@@ -1758,7 +1778,7 @@ function AskAgentToBackupButton({
           // to call its skill_backup MCP tool. We use the standard send-message
           // surface (post-message) so the request goes through the regular
           // agent loop.
-          await fetch(`/api/agents/${encodeURIComponent(aid)}/messages`, {
+          await guardedFetch(`/api/agents/${encodeURIComponent(aid)}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

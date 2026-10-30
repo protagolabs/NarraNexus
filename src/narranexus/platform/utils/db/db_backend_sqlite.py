@@ -339,7 +339,7 @@ class SQLiteBackend(DatabaseBackend):
         # has no parent and is skipped.
         if self._db_path not in (":memory:", "") and not self._db_path.startswith("file::memory:"):
             from pathlib import Path
-            from narranexus.platform.utils.fs_safety import ensure_writable_dir, chown_hint
+            from narranexus.platform.utils.fs.fs_safety import ensure_writable_dir, chown_hint
 
             parent = Path(self._db_path).expanduser().parent
             if parent and str(parent) not in ("", ".") and not ensure_writable_dir(parent):

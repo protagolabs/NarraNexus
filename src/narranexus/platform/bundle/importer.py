@@ -41,10 +41,11 @@ from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils.db.dialect_errors import is_unique_violation
 from narranexus.platform.utils.deployment_mode import is_cloud_mode
 from narranexus.platform.utils.url_safety import is_obviously_non_public_url
-from narranexus.platform.utils.file_safety import (
+from narranexus.platform.utils.fs.file_safety import (
     sanitize_filename,
     validate_zip_member_path,
 )
+from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.schema.entity_schema import (
     AGENT_TEXT_MAX_LENGTH,
     normalize_agent_text,
@@ -225,16 +226,31 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     sessions_root = Path.home() / ".nexusagent" / "bundle_preflight"
     sessions_root.mkdir(parents=True, exist_ok=True)
     work_dir = Path(tempfile.mkdtemp(prefix="nx-import-", dir=str(sessions_root)))
+    # One guard for every exit: the unpack dir survives only once a token row
+    # exists (confirm reads it; the TTL sweep is driven by those rows). Any
+    # failure before that — a malformed manifest, a DB error, a refused path —
+    # removes it here, so no branch can leak an unswept nx-import-* dir.
+    issued = False
     try:
-        # zip extraction is CPU-bound — offload to a worker thread.
-        await asyncio.to_thread(extract_zip_safely, zip_path, work_dir)
-    except Exception:
-        shutil.rmtree(work_dir, ignore_errors=True)
-        raise
+        summary = await _preflight_in_dir(work_dir, zip_path, user_id)
+        issued = True
+        return summary
+    finally:
+        if not issued:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+async def _preflight_in_dir(work_dir: Path, zip_path: Path, user_id: str) -> Dict[str, Any]:
+    """The body of :func:`preflight`, run inside its cleanup guard.
+
+    Any exception escaping this function makes the caller remove
+    ``work_dir`` — no branch here needs its own cleanup.
+    """
+    # zip extraction is CPU-bound — offload to a worker thread.
+    await asyncio.to_thread(extract_zip_safely, zip_path, work_dir)
 
     manifest_path = work_dir / "manifest.json"
     if not manifest_path.exists():
-        shutil.rmtree(work_dir, ignore_errors=True)
         raise ValueError("manifest.json missing in bundle")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -256,7 +272,7 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         try:
             sanitize_filename(str(aid), label="agent id in manifest")
         except ValueError as e:
-            shutil.rmtree(work_dir, ignore_errors=True)
+            log_boundary_violation("bundle_import.preflight", actor=user_id, detail=f"agent id {aid!r}: {e}")
             raise ValueError(f"manifest contains an unusable agent id ({e})")
 
     # Legacy bundle compatibility: pre-3d7e089 exports put every
@@ -293,17 +309,25 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         apply_migrations,
         CURRENT_BUNDLE_MAJOR,
     )
-    try:
-        manifest = await apply_migrations(work_dir, manifest)
-    except ValueError:
-        shutil.rmtree(work_dir, ignore_errors=True)
-        raise
+    manifest = await apply_migrations(work_dir, manifest)
     # Persist the (possibly migrated) manifest back to disk so confirm() reads
     # the upgraded version.
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False, default=str),
         encoding="utf-8",
     )
+
+    # The bundle's other path strings (artifact file_path, skill archive_ref
+    # and skill_dir — see `_reject_escaping_bundle_paths` for exactly which)
+    # are checked HERE, on the migrated tree confirm() will read, before a
+    # token exists. The agent-id gate above runs earlier because nothing,
+    # migrations included, may join those ids into a path before they are
+    # vetted.
+    try:
+        _reject_escaping_bundle_paths(work_dir, manifest)
+    except BundlePathEscape as e:
+        log_boundary_violation("bundle_import.preflight", actor=user_id, detail=str(e))
+        raise
 
     # Name clashes
     db = await get_db_client()
@@ -390,7 +414,7 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     return summary
 
 
-def _bundle_member_path(work_dir: Path, archive_ref: Optional[str]) -> Optional[Path]:
+def _bundle_member_path(work_dir: Path, skill_entry: Dict[str, Any]) -> Optional[Path]:
     """Resolve a manifest `archive_ref` to a path inside the unpacked bundle.
 
     `archive_ref` is written by whoever produced the `.nxbundle` — as untrusted
@@ -405,20 +429,134 @@ def _bundle_member_path(work_dir: Path, archive_ref: Optional[str]) -> Optional[
     and `ensure_within_directory` accepts only a single segment.
 
     Returns None when the ref is missing or unsafe; callers already treat None
-    as "archive missing in bundle" and record a per-skill failure.
+    as "archive missing in bundle" and record a per-skill failure. Preflight
+    has already refused any bundle with an unsafe ref
+    (`_reject_escaping_bundle_paths`), so the unsafe branch here is the second
+    line, not the gate.
     """
+    # The ONE place confirm turns an archive_ref into a path. Preflight gates
+    # archive_ref (and skill_dir) for exactly _ARCHIVE_INSTALL_METHODS; an
+    # install method that reads archive_ref here without being listed there
+    # would skip the preflight gate, so it fails loudly instead.
+    # Read from the entry itself, so a caller cannot pass a convenient literal.
+    method = skill_entry.get("install_method")
+    archive_ref = skill_entry.get("archive_ref")
+    if method not in _ARCHIVE_INSTALL_METHODS:
+        raise RuntimeError(
+            f"install method {method!r} reads archive_ref but is not in "
+            f"_ARCHIVE_INSTALL_METHODS; add it so preflight gates it too"
+        )
     if not archive_ref:
         return None
     try:
-        member = validate_zip_member_path(archive_ref)
+        return _bundle_member_path_or_raise(work_dir, archive_ref)
     except ValueError as e:
         logger.warning(f"bundle_import.archive_ref.rejected ref={archive_ref!r}: {e}")
         return None
+
+
+def _bundle_member_path_or_raise(work_dir: Path, archive_ref: str) -> Path:
+    """`_bundle_member_path` for a present ref, raising ValueError when unsafe."""
+    member = validate_zip_member_path(archive_ref)
     candidate = (work_dir / member).resolve(strict=False)
     if not candidate.is_relative_to(work_dir.resolve(strict=False)):
-        logger.warning(f"bundle_import.archive_ref.escapes ref={archive_ref!r}")
-        return None
+        raise ValueError("resolves outside the unpacked bundle")
     return candidate
+
+
+_ARCHIVE_INSTALL_METHODS = ("zip", "full_copy")
+
+
+class BundlePathEscape(ValueError):
+    """A bundle string that becomes a path leaves its container.
+
+    Distinct from a plain ValueError (a malformed bundle) so preflight logs a
+    boundary violation only for an actual escape, not for a broken file.
+    """
+
+
+def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> None:
+    """Refuse the bundle if any path-shaped string in it leaves its container.
+
+    A bundle is attacker-controlled input, and two more of its strings become
+    filesystem paths after confirm: each `artifacts.json` row's `file_path`
+    (stored in `instance_artifacts`, later served by the artifact routes) and
+    each archive-installed skill's `archive_ref` (read out of the unpack dir).
+    Confirm re-checks both (`rewrite_artifact_row`, `_bundle_member_path`), but
+    by then preflight had answered 200 and kept the unpacked tree for the TTL:
+    on 2026-10-29 a prober used exactly that 200 to confirm its upload
+    shape before trying `../` pointers at other tenants' files and
+    /etc/passwd. Checking here makes the very first response the refusal.
+
+    The whole bundle is rejected, never a single row — same rule as the
+    agent-id gate (a filtered list would desync id_map from the writes), and
+    no honest export ever produces such a path for these fields.
+
+    An `artifacts.json` that does not parse is left alone: confirm reports it
+    as a warning and writes no artifact rows from it, so it carries no path to
+    act on. One that parses into the wrong SHAPE is refused, because confirm
+    would iterate it and fail mid-import.
+
+    For zip/full_copy skills, `skill_dir` (the directory confirm installs
+    into) gets the same single-segment rule confirm applies to those methods
+    (`sanitize_filename`). Other install methods are left to confirm: builds
+    before 2026-08-18 wrote an unsanitised `skill_dir` (a SKILL.md name with
+    `/` in it) for url/builtin skills, confirm ignores or per-skill-fails it,
+    and refusing those honest bundles here would be a false alarm. The skill
+    `name` is not checked here either: it comes from SKILL.md, honest bundles
+    carry odd names, and confirm sanitises it per skill.
+
+    Raises:
+        BundlePathEscape: a path string leaves its container (logged by the
+            caller as a boundary violation).
+        ValueError: the bundle is malformed (wrong JSON shape / types).
+    """
+    for aid in manifest.get("agents", []) or []:
+        art_path = work_dir / "agents" / str(aid) / "artifacts.json"
+        if not art_path.exists():
+            continue
+        try:
+            rows = json.loads(art_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            raise ValueError(f"agent {aid}: artifacts.json must be a list of objects")
+        for row in rows:
+            fp = row.get("file_path")
+            if not fp:
+                continue
+            if not isinstance(fp, str):
+                raise ValueError(f"agent {aid}: artifact {row.get('artifact_id')!r} file_path is not a string")
+            try:
+                artifact_relpath_or_raise(fp)
+            except ValueError as e:
+                raise BundlePathEscape(
+                    f"agent {aid}: artifact {row.get('artifact_id')!r} file_path leaves "
+                    f"the agent workspace ({e})"
+                ) from e
+
+    for s in manifest.get("skills", []) or []:
+        if not isinstance(s, dict) or s.get("install_method") not in _ARCHIVE_INSTALL_METHODS:
+            continue
+        skill_dir = s.get("skill_dir")
+        if skill_dir:
+            if not isinstance(skill_dir, str):
+                raise ValueError(f"skill {s.get('name')!r}: skill_dir is not a string")
+            try:
+                sanitize_filename(skill_dir, label="skill_dir")
+            except ValueError as e:
+                raise BundlePathEscape(f"skill {s.get('name')!r}: skill_dir is not one directory name ({e})") from e
+        ref = s.get("archive_ref")
+        if not ref:
+            continue  # confirm records "archive missing" for this skill
+        if not isinstance(ref, str):
+            raise ValueError(f"skill {s.get('name')!r}: archive_ref is not a string")
+        try:
+            _bundle_member_path_or_raise(work_dir, ref)
+        except ValueError as e:
+            raise BundlePathEscape(
+                f"skill {s.get('name')!r}: archive_ref leaves the bundle ({e})"
+            ) from e
 
 
 async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
@@ -1189,11 +1327,11 @@ async def _confirm_inner(
         ws_target = None
         if ws_tar.exists():
             from narranexus.platform.settings import settings as core_settings
-            from narranexus.platform.utils.workspace_paths import agent_workspace_path
+            from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
             target = agent_workspace_path(new_aid, user_id, base=core_settings.base_working_path)
-            target.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(_extract_tar_safely, ws_tar, target)
-            await asyncio.to_thread(_rewrite_workspace_text_files, target, id_map, user_id)
+            await asyncio.to_thread(
+                _import_workspace_tar, ws_tar, target, core_settings.base_working_path, id_map, user_id
+            )
             ws_extracted = True
             ws_target = target
 
@@ -1205,7 +1343,8 @@ async def _confirm_inner(
             try:
                 for arec in json.loads(art_path.read_text(encoding="utf-8")):
                     new_ar = rewrite_artifact_row(
-                        rewrite_row("instance_artifacts", arec), new_aid, user_id
+                        rewrite_row("instance_artifacts", arec), new_aid, user_id,
+                        team_id=new_team_id,
                     )
                     try:
                         await _ins("instance_artifacts", new_ar)
@@ -1416,7 +1555,7 @@ async def _confirm_inner(
     # subprocess.git invocations under the naive impl).
     # full_copy is excluded — each agent's archive zip carries that agent's
     # own .skill_meta.json / credentials, so they're distinct payloads.
-    from narranexus.platform.utils.file_safety import ensure_within_directory
+    from narranexus.platform.utils.fs.file_safety import ensure_within_directory
     from narranexus.platform.settings import settings as core_settings
 
     def install_cache_key(s_entry: dict) -> Optional[str]:
@@ -1532,7 +1671,7 @@ async def _confirm_inner(
 
             elif method == "zip":
                 archive_ref = s.get("archive_ref")
-                zip_path = _bundle_member_path(work_dir, archive_ref)
+                zip_path = _bundle_member_path(work_dir, s)
                 if not zip_path or not zip_path.exists():
                     skill_install_failures.append(
                         {"skill": skill_name, "reason": "zip archive missing in bundle"}
@@ -1596,7 +1735,7 @@ async def _confirm_inner(
                 # skills/<agent_id>/<skill>-full.zip with that agent's own
                 # .skill_meta.json + wallets.
                 archive_ref = s.get("archive_ref")
-                zip_path = _bundle_member_path(work_dir, archive_ref)
+                zip_path = _bundle_member_path(work_dir, s)
                 if not zip_path or not zip_path.exists():
                     skill_install_failures.append(
                         {"skill": skill_name, "reason": "full_copy archive missing in bundle"}
@@ -1834,7 +1973,7 @@ def artifact_relpath_or_raise(fp: str) -> str:
     aborts the import — a bad pointer would otherwise become a row whose raw
     / edit / upload paths point outside the new agent's workspace.
     """
-    from narranexus.platform.utils.file_safety import validate_zip_member_path
+    from narranexus.platform.utils.fs.file_safety import validate_zip_member_path
     if "\\" in (fp or ""):
         raise ValueError(f"artifact file_path must not contain backslashes: {fp!r}")
     rel = (fp or "").lstrip("/")
@@ -1842,7 +1981,9 @@ def artifact_relpath_or_raise(fp: str) -> str:
     return rel
 
 
-def rewrite_artifact_row(new_ar: dict, new_aid: str, user_id: str) -> dict:
+def rewrite_artifact_row(
+    new_ar: dict, new_aid: str, user_id: str, *, team_id: Optional[str]
+) -> dict:
     """Re-home one ``artifacts.json`` row (already id-rewritten) onto the new agent.
 
     The bundle's ``file_path`` is workspace-relative and attacker-controlled:
@@ -1852,12 +1993,28 @@ def rewrite_artifact_row(new_ar: dict, new_aid: str, user_id: str) -> dict:
     portable across instances, so session ids are cleared and the row pinned so
     the user can still find it in Settings -> Artifacts. Mutates and returns
     ``new_ar``.
+
+    The row's identity is not taken from the bundle either. ``rewrite_row``
+    maps an ``agent_id`` only when it is in id_map and does not map
+    ``team_id`` at all, so a crafted row could name another tenant's agent or
+    team and surface in that agent's artifact list / that team's panel. The
+    row always belongs to ``new_aid``; a row that had a team joins the team
+    this import creates (``team_id``, None when the bundle has none), a row
+    without one stays private.
     """
-    from narranexus.platform.utils.workspace_paths import agent_workspace_relpath
-    fp = artifact_relpath_or_raise(new_ar["file_path"]) if new_ar.get("file_path") else ""
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_relpath
+    try:
+        fp = artifact_relpath_or_raise(new_ar["file_path"]) if new_ar.get("file_path") else ""
+    except ValueError as e:
+        # Preflight refuses these bundles already; reaching here means a tree
+        # changed between preflight and confirm or a new caller skipped it.
+        log_boundary_violation("bundle_import.confirm", actor=user_id, detail=f"{new_ar['file_path']!r}: {e}")
+        raise
     if fp:
         new_ar["file_path"] = f"{agent_workspace_relpath(new_aid, user_id)}/{fp}"
     new_ar["user_id"] = user_id
+    new_ar["agent_id"] = new_aid
+    new_ar["team_id"] = team_id if new_ar.get("team_id") else None
     new_ar["session_id"] = None
     new_ar["original_session_id"] = None
     new_ar["pinned"] = 1
@@ -1873,29 +2030,69 @@ def copy_skill_into_agent(
 
     Module-level (not a closure) so the symlink behaviour is testable: the
     name is sanitised and confined, an existing target is replaced, and the
-    copy never dereferences links (see :func:`copy_skill_dir`).
+    copy never dereferences links (see ``confined_io.copy_tree``).
     """
-    from narranexus.platform.utils.file_safety import ensure_within_directory, sanitize_filename
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.file_safety import ensure_within_directory, sanitize_filename
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
     skills_base = agent_workspace_path(target_aid, user_id, base=base) / "skills"
-    skills_base.mkdir(parents=True, exist_ok=True)
     safe_name = sanitize_filename(skill_name, label="skill name")
     target = ensure_within_directory(skills_base, safe_name, label="skill name")
-    if target.exists():
-        shutil.rmtree(target)
-    copy_skill_dir(src_skill_dir, target)
+    # Everything below is fd-relative under the base (``utils/fs/confined_io``):
+    # ``skills`` sits in the owner's own mount and can be swapped for a link to
+    # another tenant's tree, which a by-path rmtree / mkdir / copytree would
+    # follow (deleting there and writing there). Paths are LEXICAL
+    # (``skills_base / safe_name``): ``ensure_within_directory`` resolve()s its
+    # result, which would turn a swapped link into the victim's real path.
+    # ConfinedPathError (a ValueError) propagates — the import fails closed.
+    # SOURCE: ``src_skill_dir`` is an installed skill of the SAME tenant (or
+    # platform staging) — never another tenant's tree; it is walked O_NOFOLLOW
+    # too and links inside it are copied as links, never dereferenced.
+    from narranexus.platform.utils.fs import confined_io
+
+    root, skills_rel = confined_io.split_under_base(str(skills_base), base)
+    confined_io.make_dirs(root, skills_rel)
+    target_rel = f"{skills_rel}/{safe_name}"
+    try:
+        confined_io.remove_tree(root, target_rel)
+    except FileNotFoundError:
+        pass
+    src_root, src_rel = confined_io.split_source(str(src_skill_dir), base)
+    confined_io.copy_tree(src_root, src_rel, root, target_rel)
     return target
 
 
-def copy_skill_dir(src: Path, dst: Path) -> None:
-    """Copy an installed skill dir WITHOUT dereferencing symlinks.
+def _import_workspace_tar(
+    tar_path: Path, target: Path, base: str, id_map: Dict[str, str], user_id: str
+) -> None:
+    """Land an exported workspace tar in the agent's workspace WITHOUT ever
+    letting attacker-influenced bytes touch a tenant-writable path by name.
 
-    ``copytree`` defaults to following links, which turns a link planted in a
-    cloned repo (``leak.txt -> /etc/passwd``) into a real file in the target
-    workspace. Links are copied as links; the executor's workspace confinement
-    then decides whether they resolve.
+    The per-user executor mounts all of ``{base}/{user}``, so a tenant can
+    pre-create ``{user}/{new_agent_id}`` as a symlink into another tenant's tree
+    before this runs; extracting with ``extractall(target)`` (whose ``data``
+    filter uses ``realpath(target)`` as the destination) or rewriting files with
+    ``open(path, "w")`` would then write the bundle's contents there. So: extract
+    and rewrite inside PLATFORM-OWNED staging (``mkdtemp`` in the system temp
+    dir, outside every tenant mount), then merge the result into the LEXICAL
+    target through ``confined_io.merge_tree`` — every component below the base
+    is walked O_NOFOLLOW (a link anywhere refuses, nothing is written), files are
+    written through a private temp + rename. Raises ConfinedPathError (a
+    ValueError) when the target path crosses a link. Sync — caller wraps in
+    asyncio.to_thread().
     """
-    shutil.copytree(src, dst, symlinks=True)
+    import tempfile
+
+    from narranexus.platform.utils.fs import confined_io
+
+    staging = tempfile.mkdtemp(prefix="nx-ws-import-")
+    try:
+        staged = Path(staging)
+        _extract_tar_safely(tar_path, staged)
+        _rewrite_workspace_text_files(staged, id_map, user_id)
+        root, rel = confined_io.split_under_base(str(target), base)
+        confined_io.merge_tree(staging, "", root, rel)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _extract_tar_safely(tar_path: Path, target: Path) -> None:

@@ -1,8 +1,40 @@
 ---
 code_file: src/narranexus/platform/module_system/_mcp_identity.py
-last_verified: 2026-10-08
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — user_id 不一致时以回合所有者为准；`external_user_id` 豁免
+
+工具上的 `user_id` 指本平台账号（其 workspace / 技能 / job / 产物），产物和技能工具会拿它
+拼 workspace 路径，保留模型填的别人的 id 就会写进别的租户目录。当初"先测量再收紧"的测量
+结果：prod 四天 0 次不一致。现在 `resolve_caller_user_id` 对不一致的真实值返回注入的回合
+所有者（warning 记录）；None 仍不碰；无注入（无属主回合、直连客户端）时原样放行。
+
+真正指外部平台用户的参数（目前只有 Discord 的 `discord_dm`，Discord snowflake）用
+`@external_user_id` 标注（放在 `@mcp.tool()` 下面），wrapper 对其 `user_id` 完全不做
+解析，`agent_id` 照常解析。新增工具如果 `user_id` 是第三方 id，必须加这个标注；
+`test_every_user_id_tool_is_classified` 钉死**完整分类**（遍历真实的
+`build_instrumented_mcp_server()`）：所有声明 `user_id` 的工具必须出现在
+`ACCOUNT_USER_ID_TOOLS` 或 `EXTERNAL_USER_ID_TOOLS` 之一，且标注与所在集合一致；新增工具
+不归类就变红，逼人显式判断。
+
+**覆盖留 DB 审计**（auto-review #428）：每次覆盖真实值都进进程内计数
+（`_note_user_override` → 共享的 [[_audit_window]] `WindowedAuditCounter`，同步、无 I/O），
+由 async 包装层在身份解析之后、归属检查和工具体之前
+调用 `flush_user_overrides()`，按 60 秒窗口写一行 `mcp_identity_user_override`
+（instance_executor_audit）。与 mcp_auth 的 tokenless 测量共用同一个计数器实现：三个
+`AuditField` 各截 `_OVERRIDE_VALUE_MAX`（64），key 上限 `_OVERRIDE_KEYS_MAX`（256），窗口
+`_OVERRIDE_FLUSH_SECONDS`（60s），超出并入一个常量桶。审计行的 `tool` 是 FastMCP **注册名**（`tool.name`，
+`install_caller_identity` 传给 `_wrap_fn`），不是函数名。sync 工具没法 await，计数留到同进程下一次
+async 调用时落盘；被占位符拦截提前返回的调用不刷新，计数留到下一次。审计失败只记 debug，
+不影响工具；计数在写库前已清空，写失败/被取消丢的是这一窗口的计数，不是覆盖事实（每次覆盖
+都有 warning 行）。
+
+范围说明：这一条防的是**模型在参数里填错/填别人的 id**。恶意直连 MCP 的调用方能否伪造
+注入身份本身，取决于 `NX_MCP_AUTH_MODE`——只有 enforce 模式下注入身份是经过签名证明的。
+语义变化：`submit_feedback` 在公开/官方 agent 上的反馈人一律记为 agent 属主（注入值恒为
+`agents.created_by`，见 agent_runtime 的 run 起点）。
 
 ## 2026-10-08（PR #410 review）
 
@@ -111,7 +143,7 @@ Ed25519 短期 JWT(云=broker 在 ensure() 时签,本地=agent-runtime 进程自
 `tests/module/test_mcp_caller_identity.py` 里的 arity 触发器（前人留的「arity changed —
 update _parse_bearer + this test」）按设计触发并已同步到 6。
 
-## 2026-08-04 — user_id 上线同一 seam（W1），纪律刻意弱于 agent_id
+## 2026-08-04 — user_id 上线同一 seam（W1）（当时纪律刻意弱于 agent_id，2026-10-30 已收紧）
 
 `X-NarraNexus-User-Id` + bearer 第 5 位（`BEARER_FIELDS` 尾部追加，老
 4 字段 bearer 解析出 user_id=None，兼容由既有 `_parse_bearer` 无界
@@ -119,16 +151,14 @@ split+截断保证）。动机是 job_create 的最恶性失败形状：模型�
 user_id 时 job **建成功**（success=True）但落在幻影用户名下——属主的
 Jobs 列表永远空着，agent 却报成功（假成功）。
 
-**与 agent_id 的三点刻意不同**（`resolve_caller_user_id` docstring 是
-契约原文）：
-1. **占位符才注入**（`user_current` 等 `PLACEHOLDER_USER_IDS`）；
+**与 agent_id 的异同**（`resolve_caller_user_id` docstring 是契约原文）：
+1. **占位符与不一致的真实值都让位于注入的回合所有者**（2026-10-30 前只有占位符）；
 2. **None 永远不碰**——检索工具用 `user_id=None` 表达「不过滤」，注入
    会静默改变查询语义；`is_placeholder_user_id(None)` 为 False（与
    `is_placeholder_agent_id` 极性相反，两个函数不能互换）；也因此
    wrapper 里 user_id **没有** agent_id 那个「缺省参数则注入」分支。
-3. **mismatch 保留原值只 warning**——平台对「它启动了谁」只有一个真相，
-   但多用户流程里传别人 user_id 可能合法（销售/团队场景），先用
-   warning 计量再决定是否收紧（PR #230 的先测量纪律）。
+3. **mismatch 以注入的回合所有者为准**（2026-10-30 起；之前是保留原值只
+   warning，见文首条目）。
 
 `resolve_caller_user_id(None)` 在函数入口直接返回，不读取请求 header；None
 分支本来就禁止注入，读取结果必定被丢弃。`install_caller_identity` 与

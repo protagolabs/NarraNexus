@@ -14,7 +14,7 @@ last_verified: 2026-06-18
 `{user_id}` 挂子目录,flat 布局下会挂空)。
 
 ## 关键点
-- 真正的搬移逻辑在 `utils.workspace_paths.migrate_flat_to_nested`(幂等、非破坏:
+- 真正的搬移逻辑在 `utils.fs.workspace_paths.migrate_flat_to_nested`(幂等、非破坏:
   目标已存在→冲突留原地;owner 不在 known users→不猜、留原地)。本模块只是把它
   接进 runner + 从 DB 读 known user_ids 消歧 `_user_` 中缀。
 - **鲁棒性(每次启动都跑,含全新库)**:`users` 表不存在→known 空集(不崩 runner);

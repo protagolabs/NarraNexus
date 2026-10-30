@@ -23,7 +23,6 @@ to convert into caller-readable errors.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import secrets
 from datetime import datetime, timezone
@@ -31,8 +30,13 @@ from typing import Optional
 
 from loguru import logger
 
-from narranexus.platform.utils.workspace_paths import refuse_symlinked_dir
+from narranexus.platform.utils.fs.workspace_paths import refuse_symlinked_dir
 
+from narranexus.platform.artifact._artifact_impl.confinement import (
+    confined_dir_size,
+    confined_file_size,
+    sha256_of_confined,
+)
 from narranexus.platform.artifact._artifact_impl.notify import stage_artifact_event
 from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactError,
@@ -52,7 +56,7 @@ from narranexus.platform.schema.artifact_schema import (
     CreateArtifactToolResult,
 )
 from narranexus.platform.settings import settings
-from narranexus.platform.utils.workspace_paths import team_shared_dir
+from narranexus.platform.utils.fs.workspace_paths import team_shared_dir
 from narranexus.platform.utils.office_watch import OFFICE_LIVE_KIND
 
 
@@ -97,7 +101,7 @@ def _new_artifact_id() -> str:
 
 
 def workspace_root(agent_id: str, user_id: str) -> str:
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     return str(agent_workspace_path(agent_id, user_id, base=os.path.realpath(settings.base_working_path)))
 
@@ -118,36 +122,35 @@ def _build_url(agent_id: str, artifact_id: str) -> str:
 
 
 def compute_entry_hash(abs_entry: str) -> Optional[str]:
-    """sha256 hex of the entry file; None on any IO error.
+    """sha256 hex of the entry file; None on any IO error or refusal.
 
     Best-effort by contract: the fingerprint upgrades heal's rename
     detection from an extension guess to a verified identity, but a hashing
     failure must never block the registration it accompanies. Entry files
     are capped at MAX_ARTIFACT_BYTES (25 MB), so streaming in 1 MB chunks
     keeps this a sub-perceptible cost on the register path.
+
+    The file is opened through ``confinement.sha256_of_confined`` (every
+    component below the base O_NOFOLLOW-walked), never by the path string: a
+    directory swapped for a link after the caller's check yields None here
+    instead of the other tenant's hash.
     """
     try:
-        digest = hashlib.sha256()
-        with open(abs_entry, "rb") as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
-    except OSError as e:
+        return sha256_of_confined(abs_entry)
+    except (OSError, ArtifactPathEscape) as e:
         logger.warning(f"content_hash skipped for {abs_entry}: {e}")
         return None
 
 
 def _dir_size(path: str) -> int:
-    """Recursive sum of file sizes under `path`. Symlinks are not followed."""
-    total = 0
-    for root, _dirs, files in os.walk(path):
-        for name in files:
-            fp = os.path.join(root, name)
-            try:
-                total += os.path.getsize(fp)
-            except OSError:
-                pass
-    return total
+    """Recursive sum of REGULAR-file sizes under `path`.
+
+    Symlinks are neither followed nor counted: ``getsize`` on a link reports
+    the target's size, so a link to another tenant's file would leak its size
+    into this artifact's row. Walked fd-relative (``confined_dir_size``), so a
+    directory swapped for a link mid-scan is refused rather than summed.
+    """
+    return confined_dir_size(path)
 
 
 def _resolve_entry(
@@ -375,7 +378,7 @@ async def register_artifact(
     # can register anything again. Requiring team artifacts to live there is
     # what put a root in this position that this branch had never seen.
     if artifact_root in (workspace, team_root):
-        size_bytes = os.path.getsize(abs_entry)
+        size_bytes = confined_file_size(abs_entry)
     else:
         size_bytes = _dir_size(artifact_root)
     if size_bytes > MAX_ARTIFACT_BYTES:

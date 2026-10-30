@@ -17,11 +17,11 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Iterable, List
 
-# Caps live in `utils.file_safety` — the module both this gate and the
+# Caps live in `utils.fs.file_safety` — the module both this gate and the
 # installer (`skill_module._extract_zip_safely`) already depend on, so the
 # two cannot drift apart. Imported as a MODULE, read at call time: see the
 # read sites for why `from … import MAX_…` would undo the whole point.
-from narranexus.platform.utils import file_safety as _file_safety
+from narranexus.platform.utils.fs import file_safety as _file_safety
 
 
 MAX_BUNDLE_BYTES = 500 * 1024 * 1024            # 500 MB on-disk

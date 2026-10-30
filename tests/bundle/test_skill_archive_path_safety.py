@@ -265,7 +265,7 @@ async def _seed_agent(db, agent_id, agent_name, user_id="test_user"):
 
 
 def _seed_skill_on_disk(ws_root: Path, agent_id: str, user_id: str, skill_dir: str):
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     d = agent_workspace_path(agent_id, user_id, base=str(ws_root)) / "skills" / skill_dir
     d.mkdir(parents=True, exist_ok=True)
@@ -784,8 +784,8 @@ async def test_archive_local_zip_enforces_the_shared_gate(
     import io as _io
 
     from narranexus.platform.bundle import skill_backup
-    from narranexus.platform.utils import file_safety
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs import file_safety
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_ENTRIES", 5)
     monkeypatch.setattr(file_safety, "MAX_SKILL_ARCHIVE_DECOMPRESSED_BYTES", 1024 * 1024)
@@ -794,6 +794,9 @@ async def test_archive_local_zip_enforces_the_shared_gate(
     ws = agent_workspace_path(aid, uid, base=str(tmp_path / "ws"))
     ws.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(skill_backup, "_agent_workspace_root", lambda a, u: ws)
+    # the zip is read through the link-free walk below base_working_path
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path / "ws"), raising=False)
 
     src = ws / "candidate.zip"
     if make_archive == "garbage":
@@ -881,7 +884,7 @@ async def test_archive_local_zip_refuses_a_symlinked_workspace(tmp_path, archive
 
     from narranexus.platform.bundle import skill_backup
     from narranexus.platform.settings import settings as core_settings
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     base = tmp_path / "ws"
     monkeypatch.setattr(core_settings, "base_working_path", str(base))
@@ -911,7 +914,7 @@ async def test_full_copy_symlinked_skill_dir_warns_and_the_export_completes(
     import os
 
     from narranexus.platform.bundle.builder import ExportSelection, build_bundle
-    from narranexus.platform.utils.workspace_paths import agent_workspace_path
+    from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
     aid, uid = "agent_fclink01", "test_user"
     await _seed_agent(db_client, aid, "FcLinkAgent", uid)

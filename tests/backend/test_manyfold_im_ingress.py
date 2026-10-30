@@ -1040,6 +1040,9 @@ import backend.routes.manyfold.files as files_mod  # noqa: E402
 
 @pytest.fixture
 def files_app(monkeypatch, tmp_path):
+    # File I/O runs through the link-free walk below base_working_path, so the
+    # fake workspace must live under it.
+    monkeypatch.setattr(files_mod.core_settings, "base_working_path", str(tmp_path), raising=False)
     workspace = tmp_path / "agent_x_u1"
     workspace.mkdir()
 
@@ -1098,8 +1101,10 @@ async def test_files_write_overwrite_semantics(files_app):
 async def test_convert_attachments_persists_via_native_store(monkeypatch, tmp_path):
     import narranexus.platform.repository.agent_repository as agent_repo_mod
     import narranexus.platform.utils.attachment_storage as storage_mod
-    import narranexus.platform.utils.workspace_paths as wsp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wsp_mod
 
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)  # confined storage
     workspace = tmp_path / "agent_x_u1"
     (workspace / "chat-attachments/s1/u").mkdir(parents=True)
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 32
@@ -1143,6 +1148,79 @@ async def test_convert_attachments_persists_via_native_store(monkeypatch, tmp_pa
     # Native marker resolution works: file is in the upload store + index.
     resolved = storage_mod.resolve_attachment_path("agent_x", "u1", att["file_id"])
     assert resolved is not None and resolved.exists()
+
+
+async def test_convert_attachments_swapped_dir_after_the_guard_never_reads_the_victim(monkeypatch, tmp_path):
+    """The escape guard only CHECKS: between it and the read the sender swaps
+    `chat-attachments` for a link into another tenant's tree. The bytes are read
+    through the link-free walk, so the victim's file is never converted/stored."""
+    import os
+    from pathlib import Path
+
+    workspace, png = _fake_workspace_env(monkeypatch, tmp_path)
+    victim = tmp_path / "victim_ws"
+    (victim / "s1" / "u").mkdir(parents=True)
+    (victim / "s1" / "u" / "cat.png").write_bytes(b"\x89PNG\r\n\x1a\nVICTIM-SECRET")
+    real_rel = Path.relative_to
+    fired = []
+
+    def swapping(self, *other, **kw):
+        out = real_rel(self, *other, **kw)
+        if self.name == "cat.png" and other and Path(other[0]) == workspace and not fired:
+            fired.append(True)
+            os.rename(workspace / "chat-attachments", tmp_path / "chat-attachments.moved")
+            os.symlink(victim, workspace / "chat-attachments")
+        return out
+
+    monkeypatch.setattr(Path, "relative_to", swapping)
+    ingress = ingress_mod.ManagedChannelIngress()
+    extra = _tagged_extra()
+    extra["manyfold_attachments"] = [
+        {"name": "cat.png", "mime": "image/png", "size": len(png), "path": "chat-attachments/s1/u/cat.png"}
+    ]
+    await ingress.convert_attachments(
+        working_source=WorkingSource.LARK, agent_id="agent_x", trigger_extra_data=extra, db=object(),
+    )
+    assert fired, "the swap must actually have happened"
+    assert extra.get("attachments", []) == []  # degraded to text-only
+    stored = [p.read_bytes() for p in workspace.rglob("*") if p.is_file() and p.parent.name != "u"]
+    assert not any(b"VICTIM-SECRET" in b for b in stored)
+
+
+async def test_convert_attachments_with_a_workspace_link_is_refused_not_resolved_into_the_victim(monkeypatch, tmp_path):
+    """The workspace used to be .resolve()d: a workspace dir that is a link made
+    the VICTIM's tree "the workspace", so the escape guard passed."""
+    import os
+
+    import narranexus.platform.repository.agent_repository as agent_repo_mod
+    import narranexus.platform.utils.fs.workspace_paths as wsp_mod
+    from narranexus.platform.settings import settings as core_settings
+
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)
+    victim = tmp_path / "victim_ws"
+    (victim / "chat-attachments" / "s1" / "u").mkdir(parents=True)
+    (victim / "chat-attachments" / "s1" / "u" / "cat.png").write_bytes(b"\x89PNG\r\n\x1a\nVICTIM-SECRET")
+    workspace = tmp_path / "agent_x_u1"
+    os.symlink(victim, workspace)
+
+    class _FakeRepo:
+        def __init__(self, db):
+            pass
+
+        async def resolve_owner(self, agent_id):
+            return "u1"
+
+    monkeypatch.setattr(agent_repo_mod, "AgentRepository", _FakeRepo)
+    monkeypatch.setattr(wsp_mod, "resolve_existing_workspace", lambda a, u, base=None: workspace)
+    ingress = ingress_mod.ManagedChannelIngress()
+    extra = _tagged_extra()
+    extra["manyfold_attachments"] = [
+        {"name": "cat.png", "mime": "image/png", "size": 40, "path": "chat-attachments/s1/u/cat.png"}
+    ]
+    await ingress.convert_attachments(
+        working_source=WorkingSource.LARK, agent_id="agent_x", trigger_extra_data=extra, db=object(),
+    )
+    assert extra.get("attachments", []) == []
 
 
 async def test_convert_attachments_never_raises_on_bad_env(monkeypatch):
@@ -1498,8 +1576,10 @@ async def test_silent_ingest_writes_silent_audit(monkeypatch, audit_rows):
 def _fake_workspace_env(monkeypatch, tmp_path):
     import narranexus.platform.repository.agent_repository as agent_repo_mod
     import narranexus.platform.utils.attachment_storage as storage_mod
-    import narranexus.platform.utils.workspace_paths as wsp_mod
+    import narranexus.platform.utils.fs.workspace_paths as wsp_mod
 
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path), raising=False)  # confined storage
     workspace = tmp_path / "agent_x_u1"
     (workspace / "chat-attachments/s1/u").mkdir(parents=True)
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 32

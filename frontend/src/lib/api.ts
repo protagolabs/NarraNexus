@@ -34,6 +34,7 @@ import type {
   SocialNetworkSearchResponse,
   ChatHistoryResponse,
   SimpleChatHistoryResponse,
+  ChatLatestResponse,
   EventLogResponse,
   CreateAgentResponse,
   UpdateAgentResponse,
@@ -132,30 +133,14 @@ import type {
 import { markGuideCoachmarkPending } from './guideCoachmark';
 import { isSessionDeadFailure, readAuthCode } from './authFailure';
 import { confirmSessionDeath } from './sessionGuard';
+import { ApiError } from './apiError';
+import { guardedFetch } from './guardedFetch';
 
-/**
- * Error thrown for non-2xx API responses. Carries the HTTP status so
- * callers can branch on it (e.g. treat DELETE 404 as already-gone)
- * instead of string-matching the message.
- */
 /** How long one patrol-switch PUT may stay in flight before the store gives
  *  up on it (see teamsStore.patrolInFlight). */
 export const PATROL_WRITE_TIMEOUT_MS = 15_000;
 
-export class ApiError extends Error {
-  readonly status: number;
-  /** The backend's raw HTTPException `detail` ('' when the body had
-   * none) — callers that show user copy want this, not the prefixed
-   * message. */
-  readonly detail: string;
-
-  constructor(status: number, message: string, detail: string = '') {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.detail = detail;
-  }
-}
+export { ApiError, RequestLoopBlockedError } from './apiError';
 
 export interface TelemetryConsentState {
   mode: 'off' | 'meta' | 'full';
@@ -208,7 +193,7 @@ class ApiClient {
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
     const authHeaders = this.getAuthHeaders();
-    const response = await fetch(url, {
+    const response = await guardedFetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -546,6 +531,17 @@ class ApiClient {
     );
   }
 
+  /**
+   * For each listed agent, the timestamp of the newest row its conversation
+   * tab (getSimpleChatHistory, include='chat') shows — one call for a whole
+   * agent list. The background "agent replied" poll; at most 200 ids a call.
+   */
+  async getChatLatest(agentIds: string[]): Promise<ChatLatestResponse> {
+    const params = new URLSearchParams();
+    for (const id of agentIds) params.append('agent_ids', id);
+    return this.request<ChatLatestResponse>(`/api/agents/chat-latest?${params}`);
+  }
+
   async getEventLog(agentId: string, eventId: string): Promise<EventLogResponse> {
     return this.request<EventLogResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/event-log/${encodeURIComponent(eventId)}`
@@ -855,8 +851,9 @@ class ApiClient {
   /** Liveness of the caller's own session. Does no database work server-side,
    *  so it is the cheap way to ask "is my JWT still accepted?" — used by
    *  ProtectedRoute on mount. (lib/sessionGuard probes the same endpoint with
-   *  a raw fetch, deliberately bypassing `request<T>` to avoid recursing into
-   *  the very 401 handler it serves.) */
+   *  guardedFetch's unguarded raw path, deliberately bypassing `request<T>`
+   *  and the request-loop guard to avoid recursing into the very 401 handler
+   *  it serves.) */
   async getSession(): Promise<SessionResponse> {
     return this.request<SessionResponse>('/api/auth/session');
   }
@@ -935,7 +932,7 @@ class ApiClient {
     formData.append('file', file);
 
     const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/files`;
-    const response = await fetch(url, {
+    const response = await guardedFetch(url, {
       method: 'POST',
       body: formData,
       headers: this.getAuthHeaders(),
@@ -965,7 +962,7 @@ class ApiClient {
    */
   async getTranscriptionAvailability(): Promise<{ available: boolean; reason: string }> {
     const url = `${getApiBaseUrl()}/api/transcription/availability`;
-    const response = await fetch(url, { headers: this.getAuthHeaders() });
+    const response = await guardedFetch(url, { headers: this.getAuthHeaders() });
     if (!response.ok) {
       // Don't block the chat UI on a probe failure — fall back to
       // "available" so the existing post-upload banner takes over.
@@ -1020,7 +1017,7 @@ class ApiClient {
     if (options?.source) params.set('source', options.source);
     const qs = params.toString();
     const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments${qs ? `?${qs}` : ''}`;
-    const response = await fetch(url, {
+    const response = await guardedFetch(url, {
       method: 'POST',
       body: formData,
       headers: this.getAuthHeaders(),
@@ -1043,7 +1040,7 @@ class ApiClient {
    */
   async fetchAttachmentBlob(agentId: string, fileId: string): Promise<Blob> {
     const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments/${encodeURIComponent(fileId)}/raw`;
-    const response = await fetch(url, {
+    const response = await guardedFetch(url, {
       method: 'GET',
       headers: this.getAuthHeaders(),
     });
@@ -1061,7 +1058,7 @@ class ApiClient {
    */
   async fetchBusAttachmentBlob(relPath: string): Promise<Blob> {
     const url = `${getApiBaseUrl()}/api/agent-inbox/attachments/raw?path=${encodeURIComponent(relPath)}`;
-    const response = await fetch(url, {
+    const response = await guardedFetch(url, {
       method: 'GET',
       headers: this.getAuthHeaders(),
     });
@@ -1098,7 +1095,7 @@ class ApiClient {
    */
   async fetchWorkspaceFileBlob(agentId: string, path: string): Promise<Blob> {
     const url = this.workspaceFileRawUrl(agentId, path);
-    const response = await fetch(url, { headers: this.getAuthHeaders() });
+    const response = await guardedFetch(url, { headers: this.getAuthHeaders() });
     if (!response.ok) {
       throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
@@ -1180,7 +1177,7 @@ class ApiClient {
     formData.append('url', url);
     formData.append('branch', branch);
 
-    const response = await fetch(`${getApiBaseUrl()}/api/skills/install`, {
+    const response = await guardedFetch(`${getApiBaseUrl()}/api/skills/install`, {
       method: 'POST',
       body: formData,
       headers: this.getAuthHeaders(),
@@ -1203,7 +1200,7 @@ class ApiClient {
     formData.append('source', 'zip');
     formData.append('file', file);
 
-    const response = await fetch(`${getApiBaseUrl()}/api/skills/install`, {
+    const response = await guardedFetch(`${getApiBaseUrl()}/api/skills/install`, {
       method: 'POST',
       body: formData,
       headers: this.getAuthHeaders(),
@@ -1653,7 +1650,7 @@ class ApiClient {
     onEvent: (event: PluginInstallEvent) => void,
   ): Promise<Extract<PluginInstallEvent, { done: true }>> {
     const baseUrl = getApiBaseUrl();
-    const response = await fetch(`${baseUrl}/api/plugins/${encodeURIComponent(id)}/install`, {
+    const response = await guardedFetch(`${baseUrl}/api/plugins/${encodeURIComponent(id)}/install`, {
       method: 'POST',
       headers: { ...this.getAuthHeaders() },
     });
@@ -2292,7 +2289,7 @@ class ApiClient {
     if (options?.source) params.set('source', options.source);
     const qs = params.toString();
     const url = `${getApiBaseUrl()}/api/teams/${encodeURIComponent(teamId)}/chat/attachments${qs ? `?${qs}` : ''}`;
-    const response = await fetch(url, { method: 'POST', body: formData, headers: this.getAuthHeaders() });
+    const response = await guardedFetch(url, { method: 'POST', body: formData, headers: this.getAuthHeaders() });
     if (!response.ok) {
       throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
@@ -2306,7 +2303,7 @@ class ApiClient {
   async exportBundle(payload: BundleExportRequest): Promise<{ blob: Blob; filename: string; warningsCount: number; externalEdgesDropped: number }> {
     const baseUrl = getApiBaseUrl();
     const authHeaders = this.getAuthHeaders();
-    const resp = await fetch(`${baseUrl}/api/bundle/export`, {
+    const resp = await guardedFetch(`${baseUrl}/api/bundle/export`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(payload),
@@ -2337,7 +2334,7 @@ class ApiClient {
     const authHeaders = this.getAuthHeaders();
     const fd = new FormData();
     fd.append('file', file);
-    const resp = await fetch(`${baseUrl}/api/bundle/import/preflight`, {
+    const resp = await guardedFetch(`${baseUrl}/api/bundle/import/preflight`, {
       method: 'POST',
       headers: { ...authHeaders },
       body: fd,
@@ -2439,7 +2436,7 @@ class ApiClient {
     fd.append('source_type', payload.sourceType);
     if (payload.sourceUrl) fd.append('source_url', payload.sourceUrl);
     if (payload.file) fd.append('file', payload.file);
-    const resp = await fetch(`${baseUrl}/api/bundle/skills/archives/upload`, {
+    const resp = await guardedFetch(`${baseUrl}/api/bundle/skills/archives/upload`, {
       method: 'POST',
       headers: { ...authHeaders },
       body: fd,
@@ -2497,11 +2494,20 @@ class ApiClient {
 // Mock layer — when enabled (?mock=1 or localStorage), calls fall through
 // to hand-authored fixtures instead of the backend. The real ApiClient
 // instance is preserved and used for any method the mock doesn't override
-// so the UI never 404s in mock mode. See src/lib/mock/index.ts.
+// so the UI never 404s in mock mode. The fixtures are not imported here:
+// main.tsx loads src/lib/mock/index.ts on demand and hands it to
+// installMockApi before the first render, so production never ships them.
 // ─────────────────────────────────────────────────────────────────────────
-import { MOCK_ENABLED, mockApi } from './mock';
+import { MOCK_ENABLED } from './mock/flag';
+import type { MockApi } from './mock';
 
 const _realApi = new ApiClient();
+let _mockApi: MockApi | null = null;
+
+/** Mock mode only: route the methods `impl` defines to it from now on. */
+export function installMockApi(impl: MockApi): void {
+  _mockApi = impl;
+}
 
 export const api: ApiClient = MOCK_ENABLED
   ? (() => {
@@ -2513,8 +2519,8 @@ export const api: ApiClient = MOCK_ENABLED
       );
       return new Proxy(_realApi, {
         get(target, prop, receiver) {
-          const mocked = (mockApi as unknown as Record<string | symbol, unknown>)[prop];
-          if (typeof mocked === 'function') return mocked.bind(mockApi);
+          const mocked = _mockApi && (_mockApi as unknown as Record<string | symbol, unknown>)[prop];
+          if (typeof mocked === 'function') return mocked.bind(_mockApi);
           return Reflect.get(target, prop, receiver);
         },
       });

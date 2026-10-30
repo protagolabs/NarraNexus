@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/download.ts
-last_verified: 2026-07-30
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -122,3 +122,11 @@ function that picks the correct strategy per runtime surface:
   allowed path prefixes are accepted).
 - Mirrors the pattern established by `fetchArtifactViaTauri` /
   `artifact_fetch.rs` for Rust-proxied HTTP.
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

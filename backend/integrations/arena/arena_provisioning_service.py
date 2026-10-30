@@ -430,7 +430,7 @@ class ArenaProvisioningService:
             # + claim_token are written here (credentials.json + skill env) — the
             # only place they live on our side.
             t = perf_counter()
-            from narranexus.platform.utils.workspace_paths import agent_workspace_path
+            from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
             workspace = agent_workspace_path(agent_id, user_id, base=settings.base_working_path)
             onboarder.install_skill(
                 workspace / "skills", creds, owner_user_id=user_id
@@ -494,7 +494,7 @@ class ArenaProvisioningService:
         agent_metadata. Best-effort: any failure returns a status string and
         leaves provisioning unaffected.
         """
-        from narranexus.platform.utils.workspace_paths import agent_workspace_path
+        from narranexus.platform.utils.fs.workspace_paths import agent_workspace_path
 
         prior = metadata.get("arena_owner_bind")
         try:
@@ -502,11 +502,19 @@ class ArenaProvisioningService:
                 agent_id, user_id, base=settings.base_working_path
             )
             cred_file = workspace / "skills" / "arena" / "credentials.json"
-            if not cred_file.exists():
-                return prior or "error"
             import json as _json
 
-            creds_data = _json.loads(cred_file.read_text(encoding="utf-8"))
+            from narranexus.platform.utils.fs import confined_io
+
+            # Read through the link-free walk below the base: the skill dir sits
+            # in the agent's own mount, and a link swapped in must not make
+            # another tenant's credentials.json this agent's.
+            try:
+                croot, crel = confined_io.split_under_base(str(cred_file), settings.base_working_path)
+                with confined_io.open_read(croot, crel) as cf:
+                    creds_data = _json.loads(cf.read().decode("utf-8"))
+            except FileNotFoundError:
+                return prior or "error"
             api_key = creds_data.get("api_key")
             if not api_key:
                 return prior or "error"

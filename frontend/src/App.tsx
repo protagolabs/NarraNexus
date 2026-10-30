@@ -26,12 +26,13 @@ import { captureProductEvent } from '@/lib/productAnalytics';
 import { PAGES, useRegistryEntries } from '@/platform/registries';
 import { pageRouteElements } from '@/platform/pageRoutes';
 import { pluginsBootSettled, subscribePluginsBoot } from '@/platform/loader';
-import { owesWelcomeFlow } from '@/lib/onboardingGate';
+import { owesWelcomeFlow } from '@/lib/agentIdentity/onboardingGate';
 import { initWebAnalytics } from '@/lib/analytics/webAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
 import { ArenaProvisioningModal } from '@/components/arena/ArenaProvisioningModal';
 import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary';
+import { useAccountSuspendedSignOut } from '@/hooks/useAccountSuspendedSignOut';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 
@@ -91,7 +92,7 @@ function ProtectedRoute({
   // one way in: a ?next=/app/chat login, a bookmark or a refresh lands on a
   // protected route directly, and a new account must not skip the welcome flow
   // by arriving through one of those. Answer is cached per session
-  // (lib/onboardingGate), so this costs one request per login, not per mount.
+  // (lib/agentIdentity/onboardingGate), so this costs one request per login, not per mount.
   useEffect(() => {
     if (!gateNeeded) return;
     let alive = true;
@@ -183,7 +184,7 @@ function RootRedirect() {
       return;
     }
     // Does this user still owe the one-time welcome flow? Same cached,
-    // server-side answer ProtectedRoute uses — see lib/onboardingGate for why
+    // server-side answer ProtectedRoute uses — see lib/agentIdentity/onboardingGate for why
     // it is not a provider count any more.
     owesWelcomeFlow(userId)
       .then(setNeedsWelcome)
@@ -222,6 +223,10 @@ function RootRedirect() {
   }
   return <Navigate to="/app/chat" replace />;
 }
+
+/** The amber top banner shared by the account / session notices. */
+const AMBER_TOP_BANNER =
+  'fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]';
 
 function App() {
   const { t } = useTranslation();
@@ -299,6 +304,8 @@ function App() {
   // (on the WS side) was stranded on the chat surface with red "Token
   // expired" bubbles and no way out.
   const [sessionExpired, setSessionExpired] = useState(false);
+  // Suspended account: signed out so every poll stops (see the hook).
+  const [accountSuspended, dismissAccountSuspended] = useAccountSuspendedSignOut();
   useEffect(() => {
     const handler = (e: Event) => {
       const { isLoggedIn, logout } = useConfigStore.getState();
@@ -486,20 +493,29 @@ function App() {
       <MockBanner />
       <UpdateBanner />
       <ArenaProvisioningModal />
-      {sessionExpired && (
+      {accountSuspended && (
         <div
-          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
+          className={AMBER_TOP_BANNER}
+          onClick={dismissAccountSuspended}
+          role="alert"
+        >
+          {t('appBanners.accountSuspended')}
+        </div>
+      )}
+      {!accountSuspended && sessionExpired && (
+        <div
+          className={AMBER_TOP_BANNER}
           onClick={() => setSessionExpired(false)}
           role="alert"
         >
           {t('appBanners.sessionExpired')}
         </div>
       )}
-      {!sessionExpired &&
+      {!sessionExpired && !accountSuspended &&
         expiresInMs !== null &&
         shouldShowExpiryWarning(expiresInMs, expiryDismissedAt) && (
           <div
-            className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
+            className={AMBER_TOP_BANNER}
             onClick={() => setExpiryDismissedAt(expiresInMs)}
             role="status"
           >

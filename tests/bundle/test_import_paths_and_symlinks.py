@@ -28,11 +28,22 @@ def test_artifact_relpath_rejects_escapes(bad):
 
 
 def test_rewrite_artifact_row_rejects_a_climbing_pointer():
-    with pytest.raises(ValueError):
-        importer.rewrite_artifact_row(
-            {"artifact_id": "art_1", "file_path": "../../user_victim/agent_v/x.html"},
-            "agent_0123456789ab", "user_x",
-        )
+    from loguru import logger
+
+    lines: list[str] = []
+    sink_id = logger.add(lines.append, level="WARNING", format="{message}")
+    try:
+        with pytest.raises(ValueError):
+            importer.rewrite_artifact_row(
+                {"artifact_id": "art_1", "file_path": "../../user_victim/agent_v/x.html"},
+                "agent_0123456789ab", "user_x", team_id=None,
+            )
+    finally:
+        logger.remove(sink_id)
+    # confirm's second line still reports the attempt to the boundary alert
+    hits = [line for line in lines if "[security.boundary]" in line]
+    assert len(hits) == 1
+    assert "surface=bundle_import.confirm" in hits[0] and "actor=user_x" in hits[0]
 
 
 def test_rewrite_artifact_row_prefixes_the_new_workspace_and_resets_session_state():
@@ -42,7 +53,7 @@ def test_rewrite_artifact_row_prefixes_the_new_workspace_and_resets_session_stat
             "session_id": "s", "original_session_id": "s0", "pinned": 0,
             "created_at": "t", "updated_at": "t",
         },
-        "agent_0123456789ab", "user_x",
+        "agent_0123456789ab", "user_x", team_id=None,
     )
     assert row["file_path"] == "user_x/agent_0123456789ab/report/index.html"
     assert row["user_id"] == "user_x"
@@ -52,8 +63,42 @@ def test_rewrite_artifact_row_prefixes_the_new_workspace_and_resets_session_stat
 
 
 def test_rewrite_artifact_row_keeps_an_empty_pointer_empty():
-    row = importer.rewrite_artifact_row({"artifact_id": "art_1", "file_path": ""}, "agent_0123456789ab", "user_x")
+    row = importer.rewrite_artifact_row(
+        {"artifact_id": "art_1", "file_path": ""}, "agent_0123456789ab", "user_x", team_id=None,
+    )
     assert row["file_path"] == ""
+
+
+# 2026-10-30 audit: `rewrite_row` maps an id only when it is in id_map, and
+# `team_id` is not a mapped field at all. A crafted artifacts.json could insert
+# rows whose agent_id / team_id name ANOTHER tenant's agent or team, landing the
+# attacker's titles/descriptions in that agent's artifact state block and that
+# team's panel. The row must belong to the agent/team this import creates.
+
+
+def test_rewrite_artifact_row_pins_agent_to_the_imported_agent():
+    row = importer.rewrite_artifact_row(
+        {"artifact_id": "art_1", "file_path": "a.md", "agent_id": "agent_victim00001"},
+        "agent_0123456789ab", "user_x", team_id=None,
+    )
+    assert row["agent_id"] == "agent_0123456789ab"
+
+
+@pytest.mark.parametrize("bundle_team", [None, "team_new0000001"])
+def test_rewrite_artifact_row_never_keeps_a_foreign_team(bundle_team):
+    row = importer.rewrite_artifact_row(
+        {"artifact_id": "art_1", "file_path": "a.md", "team_id": "team_victim00001"},
+        "agent_0123456789ab", "user_x", team_id=bundle_team,
+    )
+    assert row["team_id"] == bundle_team
+
+
+def test_rewrite_artifact_row_leaves_a_private_row_private():
+    row = importer.rewrite_artifact_row(
+        {"artifact_id": "art_1", "file_path": "a.md", "team_id": None},
+        "agent_0123456789ab", "user_x", team_id="team_new0000001",
+    )
+    assert row["team_id"] is None
 
 
 @pytest.mark.parametrize("ok", ["report/index.html", "index.html", "a/b/c.md", "/leading/slash.html"])
@@ -61,7 +106,7 @@ def test_artifact_relpath_accepts_workspace_relative(ok):
     assert importer.artifact_relpath_or_raise(ok) == ok.lstrip("/")
 
 
-def test_copy_skill_dir_keeps_symlinks_as_links(tmp_path):
+def test_copy_tree_keeps_symlinks_as_links(tmp_path):
     outside = tmp_path / "outside.txt"
     outside.write_text("host-secret", encoding="utf-8")
     src = tmp_path / "src_skill"
@@ -69,7 +114,9 @@ def test_copy_skill_dir_keeps_symlinks_as_links(tmp_path):
     (src / "SKILL.md").write_text("# s", encoding="utf-8")
     os.symlink(outside, src / "leak.txt")
     dst = tmp_path / "dst_skill"
-    importer.copy_skill_dir(src, dst)
+    from narranexus.platform.utils.fs import confined_io
+
+    confined_io.copy_tree(str(tmp_path), "src_skill", str(tmp_path), "dst_skill")
     assert (dst / "SKILL.md").read_text(encoding="utf-8") == "# s"
     assert (dst / "leak.txt").is_symlink()
     assert os.readlink(dst / "leak.txt") == str(outside)

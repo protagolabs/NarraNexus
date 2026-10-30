@@ -41,9 +41,10 @@ def _clean_module_state():
     between tests is a classic ordering hazard (round-3 review, minor #5)."""
     from narranexus.platform.module_system.identity import mcp_auth
 
+    mcp_auth._TOKENLESS.reset()
     yield
     mcp_auth._owner_cache.clear()
-    mcp_auth._tokenless_counts.clear()
+    mcp_auth._TOKENLESS.reset()
 
 
 def _keypair() -> tuple[bytes, bytes]:
@@ -341,36 +342,24 @@ def test_every_agent_id_tool_is_async():
     would silently bypass the policy."""
     import inspect
 
-    from narranexus.platform.module_system import module_registry
+    from tests.module._tool_surface import served_tools
 
+    # The served (instrumented) fns: the wrapper is async exactly when the
+    # tool is, so this checks what module_runner actually serves.
+    tools, failed = served_tools()
+    assert not failed, f"modules failed to build: {failed}"
     offenders = []
     checked = 0
-    for name, cls in module_registry.items():
-        try:
-            m = cls(agent_id="probe", user_id="probe", database_client=None)
-            mcp = m.create_mcp_server()
-        except Exception:
-            continue
-        if mcp is None:
-            continue
-        for tool in mcp._tool_manager.list_tools():
-            fn = getattr(tool, "fn", None)
-            if fn is None:
-                continue
-            try:
-                params = inspect.signature(fn).parameters
-            except (TypeError, ValueError):
-                continue
-            if "agent_id" in params and not inspect.iscoroutinefunction(fn):
-                offenders.append(f"{name}.{tool.name}")
-            if "agent_id" in params:
-                checked += 1
+    for t in tools:
+        if "agent_id" in t.params and not inspect.iscoroutinefunction(t.fn):
+            offenders.append(f"{t.module}.{t.name}")
+        if "agent_id" in t.params:
+            checked += 1
     assert offenders == [], (
         f"sync tools declaring agent_id bypass OwnerScopedPolicy: {offenders}"
     )
-    # Coverage floor: the except/continue above silently skips modules whose
-    # constructor starts failing under database_client=None — without this,
-    # the invariant could hollow out while staying green (93 tools today).
+    # Coverage floor: build failures are asserted above; this guards against
+    # the walk itself shrinking (93 tools today).
     assert checked >= 90, f"invariant only checked {checked} tools — coverage shrank"
 
 
@@ -676,7 +665,7 @@ def _audit_capture(tmp_path, monkeypatch):
         "narranexus.platform.repository.executor_audit_repository.ExecutorAuditRepository",
         FakeAuditRepo,
     )
-    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", 0.0)
+    mcp_auth._TOKENLESS.reset()  # pending counts dropped, window open
     return rows
 
 
@@ -717,21 +706,23 @@ def test_declared_caller_is_length_capped_and_cardinality_bounded(monkeypatch):
     # caller-controlled dimensions (caller AND path — round-5 #1: an overflow
     # key that kept path re-opened the hole on the other dimension). Extras
     # land in the ONE constant bucket; the total survives.
-    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", float("inf"))
-    mcp_auth._tokenless_counts.clear()
+    from narranexus.platform.module_system._audit_window import OVERFLOW_KEY
+
+    mcp_auth._TOKENLESS.reset()
+    monkeypatch.setattr(mcp_auth._TOKENLESS, "_deadline", float("inf"))  # hold the window open
     extra = 50
     for i in range(mcp_auth._TOKENLESS_KEYS_MAX + extra):
         asyncio.run(
             mcp_auth._note_tokenless(f"usr_{i}", "POST", f"/made-up/{i}", 7801)
         )
-    assert len(mcp_auth._tokenless_counts) == mcp_auth._TOKENLESS_KEYS_MAX + 1
-    assert mcp_auth._tokenless_counts[mcp_auth._OVERFLOW_KEY] == extra
-    total = sum(mcp_auth._tokenless_counts.values())
-    assert total == mcp_auth._TOKENLESS_KEYS_MAX + extra
+    pending = mcp_auth._TOKENLESS.pending()
+    assert len(pending) == mcp_auth._TOKENLESS_KEYS_MAX + 1
+    assert pending[OVERFLOW_KEY] == extra
+    assert sum(pending.values()) == mcp_auth._TOKENLESS_KEYS_MAX + extra
     # Path length is capped too — the middleware counts BEFORE routing, so a
     # made-up path of request-line size must not bloat an entry.
     asyncio.run(mcp_auth._note_tokenless("usr_x", "POST", "/p" * 5000, 7801))
-    longest = max(len(k[2]) for k in mcp_auth._tokenless_counts)
+    longest = max(len(k[2]) for k in mcp_auth._TOKENLESS.pending() if len(k) > 2)
     assert longest <= mcp_auth._PATH_MAX_LEN
 
 
@@ -788,3 +779,38 @@ def test_placeholder_declarations_do_not_trip_the_mismatch(tmp_path, monkeypatch
     r = TestClient(_app()).post("/messages/", headers=headers)
     assert r.status_code == 200
     assert r.text == "usr_real"
+
+
+def test_tokenless_overflow_row_keeps_its_shape(monkeypatch):
+    """The overflow entry is the constant bucket rendered as
+    {caller:'<overflow>', method:'', path:'', port:0} — port stays an int, so
+    SQL over the counts sees one type per field (origin/dev parity)."""
+    import asyncio
+
+    from narranexus.platform.module_system.identity import mcp_auth
+
+    rows: list[dict] = []
+
+    async def fake_get_db_client():
+        return object()
+
+    class FakeAuditRepo:
+        def __init__(self, db):
+            pass
+
+        async def record(self, **kw):
+            rows.append(kw)
+
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", fake_get_db_client)
+    monkeypatch.setattr(
+        "narranexus.platform.repository.executor_audit_repository.ExecutorAuditRepository",
+        FakeAuditRepo,
+    )
+    monkeypatch.setattr(mcp_auth._TOKENLESS, "_keys_max", 1)
+    monkeypatch.setattr(mcp_auth._TOKENLESS, "_deadline", float("inf"))
+    asyncio.run(mcp_auth._note_tokenless("usr_a", "POST", "/a", 7801))
+    asyncio.run(mcp_auth._note_tokenless("usr_b", "POST", "/b", 7801))
+    mcp_auth._TOKENLESS._deadline = 0.0
+    asyncio.run(mcp_auth._note_tokenless("usr_c", "POST", "/c", 7801))
+    counts = rows[0]["detail"]["counts"]
+    assert {"caller": "<overflow>", "method": "", "path": "", "port": 0, "n": 2} in counts

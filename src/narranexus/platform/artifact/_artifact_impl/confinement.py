@@ -22,19 +22,29 @@ directories is inside the tenant's own bind mount, so the tenant can replace
 it with a symlink; resolving it would turn the link's target into "the
 owner's root". The entry, on the other hand, IS realpath-ed, so a link anywhere
 on its path lands it outside the lexical roots and fails closed.
+
+``confine_entry`` is only the CHECK. Anything that then reads or writes the
+entry must not re-open the returned string: between the check and the open a
+directory on the path can be swapped for a link into another tenant's tree.
+The ``*_confined`` helpers at the bottom perform the I/O itself through
+``utils/fs/confined_io`` (every component below the base opened with
+``O_NOFOLLOW`` relative to its parent fd), so a link planted at any moment is
+refused instead of followed. 2026-10-30.
 """
 from __future__ import annotations
 
+import hashlib
 import os
-from typing import Optional
+from typing import BinaryIO, Optional
 
-from narranexus.platform.utils.workspace_paths import (
+from narranexus.platform.utils.fs import confined_io
+from narranexus.platform.utils.fs.workspace_paths import (
     workspace_candidate_relpaths,
     resolve_workspace_relative_file,
     team_shared_dir,
 )
 
-from .errors import ArtifactPathEscape
+from .errors import ArtifactPathEscape, ArtifactTooLarge
 
 
 def owner_roots(
@@ -76,3 +86,99 @@ def confine_entry(
     if not any(_within(entry, r) for r in roots):
         raise ArtifactPathEscape(f"entry outside owner roots: {file_path!r}")
     return entry
+
+
+# ── confined I/O on a confine_entry result ────────────────────────────────────
+#
+# Every helper takes the ABSOLUTE path ``confine_entry`` / ``resolve_raw_file``
+# produced and re-derives (base, rel) from it; the I/O then walks ``rel`` below
+# ``base`` with O_NOFOLLOW. ``base`` is the realpath of ``base_working_path``
+# (platform-owned), so everything a tenant can influence is inside ``rel``.
+# ConfinedPathError (link on the path, malformed, platform unsupported) is
+# mapped to ArtifactPathEscape; plain OSErrors (missing, not a regular file)
+# pass through for the caller's 410 mapping.
+
+
+def split_under_base(abs_path: str, base: Optional[str] = None) -> tuple[str, str]:
+    """(realpath(base), POSIX path of ``abs_path`` below it), computed lexically.
+
+    ``abs_path`` may spell the base either by its real path or as configured
+    (relative / symlinked ``BASE_WORKING_PATH`` in local and desktop runs); the
+    tenant tail is never resolved here. ArtifactPathEscape when ``abs_path`` is
+    not strictly below the base.
+    """
+    if base is None:
+        from narranexus.platform.settings import settings
+        base = settings.base_working_path
+    try:
+        return confined_io.split_under_base(abs_path, base)
+    except confined_io.ConfinedPathError as e:
+        raise ArtifactPathEscape(str(e)) from e
+
+
+def open_confined_read(abs_path: str, base: Optional[str] = None) -> BinaryIO:
+    """Open a confined entry/asset for binary reading (regular files only)."""
+    base_real, rel = split_under_base(abs_path, base)
+    try:
+        return confined_io.open_read(base_real, rel)
+    except confined_io.ConfinedPathError as e:
+        raise ArtifactPathEscape(str(e)) from e
+
+
+def confined_stat(abs_path: str, base: Optional[str] = None) -> os.stat_result:
+    """fstat of one confined regular file (size / mtime of the inode that was
+    opened through the link-free walk)."""
+    with open_confined_read(abs_path, base) as f:
+        return os.fstat(f.fileno())
+
+
+def confined_file_size(abs_path: str, base: Optional[str] = None) -> int:
+    """Size of one confined regular file, measured on the fd it was opened as."""
+    return confined_stat(abs_path, base).st_size
+
+
+def sha256_of_confined(abs_path: str, base: Optional[str] = None) -> str:
+    """sha256 hex of one confined regular file, streamed in 1 MB chunks off the
+    fd it was opened as (the hash covers exactly the inode that was proven)."""
+    digest = hashlib.sha256()
+    with open_confined_read(abs_path, base) as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_confined_atomic(abs_path: str, data: bytes, base: Optional[str] = None) -> None:
+    """Atomically replace a confined file's bytes (temp + rename via dir fds)."""
+    base_real, rel = split_under_base(abs_path, base)
+    try:
+        confined_io.write_atomic(base_real, rel, data)
+    except confined_io.ConfinedPathError as e:
+        raise ArtifactPathEscape(str(e)) from e
+
+
+def confined_dir_size(abs_dir: str, base: Optional[str] = None) -> int:
+    """Recursive regular-file byte total under a confined directory (links are
+    neither followed nor counted)."""
+    base_real, rel = split_under_base(abs_dir, base)
+    try:
+        return confined_io.dir_regular_bytes(base_real, rel)
+    except confined_io.SymlinkRefusedError as e:
+        raise ArtifactPathEscape(str(e)) from e
+    except confined_io.ConfinedScanError as e:
+        # Not a path escape: the tree is too deep / unreadable to be measured, so
+        # its size cannot be vouched for against the artifact limit — refuse it
+        # with its own message (413 like any over-limit artifact).
+        raise ArtifactTooLarge(f"artifact directory cannot be measured, so it is refused: {e}") from e
+    except confined_io.ConfinedPathError as e:
+        raise ArtifactPathEscape(str(e)) from e
+
+
+def confined_path_exists(abs_path: str, base: Optional[str] = None) -> bool:
+    """True when ``abs_path`` exists (as anything but a followed link) under a
+    link-free path. A link on the way reads as absent, never as a peek."""
+    try:
+        base_real, rel = split_under_base(abs_path, base)
+        confined_io.lstat(base_real, rel)
+        return True
+    except (OSError, confined_io.ConfinedPathError, ArtifactPathEscape):
+        return False
