@@ -27,6 +27,7 @@ import type {
   LogEntry,
 } from '@/types/platform';
 import { isTauri, invokeTauri } from '@/lib/tauri';
+import { guardedFetch } from './guardedFetch';
 
 export interface PlatformBridge {
   // Service management (local mode only)
@@ -160,7 +161,7 @@ class WebBridge implements PlatformBridge {
 
     let target = serviceId;
     if (!target) {
-      const listRes = await fetch(`${base}/api/admin/logs/services`, {
+      const listRes = await guardedFetch(`${base}/api/admin/logs/services`, {
         headers,
       });
       if (!listRes.ok) {
@@ -173,7 +174,7 @@ class WebBridge implements PlatformBridge {
       if (!target) return [];
     }
 
-    const tailRes = await fetch(
+    const tailRes = await guardedFetch(
       `${base}/api/admin/logs/${encodeURIComponent(target)}/tail?n=500`,
       { headers },
     );

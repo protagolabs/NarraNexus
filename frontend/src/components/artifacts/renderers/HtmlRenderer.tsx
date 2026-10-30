@@ -44,6 +44,7 @@ import { isTauri, fetchArtifactViaTauri } from '@/lib/tauri';
 import { applyBridgeEdit, type BridgeEdit } from '@/lib/artifactEditing/htmlAnchorReplace';
 import { sha256Hex } from '@/lib/sha256';
 import ArtifactHealModal from '../ArtifactHealModal';
+import { guardedFetch } from '@/lib/guardedFetch';
 
 interface Props {
   artifact: Artifact;
@@ -127,7 +128,7 @@ export default function HtmlRenderer({ artifact }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(url, { method: 'HEAD' });
+        const r = await guardedFetch(url, { method: 'HEAD' });
         if (!cancelled && r.status === 410) {
           attemptRef.current();
         }
@@ -201,7 +202,7 @@ export default function HtmlRenderer({ artifact }: Props) {
       if (!url) return;
       setEditNotice(null);
       const attempt = async (): Promise<'ok' | 'conflict' | 'anchor-failed'> => {
-        const r = await fetch(url);
+        const r = await guardedFetch(url);
         if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
         const buf = await r.arrayBuffer();
         // fatal: a non-UTF-8 source must degrade to the AI channel, never be

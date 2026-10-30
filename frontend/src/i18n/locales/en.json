@@ -3034,7 +3034,8 @@
     "savedTo": "Saved to {{path}}",
     "downloadFailed": "Download failed: {{error}}",
     "doneTitle": "Done",
-    "edit": "Edit"
+    "edit": "Edit",
+    "requestBlocked": "Too many repeated requests. Try again shortly."
   },
   "toast": {
     "view": "View",

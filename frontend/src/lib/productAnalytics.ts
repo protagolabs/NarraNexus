@@ -1,5 +1,6 @@
 import { getAuthHeaders } from './authHeaders';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+import { guardedFetch } from './guardedFetch';
 
 export type ProductEventName =
   // First-run flow (WelcomePage). Replaced setup_* when /setup's single
@@ -42,7 +43,7 @@ export function captureProductEvent(
   event: ProductEventName,
   dimensions: ProductEventDimensions = {},
 ): void {
-  void fetch(`${getApiBaseUrl()}/api/analytics/events`, {
+  void guardedFetch(`${getApiBaseUrl()}/api/analytics/events`, {
     method: 'POST',
     keepalive: true,
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },

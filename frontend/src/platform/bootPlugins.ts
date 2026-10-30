@@ -17,6 +17,7 @@ import { getAuthHeaders } from '@/lib/authHeaders';
 import { useConfigStore } from '@/stores';
 import { setErrorPoster } from './errorSink';
 import { loadPlugins } from './loader';
+import { guardedFetch } from '@/lib/guardedFetch';
 
 /**
  * Returns the store-subscription's unsubscribe function — `main.tsx` calls this once via `void
@@ -25,7 +26,7 @@ import { loadPlugins } from './loader';
  */
 export async function bootPlugins(): Promise<() => void> {
   setErrorPoster((pluginId, body) =>
-    fetch(`${getApiBaseUrl()}/api/plugin-factory/${encodeURIComponent(pluginId)}/errors`, {
+    guardedFetch(`${getApiBaseUrl()}/api/plugin-factory/${encodeURIComponent(pluginId)}/errors`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(body),

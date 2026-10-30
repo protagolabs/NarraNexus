@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/platform.ts
-last_verified: 2026-07-22
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -80,3 +80,11 @@ Used exclusively by `pages/SystemPage.tsx`. No other component in the current co
 **`platform` is evaluated at module load.** There is no lazy detection. If `window.__TAURI__` is not defined at parse time (possible in some Tauri initialization sequences), `WebBridge` is returned and the desktop app shows "Platform Not Available" even though Tauri is available.
 
 **All `TauriBridge` methods throw `"Tauri runtime not available"`.** `SystemPage` catches exceptions from `platform.*` calls, so thrown errors are handled gracefully. But any code that calls `platform.*` without a try/catch will crash in Tauri mode until Phase 4 is implemented.
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

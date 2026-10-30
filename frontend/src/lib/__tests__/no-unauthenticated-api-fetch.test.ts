@@ -67,7 +67,9 @@ describe('no unauthenticated /api/ fetches', () => {
 
       // `fetch(` … `/api/` on the same call. Deliberately loose: the point is
       // to make the author justify the line, not to parse TypeScript.
-      for (const match of body.matchAll(/fetch\s*\(([^)]*)\)/g)) {
+      // `guardedFetch(` counts too: it is plain fetch underneath and attaches
+      // no identity headers of its own.
+      for (const match of body.matchAll(/(?:guardedF|f)etch\s*\(([^)]*)\)/g)) {
         if (match[1].includes('/api/')) {
           offenders.push(`${rel}: ${match[0].slice(0, 80)}`);
         }

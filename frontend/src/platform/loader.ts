@@ -55,6 +55,7 @@ import {
   type SlotActionDef,
   type SlotComponentDef,
 } from './registries';
+import { guardedFetch } from '@/lib/guardedFetch';
 
 export interface FactoryPluginRow {
   id: string;
@@ -170,7 +171,7 @@ async function sha256Base64(bytes: ArrayBuffer, digestImpl: LoaderDeps['digestIm
 }
 
 async function fetchVerified(url: string, integrity: string | undefined, deps: LoaderDeps): Promise<string> {
-  const fetchImpl = deps.fetchImpl ?? fetch;
+  const fetchImpl = deps.fetchImpl ?? guardedFetch;
   const res = await fetchImpl(url, { headers: isTauri() ? {} : getAuthHeaders() });
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
   const bytes = await res.arrayBuffer();
@@ -373,7 +374,7 @@ export async function loadPlugins(deps: LoaderDeps = {}): Promise<FactoryPluginR
 
 async function loadPluginsInner(deps: LoaderDeps): Promise<FactoryPluginRow[]> {
   exposeHostGlobals();
-  const fetchImpl = deps.fetchImpl ?? fetch;
+  const fetchImpl = deps.fetchImpl ?? guardedFetch;
   let rows: FactoryPluginRow[] = [];
   try {
     const res = await fetchImpl(`${getApiBaseUrl()}/api/plugin-factory`, { headers: getAuthHeaders(), signal: AbortSignal.timeout(FACTORY_FETCH_TIMEOUT_MS) });

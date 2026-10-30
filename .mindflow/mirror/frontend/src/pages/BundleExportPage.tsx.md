@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/pages/BundleExportPage.tsx
-last_verified: 2026-08-20
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -122,3 +122,11 @@ Added an opt-in `include_channel_credentials` checkbox + a strong plaintext-secr
 
 - `listSkills` / `getSocialNetworkList` / `listFiles` 这些 backend endpoint 的实际返回字段名我没 100% 对齐（A3/A4 不确定项），可能在某些 tab 显示空 → 测试时若空就是字段名不对，调对齐即可。
 - `RadioCard` 默认勾选逻辑写在 `useEffect([JSON.stringify(skillsForAgents), ...])`，对深嵌套对象用 stringify 兜底；性能足够。
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

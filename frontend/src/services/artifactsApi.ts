@@ -20,6 +20,7 @@
 
 import type { Artifact } from '@/types/artifact';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+import { guardedFetch } from '@/lib/guardedFetch';
 
 // Every fetch URL is built by prepending `getApiBaseUrl()`. It returns
 // `''` in cloud (page origin == backend origin, so relative paths
@@ -75,7 +76,7 @@ export function authHeaders(): Record<string, string> {
  * needed (typically the cleanup function of the same useEffect).
  */
 export async function fetchArtifactBlobUrl(url: string): Promise<string> {
-  const r = await fetch(url);
+  const r = await guardedFetch(url);
   if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
   const blob = await r.blob();
   return URL.createObjectURL(blob);
@@ -83,7 +84,7 @@ export async function fetchArtifactBlobUrl(url: string): Promise<string> {
 
 /** Fetch raw text from a public artifact URL (csv / markdown / chart JSON). */
 export async function fetchArtifactText(url: string): Promise<string> {
-  const r = await fetch(url);
+  const r = await guardedFetch(url);
   if (!r.ok) throw new Error(`fetch failed: ${r.status}`);
   return r.text();
 }
@@ -138,13 +139,13 @@ export class ArtifactEditConflictError extends Error {
 export const artifactsApi = {
   async listSession(agentId: string, sessionId: string): Promise<Artifact[]> {
     const url = `${base(agentId)}?scope=session&session_id=${encodeURIComponent(sessionId)}`;
-    const r = await fetch(url, { headers: authHeaders() });
+    const r = await guardedFetch(url, { headers: authHeaders() });
     if (!r.ok) throw new Error(`listSession failed: ${r.status}`);
     return r.json();
   },
 
   async listPinned(agentId: string): Promise<Artifact[]> {
-    const r = await fetch(`${base(agentId)}?scope=pinned`, { headers: authHeaders() });
+    const r = await guardedFetch(`${base(agentId)}?scope=pinned`, { headers: authHeaders() });
     if (!r.ok) throw new Error(`listPinned failed: ${r.status}`);
     return r.json();
   },
@@ -156,13 +157,13 @@ export const artifactsApi = {
    * the agent believes exists can never disagree.
    */
   async listContext(agentId: string): Promise<Artifact[]> {
-    const r = await fetch(`${base(agentId)}?scope=context`, { headers: authHeaders() });
+    const r = await guardedFetch(`${base(agentId)}?scope=context`, { headers: authHeaders() });
     if (!r.ok) throw new Error(`listContext failed: ${r.status}`);
     return r.json();
   },
 
   async getDetail(agentId: string, artifactId: string): Promise<Artifact> {
-    const r = await fetch(`${base(agentId)}/${artifactId}`, { headers: authHeaders() });
+    const r = await guardedFetch(`${base(agentId)}/${artifactId}`, { headers: authHeaders() });
     if (!r.ok) throw new Error(`getDetail failed: ${r.status}`);
     return r.json();
   },
@@ -174,7 +175,7 @@ export const artifactsApi = {
    * HTML resolves to a sibling asset under the same token-protected path.
    */
   async getRawUrl(agentId: string, artifactId: string): Promise<string> {
-    const r = await fetch(`${base(agentId)}/${artifactId}/view-token`, {
+    const r = await guardedFetch(`${base(agentId)}/${artifactId}/view-token`, {
       headers: authHeaders(),
     });
     if (!r.ok) throw new Error(`view-token failed: ${r.status}`);
@@ -183,7 +184,7 @@ export const artifactsApi = {
   },
 
   async setPinned(agentId: string, artifactId: string, pinned: boolean): Promise<Artifact> {
-    const r = await fetch(`${base(agentId)}/${artifactId}`, {
+    const r = await guardedFetch(`${base(agentId)}/${artifactId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ pinned }),
@@ -206,7 +207,7 @@ export const artifactsApi = {
     artifactId: string,
     entryPath?: string,
   ): Promise<HealResponse> {
-    const r = await fetch(`${base(agentId)}/${artifactId}/heal`, {
+    const r = await guardedFetch(`${base(agentId)}/${artifactId}/heal`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ entry_path: entryPath ?? null }),
@@ -222,7 +223,7 @@ export const artifactsApi = {
    * option together with the "no workspace-root entry" hard rule in r3.
    */
   async remove(agentId: string, artifactId: string): Promise<void> {
-    const r = await fetch(`${base(agentId)}/${artifactId}`, {
+    const r = await guardedFetch(`${base(agentId)}/${artifactId}`, {
       method: 'DELETE',
       headers: authHeaders(),
     });
@@ -239,7 +240,7 @@ export const artifactsApi = {
     agentId: string,
     params: RegisterFromWorkspaceParams,
   ): Promise<Artifact> {
-    const r = await fetch(`${base(agentId)}/register`, {
+    const r = await guardedFetch(`${base(agentId)}/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(params),
@@ -261,7 +262,7 @@ export const artifactsApi = {
    * (a non-public target is rejected with the backend's error detail).
    */
   async openUrl(agentId: string, url: string, title?: string): Promise<Artifact> {
-    const r = await fetch(`${base(agentId)}/url`, {
+    const r = await guardedFetch(`${base(agentId)}/url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ url, title }),
@@ -286,7 +287,7 @@ export const artifactsApi = {
     artifactId: string,
     mode: 'iframe' | 'stream' | null,
   ): Promise<Artifact> {
-    const r = await fetch(`${base(agentId)}/${artifactId}/embed-mode`, {
+    const r = await guardedFetch(`${base(agentId)}/${artifactId}/embed-mode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ mode }),
@@ -305,7 +306,7 @@ export const artifactsApi = {
     artifactId: string,
     body: { content: string; base_hash: string },
   ): Promise<Artifact> {
-    const r = await fetch(`${base(agentId)}/${artifactId}/content`, {
+    const r = await guardedFetch(`${base(agentId)}/${artifactId}/content`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
@@ -324,13 +325,13 @@ export const artifactsApi = {
   // ── user-scoped (Settings → Artifacts management UI) ────────────────────────
 
   async listAll(userId: string): Promise<Artifact[]> {
-    const r = await fetch(userBase(userId), { headers: authHeaders() });
+    const r = await guardedFetch(userBase(userId), { headers: authHeaders() });
     if (!r.ok) throw new Error(`listAll failed: ${r.status}`);
     return r.json();
   },
 
   async bulkDelete(userId: string, artifactIds: string[]): Promise<BulkDeleteResult> {
-    const r = await fetch(userBase(userId), {
+    const r = await guardedFetch(userBase(userId), {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ artifact_ids: artifactIds }),
