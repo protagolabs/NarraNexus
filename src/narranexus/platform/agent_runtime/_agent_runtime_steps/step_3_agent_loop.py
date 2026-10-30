@@ -89,7 +89,6 @@ _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 # package's __init__ eager-imports step_3_agent_loop). Imported above.
 
 
-
 def ensure_agent_workspace_dir(agent_working_path: str, base_working_path: str) -> None:
     """Create the agent's workspace dir (idempotent) through the link-free walk
     below ``base_working_path``.

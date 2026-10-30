@@ -393,8 +393,9 @@ def list_dir(root: str, rel: str = "") -> list[DirEntryInfo]:
 
 
 #: Hard cap on the depth ``walk_tree`` / ``iter_tree`` descend (one held fd per
-#: level). Far below any RLIMIT_NOFILE (macOS soft limit is 256); deeper trees
-#: raise TreeTooDeepError instead of silently dropping content.
+#: level). A quarter of macOS's default soft RLIMIT_NOFILE (256), so a walk
+#: leaves room for concurrent requests; deeper trees raise TreeTooDeepError
+#: instead of silently dropping content.
 MAX_TREE_DEPTH = 64
 
 

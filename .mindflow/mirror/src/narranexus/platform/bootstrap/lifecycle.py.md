@@ -4,6 +4,12 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（续）— context_runtime 的 auto-delete 也走受限删除
+
+调用方 `context_runtime._settle_bootstrap` 删除 `Bootstrap.md` 不再 `os.remove(status.bootstrap_path)`，改为
+`split_under_base` + `confined_io.unlink`（词法路径，绝不 resolve）：存在性检查之后、删除之前，租户能把
+自己的 agent 目录换成指向别人的链接。下方条目里"`os.remove(status.bootstrap_path)`"以本条为准。
+
 ## 2026-10-30（复审 2）— `bootstrap_file_present`：Bootstrap.md 的存在性只在受限路径上判断
 
 `os.path.isfile(Bootstrap.md)` 按路径，会顺着租户在自己挂载里放的链接（或被换成链接的目录）去探别的租户的 workspace。现在 `bootstrap_file_present` 经 `split_under_base` + `lstat`，

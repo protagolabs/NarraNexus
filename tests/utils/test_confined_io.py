@@ -874,7 +874,7 @@ def test_walk_tree_file_swapped_for_a_link_after_listing_is_refused(tree):
                 node.open_file()
 
 
-def test_walk_tree_order_matches_the_previous_path_sorted_depth_first_order(tree):
+def test_walk_tree_order_is_per_directory_name_sorted_depth_first(tree):
     root = tree["root"]
     for rel in ("z/one.txt", "m/two.txt", "m/sub/three.txt", "a/aa.txt"):
         os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)

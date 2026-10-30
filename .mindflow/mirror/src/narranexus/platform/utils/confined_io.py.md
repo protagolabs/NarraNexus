@@ -38,7 +38,8 @@ stub: false
 - `link_or_copy`：两个父目录 fd 上 `linkat`（源必须是常规文件，链接/特殊文件 → `NotARegularFileError`；链接后复核类型，必要时撤销），失败（跨设备等）才字节复制；目标 `O_EXCL`。
 - `walk_tree(root, rel, skip=, recurse=, strict=, max_depth=64)`：**线性时间**的遍历——起点经一次受限遍历到达，之下**每层只持有一个目录 fd**，子目录与文件都相对其父 fd
   `openat`（`TreeNode.open_file()` 一次 `openat`，无需从根重走；只在迭代停在该条目期间有效）。链接 / FIFO / socket 不产出；`skip` 剪枝整棵子树；
-  顺序仍是"本目录条目按名排序，再按名排序依次进入子目录"的深度优先（内容哈希依赖它）。**深度硬上限 `MAX_TREE_DEPTH=64`**，超过抛 `TreeTooDeepError`（永不静默跳过——导出 / 哈希 / 大小限制都依赖完整性）；
+  顺序是"本目录条目按名排序，再按名排序依次进入子目录"的深度优先（技能内容哈希不依赖它：
+  install_pipeline 自己再按 `PurePosixPath.parts` 排序）。**深度硬上限 `MAX_TREE_DEPTH=64`**，超过抛 `TreeTooDeepError`（永不静默跳过——导出 / 哈希 / 大小限制都依赖完整性）；
   进不去的子目录（被换成链接 / 不可读）**记 WARNING 后跳过**，`strict=True` 则抛。`iter_tree` 是只要列表的薄封装。
   （旧实现每个目录都从根重走，深度 D 是 O(D²)：2000 层 5 秒、1 万层约 2 分钟，且后端周期性对账会被拖住；现已修。）
 - `copy_tree(src_root, src_rel, dst_root, dst_rel)`：把目录复制成**新**目录。**源必须是平台自有 staging 或同一租户的目录，绝不能是别的租户可控的
@@ -92,7 +93,9 @@ narramessenger `_matrix_send`。
 
 ### 完整性声明（口径）与仍**未转换**的位置
 
-扫描口径：`git grep -lE "agent_workspace_path|agent_workspace_relpath|resolve_existing_workspace|base_working_path|get_workspace_path|team_shared_dir|bus_files_dir|user_shared_root|resolve_agent_workspace_cwd|workspace_candidate_relpaths|resolve_workspace_relative_file|resolve_inside_workspace|BASE_WORKING_PATH" -- src backend plugins scripts`
+扫描口径：`git grep -lE "agent_workspace_path|agent_workspace_relpath|resolve_existing_workspace|base_working_path|get_workspace_path|team_shared_dir|bus_files_dir|user_shared_root|resolve_agent_workspace_cwd|workspace_candidate_relpaths|resolve_workspace_relative_file|resolve_inside_workspace|BASE_WORKING_PATH|bootstrap_path" -- src backend plugins scripts`，
+外加对 `src backend plugins` 中每一处 `rmtree` / `os.remove` / `unlink` 的逐个检查（路径来自计算对象、不含上述词的删除点——
+如 `context_runtime` 的 `status.bootstrap_path`——就是这样漏掉过的）。
 命中的**每个**文件都已逐个检查（含 `resolve_agent_workspace_cwd` 的全部调用方）。**除下表外**，它们对租户可写树的 by-path 读 / 写 / 删 / 列表 / stat 站点均已转换；下表是**全部**例外及原因：
 
 - **路径交给另一个进程**（无法传 fd，只能靠 `resolve_*` 的检查，已知并接受）：`backend/routes/office_watch/proxy.py` `/office-watch/open` 与 `utils/office_watch.py`（`Popen` officecli）；
@@ -108,7 +111,9 @@ narramessenger `_matrix_send`。
   `scripts/data_migrations/migrate_users_to_netmind.py`、`scripts/release/deploy-cloud.sh`。
 - **平台自有路径，不在租户挂载内**：`backend/routes/manyfold/diagnostics.py`（对 `base_working_path` 本身做 `os.access`、日志目录 `iterdir`）；
   `marketplace/_skill_marketplace_impl/{artifact_store,secret_box}.py`（`base_working_path` 的**兄弟**目录 / 平台私有目录）；`platform/settings.py` / `utils/db/schema_registry.py`（仅配置 / 文档字符串）。
-- **只做路径字符串拼接、不碰磁盘**：`plugins/builtin.common_tools/.../artifact_lines.py`、`plugins/builtin.social_network/.../routes.py`（仅注释）、`message_bus/team_files.py`、`message_bus/message_bus_trigger.py`
+- **调试脚本，不是运行路径**：`scripts/debug/verify_arena_provision.py`（~:105 对租户技能文件按路径 `.exists()`，
+  且仍用旧的平铺布局；只在开发机手动运行）。
+- **只做路径字符串拼接、不碰磁盘**：`module_system/data_access/__init__.py`（仅 re-export）、`plugins/builtin.common_tools/.../artifact_lines.py`、`plugins/builtin.social_network/.../routes.py`（仅注释）、`message_bus/team_files.py`、`message_bus/message_bus_trigger.py`
   （`team_shared_dir` 只用于生成提示词里的路径）、`utils/workspace_paths.py`（路径构造本身）、`artifact_repository.py` / `artifact_schema.py`（字段文档）。
 - 技能的**暂存区**一侧：`skill_module.py` 的 zip / GitHub 解包（写入 `tempfile.mkdtemp()` 下的平台自有目录）与 `_find_skill_root` / `parse_skill_package` 对 staging 的遍历——staging 不在任何租户挂载内；
   bundle 导入的工作区 tar 在 `mkdtemp` 暂存区解开后再 `merge_tree`。

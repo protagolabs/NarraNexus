@@ -95,7 +95,10 @@ def compute_content_hash(skill_dir: Path) -> str:
     # files. Links are skipped (never dereferenced); a directory that cannot be
     # walked, or a tree deeper than ``confined_io.MAX_TREE_DEPTH``, raises
     # (ConfinedPathError / OSError / TreeTooDeepError) rather than hashing less.
-    # Order = the previous ``sorted(rglob)`` order, so recorded hashes stay valid.
+    # Order = the previous ``sorted(rglob)`` order, so recorded hashes stay
+    # valid — except for skills containing symlinked FILES: the old rglob +
+    # is_file() hashed the link targets, links are now skipped, so such a skill
+    # reads as "modified" once after this change.
     # Phase 1 lists (linear: one held fd per level); phase 2 reads each file in
     # the sorted order the digest needs (one bounded walk per file, depth capped).
     root, rel = confined_io.split_source(str(skill_dir), settings.base_working_path)
