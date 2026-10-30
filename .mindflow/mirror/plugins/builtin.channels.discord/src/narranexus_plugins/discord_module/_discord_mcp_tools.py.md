@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.channels.discord/src/narranexus_plugins/discord_module/_discord_mcp_tools.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — `discord_dm` 标注 `@external_user_id`
+
+它的 `user_id` 是 Discord snowflake，不是本平台账号；平台现在会把不一致的账号 `user_id`
+改成回合所有者，不标注就会把 DM 发给错误的 id。
 ## 2026-08-11 (PR-H) — 写侧(bind/unbind/status)迁入 seam
 
 bind/status/unbind 不再本地 `_get_manager`（已删）——bind→`seam.bind`（经各自 do_bind + owner-gated `/api/<ch>/bind` 路由）、unbind→`seam.unbind`、status 的 live-check→`seam.test_connection`（POST /test）。**tool 文件 get_mcp_db_client == 0，写路径不再需本地 db**。

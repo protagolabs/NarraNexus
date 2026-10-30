@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/module_system/_mcp_identity.py
-last_verified: 2026-10-08
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — user_id 不一致时以回合所有者为准；`external_user_id` 豁免
+
+工具上的 `user_id` 指本平台账号（其 workspace / 技能 / job / 产物），产物和技能工具会拿它
+拼 workspace 路径，保留模型填的别人的 id 就会写进别的租户目录。当初"先测量再收紧"的测量
+结果：prod 四天 0 次不一致。现在 `resolve_caller_user_id` 对不一致的真实值返回注入的回合
+所有者（warning 记录）；None 仍不碰；无注入（本地、直连）时原样放行。
+
+真正指外部平台用户的参数（目前只有 Discord 的 `discord_dm`，Discord snowflake）用
+`@external_user_id` 标注（放在 `@mcp.tool()` 下面），wrapper 对其 `user_id` 完全不做
+解析，`agent_id` 照常解析。新增工具如果 `user_id` 是第三方 id，必须加这个标注。
 
 ## 2026-10-08（PR #410 review）
 
@@ -126,9 +137,8 @@ Jobs 列表永远空着，agent 却报成功（假成功）。
    会静默改变查询语义；`is_placeholder_user_id(None)` 为 False（与
    `is_placeholder_agent_id` 极性相反，两个函数不能互换）；也因此
    wrapper 里 user_id **没有** agent_id 那个「缺省参数则注入」分支。
-3. **mismatch 保留原值只 warning**——平台对「它启动了谁」只有一个真相，
-   但多用户流程里传别人 user_id 可能合法（销售/团队场景），先用
-   warning 计量再决定是否收紧（PR #230 的先测量纪律）。
+3. **mismatch 以注入的回合所有者为准**（2026-10-30 起；之前是保留原值只
+   warning，见文首条目）。
 
 `resolve_caller_user_id(None)` 在函数入口直接返回，不读取请求 header；None
 分支本来就禁止注入，读取结果必定被丢弃。`install_caller_identity` 与

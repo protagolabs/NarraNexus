@@ -443,41 +443,52 @@ def caller_event_id_from_request() -> Optional[str]:
 def resolve_caller_user_id(supplied: Any) -> Any:
     """The user_id a tool should actually use.
 
-    DELIBERATELY weaker than :func:`resolve_caller_agent_id` — the two
-    identities do not share a trust model:
+    ``user_id`` on a tool names a NarraNexus ACCOUNT — whose workspace, skills,
+    jobs and artifacts the call touches — so the injected turn owner is the
+    truth whenever it is present:
 
-    - placeholder string → injected turn owner (the wrong-user job_create
-      would otherwise succeed under a phantom user and the owner's Jobs
-      list stays empty while the agent reports success);
-    - ``None`` → returned untouched, injection must never scope a
-      legitimately unfiltered query;
-    - a mismatching REAL value → KEPT, warning-logged. The platform knows
-      which agent it launched (one truth), but a different user_id can be
-      legitimate in multi-user flows; the warning is the measurement that
-      decides whether overriding is ever justified (PR #230 discipline:
-      measure before you police).
+    - ``None`` → returned untouched; injection must never scope a
+      legitimately unfiltered query (retrieval tools stay agent-scoped);
+    - a placeholder string → the injected turn owner;
+    - a mismatching REAL value → the injected turn owner, warning-logged.
+
+    The mismatch case used to keep the supplied value ("measure before you
+    police"). Measured 2026-10-30: zero mismatches on prod over four days,
+    while artifact and skill tools turned the kept value into a workspace
+    path — another tenant's tree. A tool whose ``user_id`` names someone
+    else (an IM platform user) is marked with :func:`external_user_id` and
+    never reaches this function. Without injection (local mode, a direct
+    MCP client) the supplied value passes through unchanged.
     """
     if supplied is None:
         return None
-
-    if not is_placeholder_user_id(supplied):
-        injected = caller_user_id_from_request()
-        if injected is not None and supplied != injected:
-            logger.warning(
-                f"[mcp-identity] user_id={supplied!r} does not match the turn "
-                f"owner ({injected!r}) — keeping the supplied value (measured, "
-                f"not policed)"
-            )
-        return supplied
-
     injected = caller_user_id_from_request()
-    if injected is None:
+    if injected is None or supplied == injected:
         return supplied
-    logger.info(
-        f"[mcp-identity] user_id={supplied!r} is a placeholder — "
-        f"using the injected turn owner instead"
-    )
+    if is_placeholder_user_id(supplied):
+        logger.info(
+            f"[mcp-identity] user_id={supplied!r} is a placeholder — "
+            f"using the injected turn owner instead"
+        )
+    else:
+        logger.warning(
+            f"[mcp-identity] user_id={supplied!r} does not match the turn "
+            f"owner ({injected!r}) — using the turn owner"
+        )
     return injected
+
+
+def external_user_id(fn: Callable) -> Callable:
+    """Mark a tool whose ``user_id`` parameter is NOT a NarraNexus account.
+
+    Apply it under ``@mcp.tool()``. The caller-identity wrapper then leaves
+    ``user_id`` exactly as supplied (``agent_id`` is still resolved). Use it
+    only where the parameter is a third-party identity such as a Discord
+    snowflake — everywhere else the account rule in
+    :func:`resolve_caller_user_id` is what keeps a tool inside its tenant.
+    """
+    fn._nx_external_user_id = True  # type: ignore[attr-defined]
+    return fn
 
 
 def resolve_caller_agent_id(supplied: Any) -> Any:
@@ -593,6 +604,7 @@ def _wrap_fn(fn: Callable) -> Callable:
     # a string. Normalise instead of comparing to the `dict` type, or the
     # guard silently returns the wrong shape exactly where it matters most.
     returns_dict = _annotation_is_dict(sig.return_annotation)
+    resolves_user = not getattr(fn, "_nx_external_user_id", False)
 
     def _guard(supplied: Any) -> Any:
         msg = placeholder_agent_id_error(supplied)
@@ -603,11 +615,14 @@ def _wrap_fn(fn: Callable) -> Callable:
         # defensively so a direct call cannot crash here.
         names = list(sig.parameters)
 
-        # user_id first: placeholder-only resolution, and NO omitted-param
-        # injection — an absent/None user_id is a legitimate "no filter"
-        # value on retrieval tools, and injecting there silently scopes a
-        # query that was meant to be unscoped.
-        if "user_id" in kwargs:
+        # user_id first: the account rule (see resolve_caller_user_id), and NO
+        # omitted-param injection — an absent/None user_id is a legitimate
+        # "no filter" value on retrieval tools, and injecting there silently
+        # scopes a query that was meant to be unscoped. Tools marked
+        # @external_user_id carry a third-party id here and are skipped.
+        if not resolves_user:
+            pass
+        elif "user_id" in kwargs:
             kwargs = {**kwargs, "user_id": resolve_caller_user_id(kwargs["user_id"])}
         elif "user_id" in names:
             u_idx = names.index("user_id")
@@ -926,6 +941,7 @@ __all__ = [
     "placeholder_agent_id_error",
     "resolve_caller_agent_id",
     "resolve_caller_user_id",
+    "external_user_id",
     "stamp_identity_token",
     "TEAM_ID_HEADER",
     "EVENT_ID_HEADER",

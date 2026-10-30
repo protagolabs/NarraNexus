@@ -15,10 +15,12 @@ The user_id discipline is DELIBERATELY weaker than agent_id's:
 - ``None`` / absent → left alone. Retrieval tools use user_id=None as a
   legitimate "no filter" value; injecting there would silently change
   query semantics.
-- mismatching real value → KEPT, with a warning as the audit trail.
-  Unlike agent identity (the platform launched you — one truth), a
-  different user_id can be legitimate in multi-user flows; we measure
-  before we override (PR #230 discipline).
+- mismatching real value → the injected turn owner REPLACES it (2026-10-30).
+  It used to be kept "until measured"; the measurement (zero mismatches on
+  prod over four days) came in alongside a finding that artifact / skill
+  tools build workspace paths from this value, so a kept foreign id wrote
+  into another tenant's tree. A tool whose ``user_id`` names an EXTERNAL
+  user (an IM platform id) opts out with ``@external_user_id``.
 - bearer: user_id is field 5 of the positional record — old 4-field
   bearers must still parse (codex carries identity ONLY via bearer;
   header-only would leave codex a degraded consumer, the #229 lesson).
@@ -36,6 +38,7 @@ from narranexus.platform.module_system._mcp_identity import (
     USER_ID_HEADER,
     agent_id_headers,
     caller_user_id_from_request,
+    external_user_id,
     install_caller_identity,
     is_placeholder_user_id,
     resolve_caller_user_id,
@@ -128,7 +131,7 @@ def test_headers_builder_omits_user_when_unknown():
 
 
 # ---------------------------------------------------------------------------
-# Resolution: placeholder → inject; None → untouched; mismatch → kept
+# Resolution: placeholder → inject; None → untouched; mismatch → injected wins
 # ---------------------------------------------------------------------------
 
 
@@ -150,9 +153,9 @@ def test_none_user_does_not_read_request_headers():
     read_injected.assert_not_called()
 
 
-def test_mismatching_user_is_kept_not_overridden():
+def test_mismatching_user_is_replaced_by_injected():
     with injected({USER_ID_HEADER: USER}):
-        assert resolve_caller_user_id(OTHER_USER) == OTHER_USER
+        assert resolve_caller_user_id(OTHER_USER) == USER
 
 
 def test_without_injection_everything_passes_through():
@@ -176,6 +179,11 @@ def _server():
 
     @mcp.tool()
     async def optional_user_filter(agent_id: str, user_id: str | None = None) -> dict:
+        return {"agent_id": agent_id, "user_id": user_id}
+
+    @mcp.tool()
+    @external_user_id
+    async def dm_external(agent_id: str, user_id: str, text: str) -> dict:
         return {"agent_id": agent_id, "user_id": user_id}
 
     install_caller_identity(mcp)
@@ -204,8 +212,19 @@ async def test_wrapped_tool_keeps_explicit_none_filter():
 
 
 @pytest.mark.asyncio
-async def test_wrapped_tool_keeps_mismatching_real_user():
+async def test_wrapped_tool_overrides_mismatching_real_user():
     fn = _fn(_server(), "needs_both")
     with injected(agent_id_headers(AGENT, user_id=USER)):
         out = await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")
-    assert out["user_id"] == OTHER_USER
+    assert out["user_id"] == USER
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("external", ["1234567890123456789", "user_current", OTHER_USER])
+async def test_external_user_id_tool_is_left_alone(external):
+    """An IM platform id is not our account id: neither the placeholder rule
+    nor the override may touch it. agent_id is still resolved."""
+    fn = _fn(_server(), "dm_external")
+    with injected(agent_id_headers(AGENT, user_id=USER)):
+        out = await fn(agent_id="agent_current", user_id=external, text="hi")
+    assert out == {"agent_id": AGENT, "user_id": external}

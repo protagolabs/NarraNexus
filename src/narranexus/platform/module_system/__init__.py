@@ -58,6 +58,7 @@ from ._mcp_identity import (
     caller_team_id_from_request,
     caller_turn_source,
     caller_user_id_from_request,
+    external_user_id,
     parse_bearer_identity,
     resolve_caller_agent_id,
     stamp_identity_token,
@@ -178,6 +179,7 @@ __all__ = [
     "caller_user_id_from_request",
     "parse_bearer_identity",
     "resolve_caller_agent_id",
+    "external_user_id",
     "stamp_identity_token",
     # ===== Base class =====
     "XYZBaseModule",
