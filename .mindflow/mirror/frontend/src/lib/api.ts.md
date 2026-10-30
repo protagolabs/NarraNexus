@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-10-16
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — request-loop guard in `request()`
+
+Before `fetch`, GETs pass through a module-level `RequestLoopGuard`
+(`requestLoopGuard.ts`): an identical GET URL repeated more than 15 times in 5s
+is blocked until it stays quiet for a full 5s, and the page as a whole is
+capped at 400 admitted GETs per minute. A refused call waits 1s (rejecting early
+if `options.signal` aborts), logs one console error per URL per minute and
+throws `RequestLoopBlockedError` (subclass of `ApiError`, `status` 0), so
+existing `instanceof ApiError` handling keeps working. Writes are never refused.
+Backstop for render-loop floods (2026-10-30 Channels-section incident).
 
 ## 2026-10-16 — getProviderCatalog
 

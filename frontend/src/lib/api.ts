@@ -132,6 +132,11 @@ import type {
 import { markGuideCoachmarkPending } from './guideCoachmark';
 import { isSessionDeadFailure, readAuthCode } from './authFailure';
 import { confirmSessionDeath } from './sessionGuard';
+import { delayUnlessAborted, isGuardedMethod, LOOP_BLOCK_DELAY_MS, RequestLoopGuard } from './requestLoopGuard';
+
+// One guard per page: identical GETs repeated faster than any legitimate poll are
+// refused locally (see requestLoopGuard.ts) so a render loop cannot flood the edge.
+const requestLoopGuard = new RequestLoopGuard();
 
 /**
  * Error thrown for non-2xx API responses. Carries the HTTP status so
@@ -154,6 +159,14 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.status = status;
     this.detail = detail;
+  }
+}
+
+/** A GET refused locally by the request-loop guard; never reached the network. */
+export class RequestLoopBlockedError extends ApiError {
+  constructor(endpoint: string) {
+    super(0, `Request blocked: ${endpoint} was requested too often (client loop guard)`);
+    this.name = 'RequestLoopBlockedError';
   }
 }
 
@@ -207,6 +220,19 @@ class ApiClient {
     // take effect immediately without requiring a page reload.
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
+    const loopVerdict = isGuardedMethod(options?.method) ? requestLoopGuard.check(url) : 'ok';
+    if (loopVerdict !== 'ok') {
+      const reportKey = loopVerdict === 'loop' ? url : '<page-get-budget>';
+      if (requestLoopGuard.shouldReport(reportKey)) {
+        console.error(
+          loopVerdict === 'loop'
+            ? `[api] request loop guard: refusing repeated GET ${endpoint} — a component is fetching it in a loop`
+            : `[api] request loop guard: page GET budget exhausted, refusing ${endpoint}`,
+        );
+      }
+      await delayUnlessAborted(LOOP_BLOCK_DELAY_MS, options?.signal);
+      throw new RequestLoopBlockedError(endpoint);
+    }
     const authHeaders = this.getAuthHeaders();
     const response = await fetch(url, {
       ...options,
