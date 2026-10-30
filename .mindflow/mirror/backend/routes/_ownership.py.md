@@ -4,6 +4,10 @@ stub: false
 last_verified: 2026-10-30
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30 — 非法 agent_id 记一条边界日志
 
 `require_owned_workspace_agent` 在 `safe_id_segment` 拒绝时调用

@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30 — Bootstrap.md / 欢迎 artifact 的写入走受限 fd
 
 `mkdir` + `write_text` + `unlink` 全部改为 `make_dirs` / `write_atomic` / `unlink`（逐级 `O_NOFOLLOW`）：在 `Bootstrap.md` 上植入链接不会被写穿，workspace 被换成链接 → `ConfinedPathError`。

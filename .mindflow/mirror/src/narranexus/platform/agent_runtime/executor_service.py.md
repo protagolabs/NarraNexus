@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-10-29
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
 
 ### 2026-10-29（管线审查 I-2）— 第二道防线开没开，必须看得见
 

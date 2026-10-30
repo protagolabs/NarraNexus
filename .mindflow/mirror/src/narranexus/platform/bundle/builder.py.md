@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（PR #433 review M3）— 导出遇到进不去的子目录直接失败
 
 `_walk_confined` 新增 `strict`：`_pack_workspace_sync` 与 `_zip_dir` 传 `strict=True`，子目录进不去（属主 chmod 000、遍历中被换成链接）

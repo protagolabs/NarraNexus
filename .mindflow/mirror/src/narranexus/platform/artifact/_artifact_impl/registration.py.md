@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（复审）— `_dir_size` fail closed
 
 `dir_regular_bytes` 超过深度上限或遇到不可读目录时现在抛 `ConfinedScanError`（映射为 `ArtifactPathEscape`，注册被拒），

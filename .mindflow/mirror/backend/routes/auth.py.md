@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
+
+`file_safety` / `fs_safety` / `workspace_paths` 搬入 `narranexus.platform.utils.fs`（见 [[utils/fs/__init__]]），本文件只改了 import 路径，行为与上文意图不变。
+
 ## 2026-10-30（复审 2）— `bootstrap_active` 用 `bootstrap_file_present`
 
 agent 列表与 agent 更新两处的 `os.path.isfile(Bootstrap.md)` 改为 [[../../src/narranexus/platform/bootstrap/lifecycle]] 的受限判断。
