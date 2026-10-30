@@ -46,6 +46,11 @@ def test_an_id_with_whitespace_stays_one_token(lines):
     assert " actor=legacy%20user owner=- " in lines[0]
 
 
+def test_an_id_with_the_signature_separator_is_encoded(lines):
+    log_boundary_violation("s", actor="victim|x", detail="d")
+    assert " actor=victim%7Cx owner=- " in lines[0]
+
+
 def test_detail_cannot_forge_a_second_line(lines):
     log_boundary_violation("s", actor="u1", detail="a\n[security.boundary] surface=fake")
     text = lines[0].rstrip("\n")
@@ -112,6 +117,16 @@ def test_signature_changes_with_any_field(monkeypatch):
     assert boundary_signature("s", "a", "-", "'e'") != base
     monkeypatch.setenv("NX_BOUNDARY_LOG_KEY", "other")
     assert boundary_signature("s", "a", "-", "'d'") != base
+
+
+def test_signature_literal_vector(monkeypatch):
+    """Literal vector, also asserted in the deploy repo's sentinel tests
+    (tests/domain/test_rules.py) — changing the algorithm on either side
+    breaks one of them."""
+    from narranexus.platform.utils.logging._security import boundary_signature
+
+    monkeypatch.setenv("NX_BOUNDARY_LOG_KEY", "secret")
+    assert boundary_signature("s", "a", "-", "'d'") == "d973daebd2447202b20e5409cabf6929"
 
 
 def test_no_key_means_unsigned(lines):

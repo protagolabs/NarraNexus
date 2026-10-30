@@ -44,7 +44,9 @@ BOUNDARY_MARKER = "[security.boundary]"
 # line carries sig = HMAC-SHA256(key, surface|actor|owner|detail) truncated to
 # 32 hex chars, and the sentinel attributes the alert to an account only when
 # the signature verifies. Unset key -> `sig=-` (the sentinel then never names
-# an account from the line).
+# an account from the line). The signature does not cover time: a copied
+# genuine line verifies again (replay), so it may support an alert, never an
+# automatic enforcement decision.
 BOUNDARY_KEY_ENV = "NX_BOUNDARY_LOG_KEY"
 _SIG_HEX = 32
 
@@ -54,7 +56,7 @@ def boundary_signature(surface: str, actor: str, owner: str, detail: str) -> str
 
     Inputs are the exact tokens written to the line, so the verifier can
     recompute it from the line alone."""
-    key = os.environ.get(BOUNDARY_KEY_ENV, "")
+    key = os.environ.get(BOUNDARY_KEY_ENV, "").strip()  # same as the sentinel's read
     if not key:
         return "-"
     msg = "|".join((surface, actor, owner, detail)).encode("utf-8")
@@ -70,12 +72,13 @@ _DETAIL_MAX = 300
 def _id_field(value: Optional[str]) -> str:
     """An id rendered as one whitespace-free token ("-" when unknown).
 
-    Ids are normally plain tokens; a legacy one with a space (or `=`, or a
-    control char) is percent-encoded so a ``key=value`` reader that splits on
+    Ids are normally plain tokens; a legacy one with a space (or `=`, `|`, or
+    a control char) is percent-encoded — `|` because it is the signature's
+    field separator, so a raw one would let two field splits sign alike — so a ``key=value`` reader that splits on
     whitespace still sees exactly one token per field."""
     if not value:
         return "-"
-    if any(ch.isspace() or ch == "=" or not ch.isprintable() for ch in value):
+    if any(ch.isspace() or ch in "=|" or not ch.isprintable() for ch in value):
         return quote(value, safe="")
     return value
 

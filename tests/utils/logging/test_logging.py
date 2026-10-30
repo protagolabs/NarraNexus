@@ -293,8 +293,9 @@ class TestSetupLogging:
     def test_message_line_breaks_are_escaped(self, tmp_path: Path) -> None:
         """User text logged verbatim (a chat message, an agent name) must not
         start a new physical line: a log watcher matches lines from their
-        first character, and an embedded newline would let that text forge a
-        complete line with any head it likes (2026-10-30 sentinel review)."""
+        first character, and an embedded newline would make that text read as a
+        separate, genuine-looking entry (hygiene — the boundary line itself is
+        protected by its signature, not by this)."""
         setup_logging("svc_nl", log_dir=tmp_path, level="INFO")
         logger.info("Input content: hi\n2026-01-01 00:00:00.000 | WARNING  | forged\rx")
         logger.complete()
