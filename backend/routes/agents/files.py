@@ -180,13 +180,13 @@ def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> 
     Returns the realpath-resolved absolute path. The caller decides what to do
     with it (read, delete, ...).
 
-    A `..` segment, a NUL byte and an absolute path are also logged as
+    A `..` segment, a NUL byte, an absolute path, and a link inside the
+    workspace that resolves into ANOTHER tenant's tree are also logged as
     boundary violations (``actor`` = the caller): the file browser only ever
     sends relative paths it listed. Two refusals stay quiet: a dotfile name
-    (a policy — hidden files are not served) and a relative path whose
-    realpath leaves the workspace through a link inside it (an agent's own
-    `venv/bin/python -> /usr/bin/python3` is that shape, so an honest owner can
-    hit it by typing the path).
+    (a policy — hidden files are not served) and a link leaving the shared
+    base altogether (an agent's own `venv/bin/python -> /usr/bin/python3`, which
+    an honest owner can hit by typing the path).
     """
     if not rel_path:
         raise HTTPException(400, "invalid path")
@@ -195,7 +195,10 @@ def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> 
         raise HTTPException(400, "invalid path")
     posix = PurePosixPath(rel_path.replace("\\", "/"))
     parts = posix.parts
-    if posix.is_absolute() or any(part == ".." for part in parts):
+    if posix.is_absolute():
+        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
+        raise HTTPException(400, "invalid path: outside the agent workspace")
+    if any(part == ".." for part in parts):
         log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
         raise HTTPException(400, "invalid path: dotfolders and traversal are not allowed")
     if any(part in ("", ".") or part.startswith(".") for part in parts):
@@ -209,6 +212,13 @@ def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> 
     try:
         candidate.relative_to(workspace)
     except ValueError:
+        # Quiet when the link leads outside the tenant tree (a venv's python ->
+        # /usr/bin); logged when it leads into ANOTHER tenant's tree under the
+        # shared base — no honest workspace links there.
+        from narranexus.platform.settings import settings as platform_settings
+        base = Path(os.path.realpath(platform_settings.base_working_path))
+        if candidate.is_relative_to(base):
+            log_boundary_violation("agent_files.path", actor=actor, detail=f"{rel_path} -> {candidate}")
         raise HTTPException(400, "invalid path: outside the agent workspace")
     return candidate
 

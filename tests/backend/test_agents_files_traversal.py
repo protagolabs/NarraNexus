@@ -424,9 +424,24 @@ def test_nul_and_absolute_paths_are_logged(setup, boundary_lines):
         assert len(hits) == 1 and "surface=agent_files.path" in hits[0], bad
 
 
-def test_link_leaving_the_workspace_is_refused_quietly(setup, boundary_lines):
-    """An agent's own venv-style link pointing outside (python -> /usr/bin/...)
-    is refused, but an honest owner can type that path, so it is not alerted."""
+def test_link_leaving_the_base_is_refused_quietly(setup, boundary_lines, tmp_path):
+    """An agent's own venv-style link pointing outside the shared base
+    (python -> /usr/bin/...) is refused, but an honest owner can type that
+    path, so it is not alerted."""
+    outside = tmp_path / "outside.txt"
+    outside.write_text("x", encoding="utf-8")
+    own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
+    (own_ws / "python").symlink_to(outside)
+    r = setup["client"].get(
+        f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": "python"}, headers=AS_OWNER
+    )
+    assert r.status_code == 400
+    assert boundary_lines() == []
+
+
+def test_link_into_another_tenant_is_logged(setup, boundary_lines):
+    """A planted link into ANOTHER tenant's workspace is refused and alerted:
+    no honest workspace links there."""
     own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
     (own_ws / "link.json").symlink_to(setup["secret"])
     r = setup["client"].get(
@@ -434,7 +449,8 @@ def test_link_leaving_the_workspace_is_refused_quietly(setup, boundary_lines):
     )
     assert r.status_code == 400
     assert "victim-secret" not in r.text
-    assert boundary_lines() == []
+    hits = boundary_lines()
+    assert len(hits) == 1 and "surface=agent_files.path" in hits[0]
 
 
 def test_workspace_swapped_for_a_link_is_logged(setup, boundary_lines):

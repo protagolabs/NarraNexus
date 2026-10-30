@@ -240,7 +240,6 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
             shutil.rmtree(work_dir, ignore_errors=True)
 
 
-
 async def _preflight_in_dir(work_dir: Path, zip_path: Path, user_id: str) -> Dict[str, Any]:
     """The body of :func:`preflight`, run inside its cleanup guard.
 
@@ -415,7 +414,7 @@ async def _preflight_in_dir(work_dir: Path, zip_path: Path, user_id: str) -> Dic
     return summary
 
 
-def _bundle_member_path(work_dir: Path, archive_ref: Optional[str], *, method: str) -> Optional[Path]:
+def _bundle_member_path(work_dir: Path, skill_entry: Dict[str, Any]) -> Optional[Path]:
     """Resolve a manifest `archive_ref` to a path inside the unpacked bundle.
 
     `archive_ref` is written by whoever produced the `.nxbundle` — as untrusted
@@ -439,6 +438,9 @@ def _bundle_member_path(work_dir: Path, archive_ref: Optional[str], *, method: s
     # archive_ref (and skill_dir) for exactly _ARCHIVE_INSTALL_METHODS; an
     # install method that reads archive_ref here without being listed there
     # would skip the preflight gate, so it fails loudly instead.
+    # Read from the entry itself, so a caller cannot pass a convenient literal.
+    method = skill_entry.get("install_method")
+    archive_ref = skill_entry.get("archive_ref")
     if method not in _ARCHIVE_INSTALL_METHODS:
         raise RuntimeError(
             f"install method {method!r} reads archive_ref but is not in "
@@ -1669,7 +1671,7 @@ async def _confirm_inner(
 
             elif method == "zip":
                 archive_ref = s.get("archive_ref")
-                zip_path = _bundle_member_path(work_dir, archive_ref, method=method)
+                zip_path = _bundle_member_path(work_dir, s)
                 if not zip_path or not zip_path.exists():
                     skill_install_failures.append(
                         {"skill": skill_name, "reason": "zip archive missing in bundle"}
@@ -1733,7 +1735,7 @@ async def _confirm_inner(
                 # skills/<agent_id>/<skill>-full.zip with that agent's own
                 # .skill_meta.json + wallets.
                 archive_ref = s.get("archive_ref")
-                zip_path = _bundle_member_path(work_dir, archive_ref, method=method)
+                zip_path = _bundle_member_path(work_dir, s)
                 if not zip_path or not zip_path.exists():
                     skill_install_failures.append(
                         {"skill": skill_name, "reason": "full_copy archive missing in bundle"}

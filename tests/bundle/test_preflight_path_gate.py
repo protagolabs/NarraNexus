@@ -252,6 +252,7 @@ def test_reading_archive_ref_for_an_unlisted_method_fails_loudly(tmp_path):
     from narranexus.platform.bundle import importer
 
     with pytest.raises(RuntimeError, match="_ARCHIVE_INSTALL_METHODS"):
-        importer._bundle_member_path(tmp_path, "skills/a/s.zip", method="tarball")
+        importer._bundle_member_path(tmp_path, {"install_method": "tarball", "archive_ref": "skills/a/s.zip"})
     for method in importer._ARCHIVE_INSTALL_METHODS:
-        assert importer._bundle_member_path(tmp_path, "skills/a/s.zip", method=method) is not None
+        entry = {"install_method": method, "archive_ref": "skills/a/s.zip"}
+        assert importer._bundle_member_path(tmp_path, entry) is not None
