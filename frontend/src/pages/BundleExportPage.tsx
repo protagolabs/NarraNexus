@@ -17,7 +17,7 @@
  * notice. User clicks Download to actually trigger the export.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
@@ -52,7 +52,7 @@ import type {
   BundleMcpPreview,
 } from '@/types';
 import { guardedFetch } from '@/lib/guardedFetch';
-import { isSafeAgentId } from '@/lib/agentIdSafety';
+import { isSafeAgentId } from '@/lib/agentIdentity/agentIdSafety';
 
 const TABS: { id: TabId; labelKey: string; icon: any }[] = [
   { id: 'agents', labelKey: 'pages.bundleExport.tabs.agents', icon: Users },
@@ -267,6 +267,7 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
   }, []);
 
   // Quick-launch from TeamDetailPage: ?team=<team_id>&agents=<csv>
+  const quickLaunchAgents = useRef<string[] | null>(null);
   useEffect(() => {
     const teamFromQuery = searchParams.get('team');
     const agentsFromQuery = searchParams.get('agents');
@@ -275,12 +276,26 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
       setBundleKind('team');
     }
     if (agentsFromQuery) {
-      // Link-supplied ids are untrusted: an unsafe one would go out on export.
-      const ids = agentsFromQuery.split(',').filter(isSafeAgentId);
-      if (ids.length > 0) setSelectedAgents(new Set(ids));
+      // Link-supplied ids are untrusted; they are applied below, once the agent
+      // list is known.
+      quickLaunchAgents.current = agentsFromQuery.split(',').filter(isSafeAgentId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Only the viewer's OWN agents are taken from the link: a team only ever holds
+  // its owner's agents (the teams route refuses anyone else's), and every other
+  // id — however many a crafted link carries — would fire the five per-agent
+  // preview reads below into 403/404s, the failures the edge bans an IP on.
+  useEffect(() => {
+    const pending = quickLaunchAgents.current;
+    if (!pending || !userId) return;
+    const own = new Set(agents.filter((a) => a.created_by === userId).map((a) => a.agent_id));
+    if (own.size === 0) return; // the list has not arrived yet
+    quickLaunchAgents.current = null;
+    const ids = pending.filter((id) => own.has(id));
+    if (ids.length > 0) setSelectedAgents(new Set(ids));
+  }, [agents, userId]);
 
   // Team bundle: picking the team IS the selection — its live members
   // replace the agent set (agents that no longer exist locally are skipped).

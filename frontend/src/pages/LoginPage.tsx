@@ -31,7 +31,7 @@ import { AuthBindDialog } from '@/components/auth/AuthBindDialog';
 import { ForgotPasswordCard } from '@/components/auth/ForgotPasswordCard';
 import { SignUpDialog } from '@/components/auth/SignUpDialog';
 import { isPowerLoginAvailable } from '@/lib/runtimeConfig';
-import { pickDefaultAgent } from '@/lib/defaultAgent';
+import { pickDefaultAgent } from '@/lib/agentIdentity/defaultAgent';
 
 export function LoginPage() {
   const [userId, setUserId] = useState('');

@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/lib/sessionWipe.ts
-last_verified: 2026-08-27
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `onboardingGate` 路径变更
+
+`clearOnboardingGateCache` 改从 `./agentIdentity/onboardingGate` 导入（文件移入
+`lib/agentIdentity/`），行为不变。
 
 # lib/sessionWipe.ts — the one authoritative "leave this session" wipe
 

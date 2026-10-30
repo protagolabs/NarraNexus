@@ -1,8 +1,14 @@
 ---
-code_file: frontend/src/lib/guideAgent.ts
+code_file: frontend/src/lib/agentIdentity/guideAgent.ts
 last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 移入 `lib/agentIdentity/`
+
+与 agentIdSafety / defaultAgent / guideAgent / onboardingGate 同组：「这个 agent id 能不能用、
+该选哪个 agent、哪个是引导 agent、用户是否还欠欢迎流程」。原先平铺在 67 个文件的 `lib/` 里，
+按 `netmindAuth/` 先例收成子目录（无 index 桶文件，直接按模块路径导入，`vi.mock` 目标保持精确）。
 
 ## 2026-10-30 — 只认查看者**自己的** bootstrap_active agent
 
@@ -18,7 +24,7 @@ stub: false
 （门禁会因此多走一次首程；StepAgent 会把用户自己的 agent 介绍成「login 给你建的」）。
 StepAgent 已有 null → 轮询/放弃 的分支。
 
-# lib/guideAgent.ts — which agent is the auto-provisioned guide
+# lib/agentIdentity/guideAgent.ts — which agent is the auto-provisioned guide
 
 ## Why it exists
 

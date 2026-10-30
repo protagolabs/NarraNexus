@@ -9,9 +9,9 @@ import { api } from '@/lib/api';
 import { resetSessionGuard } from '@/lib/sessionGuard';
 import { useTeamsStore } from './teamsStore';
 import type { AgentInfo } from '@/types';
-import { isSafeAgentId } from '@/lib/agentIdSafety';
-import { ownsAnyAgent, pickDefaultAgent } from '@/lib/defaultAgent';
-import { pickGuideAgent } from '@/lib/guideAgent';
+import { isSafeAgentId } from '@/lib/agentIdentity/agentIdSafety';
+import { ownsAnyAgent, pickDefaultAgent } from '@/lib/agentIdentity/defaultAgent';
+import { pickGuideAgent } from '@/lib/agentIdentity/guideAgent';
 
 export type { AgentInfo };
 
@@ -110,9 +110,14 @@ export const useConfigStore = create<ConfigState>()(
 
       // '' clears the selection; anything else must be a possible agent id, or a
       // crafted link / stale state would make every panel request it (see
-      // lib/agentIdSafety.ts).
+      // lib/agentIdentity/agentIdSafety.ts).
       setAgentId: (id) => {
-        if (id && !isSafeAgentId(id)) return;
+        if (id && !isSafeAgentId(id)) {
+          // The id is caller- (often link-) controlled: say that it was
+          // refused, never what it was.
+          console.warn('[agent-id] refusing an unsafe agent id');
+          return;
+        }
         set({ agentId: id });
       },
 

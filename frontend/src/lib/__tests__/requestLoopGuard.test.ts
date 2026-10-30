@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { api, ApiError, RequestLoopBlockedError } from '../api';
 import { __resetRequestLoopGuardForTests, guardedFetch } from '../guardedFetch';
+import { useRuntimeStore } from '@/stores/runtimeStore';
 import {
   delayUnlessAborted,
   isGuardedMethod,
@@ -22,6 +23,11 @@ import {
   PAGE_WINDOW_MS,
   RequestLoopGuard,
 } from '../requestLoopGuard';
+
+// Behind the edge by default: jsdom's origin is localhost, which guardedFetch
+// would read as a local backend (page-wide failure limits off).
+beforeEach(() => useRuntimeStore.setState({ mode: 'cloud-web' }));
+afterEach(() => useRuntimeStore.setState({ mode: null }));
 
 describe('RequestLoopGuard', () => {
   it('admits up to the limit inside one window, then refuses', () => {
@@ -503,6 +509,99 @@ describe('guardedFetch across tabs (pre-push review I-C)', () => {
     await guardedFetch('/api/announced');
     await new Promise((r) => setTimeout(r, 50));
     expect(seen).toEqual(['rapid']);
+  });
+});
+
+describe('guardedFetch in-flight slots and runtime mode', () => {
+  beforeEach(() => __resetRequestLoopGuardForTests());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function slowFetch(status: (url: string) => number) {
+    let inflight = 0;
+    let peak = 0;
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      inflight += 1;
+      peak = Math.max(peak, inflight);
+      await new Promise((r) => setTimeout(r, 10));
+      inflight -= 1;
+      return new Response('{}', { status: status(String(input)) });
+    });
+    return { spy, peak: () => peak };
+  }
+
+  it('a crafted burst of foreign reads on a clean page stays under the edge line', async () => {
+    // e.g. a link listing 50 foreign agents x 5 preview reads each, all 403.
+    const { spy, peak } = slowFetch(() => 403);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await Promise.all(Array.from({ length: 250 }, (_, i) => guardedFetch(`/api/agents/x${i}/files`).catch(() => null)));
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(EDGE_FAIL_SAFE);
+    expect(peak()).toBeLessThanOrEqual(EDGE_FAIL_SAFE);
+  });
+
+  it('a clean burst of first reads all goes out, at most EDGE_FAIL_SAFE at a time', async () => {
+    const { spy, peak } = slowFetch(() => 200);
+    await Promise.all(Array.from({ length: 40 }, (_, i) => guardedFetch(`/api/first/load${i}`)));
+    expect(spy).toHaveBeenCalledTimes(40);
+    expect(peak()).toBeLessThanOrEqual(EDGE_FAIL_SAFE);
+  });
+
+  it('a page-budget refusal is immediate, not delayed', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('', { status: 404 }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (let i = 0; i < PAGE_FAIL_MAX; i++) await guardedFetch(`/api/gone/${i}`);
+    vi.useFakeTimers();
+    let settled = false;
+    const refused = guardedFetch('/api/never/seen').catch((e) => { settled = true; return e; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(true);
+    expect(await refused).toBeInstanceOf(RequestLoopBlockedError);
+  });
+
+  it('a read waiting for a slot rejects on abort and frees nothing it did not hold', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { await gate; return new Response('{}'); });
+    const held = Array.from({ length: EDGE_FAIL_SAFE }, (_, i) => guardedFetch(`/api/held/${i}`));
+    const controller = new AbortController();
+    const waiting = guardedFetch('/api/waiting', { signal: controller.signal });
+    controller.abort();
+    await expect(waiting).rejects.toMatchObject({ name: 'AbortError' });
+    release();
+    await Promise.all(held);
+    const after = await guardedFetch('/api/after');
+    expect(after.status).toBe(200);
+  });
+
+  it('a local backend has no page-wide limits (no edge in front of it)', async () => {
+    useRuntimeStore.setState({ mode: 'local' });
+    __resetRequestLoopGuardForTests();
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('', { status: 404 }));
+    for (let i = 0; i < PAGE_FAIL_MAX * 2; i++) await guardedFetch(`/api/excluded/plugin${i}`);
+    expect(spy).toHaveBeenCalledTimes(PAGE_FAIL_MAX * 2);
+  });
+
+  it('an unknown mode with a non-loopback API keeps the limits on (fail-closed)', async () => {
+    useRuntimeStore.setState({ mode: null });
+    const win = window as unknown as { __NARRANEXUS_CONFIG__?: unknown };
+    win.__NARRANEXUS_CONFIG__ = { apiUrl: 'https://agent.example.com' }; // mode left unset
+    try {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('', { status: 404 }));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      for (let i = 0; i < PAGE_FAIL_MAX; i++) await guardedFetch(`/api/gone/${i}`);
+      await expect(guardedFetch('/api/never/seen')).rejects.toBeInstanceOf(RequestLoopBlockedError);
+    } finally {
+      delete win.__NARRANEXUS_CONFIG__;
+    }
+  });
+
+  it('a loopback backend with no mode set has no page-wide limits (bash run.sh in a browser)', async () => {
+    useRuntimeStore.setState({ mode: null }); // jsdom origin is localhost; no API override
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('', { status: 404 }));
+    for (let i = 0; i < PAGE_FAIL_MAX * 2; i++) await guardedFetch(`/api/excluded/p${i}`);
+    expect(spy).toHaveBeenCalledTimes(PAGE_FAIL_MAX * 2);
   });
 });
 

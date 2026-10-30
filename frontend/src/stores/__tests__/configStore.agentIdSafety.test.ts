@@ -1,6 +1,6 @@
 /**
  * The active agent id is what every panel request is built from. An unsafe
- * value (dot-led, separators — see lib/agentIdSafety.ts) must not get into the
+ * value (dot-led, separators — see lib/agentIdentity/agentIdSafety.ts) must not get into the
  * store from a caller or back out of localStorage, or the browser keeps
  * sending requests the backend logs as tenant-boundary violations.
  */

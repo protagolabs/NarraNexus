@@ -28,19 +28,22 @@ comes back untouched, so callers keep their own status handling (410 / 409
 branches in the artifact code, `ApiError` mapping in `api.request`).
 
 A guarded read whose response status is in `FAILURE_STATUSES` (400 / 403 /
-404 / 405) is reported to the guard (`recordFailure`), which blocks a URL that
-keeps failing and, when the page fails too many in a minute, pauses reads of
-paths not known to work; a 2xx answer is reported too (`recordSuccess`), which
-is what keeps a working path (agent list, chat) usable during that pause.
-Every admitted read is wrapped in `guard.track(url)` and released in `finally`,
-so once a read has failed, concurrent reads of unproven paths count against
-the failure budget while they are in flight. Those
-are the statuses the edge monitor bans an IP on (20 a minute), so a client bug
-that loops on a deleted agent's 404 or a revoked resource's 403 stays far below
-that line instead of getting its user banned. The guard used to also keep a
-total read budget, switched off for a known-local backend; it was removed with
-the edge's volume ban (monitoring v2), so this file no longer needs to know the
-runtime mode at all.
+404 / 405) is reported to the guard (`recordFailure`); any status below 400 —
+304 included — proves the path (`recordSuccess`). Every admitted read first
+takes an in-flight slot from `guard.acquire(url, signal)` (unproven paths
+only; it waits when none is free) and releases it in `finally`, so a burst of
+unproven reads reaches the server at most `EDGE_FAIL_SAFE` at a time. Refusals
+by a page budget throw at once; per-URL refusals wait `LOOP_BLOCK_DELAY_MS`
+first.
+
+The page-wide limits are switched off only when the backend is known to be
+local (`knownLocalBackend`: Tauri, forced-local config, runtime mode `local`,
+or an API origin on a loopback host — `bash run.sh` in a browser). Forced cloud
+/ `cloud-web` and an unknown mode keep them on (fail-closed; a LAN self-host on
+a non-loopback address is "not known local"). They were briefly removed with
+the volume budget, then restored for this switch only (review I-1 on #434: a
+minimal distribution's excluded plugins 404 on every poll, and there is no edge
+to protect against locally).
 
 Reports name the limit that was hit and its count for the last minute (budget
 reports throttle under one fixed key per budget; per-URL `loop` / `failing`

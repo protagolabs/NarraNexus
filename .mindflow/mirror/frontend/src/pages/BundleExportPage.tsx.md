@@ -4,11 +4,13 @@ last_verified: 2026-10-30
 stub: false
 ---
 
-## 2026-10-30 — `?agents=` 快捷入口过滤不安全 id
+## 2026-10-30 — `?agents=` 快捷入口只取查看者自己的 agent
 
-TeamDetailPage 跳转带的 `agents=<csv>` 是链接可控输入，导出时会原样发给后端；
-现在用 `isSafeAgentId` 过滤（见 [[agentIdSafety.ts]]），不可能是真 agent 的 id
-（`..`、含分隔符等）直接丢掉，免得构造链接让用户一点导出就触发越界记录。
+TeamDetailPage 跳转带的 `agents=<csv>` 是链接可控输入。先按 [[agentIdSafety.ts]] 丢掉形状不安全
+的 id，再等 agent 列表就绪后**只保留 `created_by === userId` 的**：团队只能包含 owner 自己的
+agent（teams 路由拒绝加别人的），所以合法跳转不丢东西；而任意多个格式合法的外来 id 每个都会触发
+5 个 owner-gated 预览读、成串 403/404，正撞监控 v2 的封 IP 线（#434 审查 C-1）。挂载那一刻列表
+可能还没到，所以过滤放在依赖 `[agents, userId]` 的 effect 里只应用一次（ref 暂存待用 id）。
 
 ## 2026-08-20 — `embedded` 模式(内嵌进 Dashboard 导出标签页)
 

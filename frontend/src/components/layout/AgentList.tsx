@@ -32,7 +32,7 @@ import { getLastReadMs, markAgentRead, countUnread, latestMessageMs, markTeamRea
 import { AgentGroupSection, type AgentRowActions } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
 import { TeamChatRow } from './TeamChatRow';
-import { pickDefaultAgent } from '@/lib/defaultAgent';
+import { pickDefaultAgent } from '@/lib/agentIdentity/defaultAgent';
 
 /** Small collapsible category header (TEAMS / AGENTS) in the sidebar list. */
 function CategoryHeader({

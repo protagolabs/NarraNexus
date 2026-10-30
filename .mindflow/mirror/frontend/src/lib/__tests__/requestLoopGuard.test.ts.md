@@ -51,9 +51,20 @@ its failures are announced to other tabs, and failing writes are never
 counted. Each case starts
 from `__resetRequestLoopGuardForTests()`.
 
+In-flight slots and runtime mode (guardedFetch): a crafted burst of 250
+failing first reads on a clean page puts at most `EDGE_FAIL_SAFE` on the wire
+and never more than that in flight; a clean burst of 40 first reads all goes
+out, at most `EDGE_FAIL_SAFE` at a time; a page-budget refusal is immediate; a
+read waiting for a slot rejects on abort and leaks no slot; a local backend
+(mode `local`, or no mode on a loopback origin) has no page-wide limits; an
+unknown mode with a non-loopback API keeps them (fail-closed). The file runs
+in `cloud-web` mode by default, because jsdom's localhost origin would read as
+a local backend.
+
 Every mechanism was checked red on revert: wiring, block extension, the 2s gap,
 escalation, release time, prune backfill, the failure block and failure and
 rapid budgets, failure reporting in guardedFetch, in-flight counting and its
-clean-page gate and release, the agent_id path key,
+the slot limit, immediate budget refusals, the local-backend switch and its
+fail-closed default, the agent_id path key,
 cross-tab sharing (class and both channel directions), and not counting
 budget refusals per URL.

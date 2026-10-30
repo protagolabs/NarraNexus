@@ -56,32 +56,36 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   paths, oldest evicted first. 401 / 429 / 5xx are not counted:
   they are session/throttle/server conditions, not probing, and the edge
   ignores them too.
-- **In-flight reads count once anything has failed.** Failures are known only
-  when the response arrives, so a panel switch to an agent the viewer cannot
-  read (a dozen first reads at once) could overshoot. Once at least one read
-  has failed in the window, every admitted read of a path not known to work is
-  registered by `track()` until it settles (2xx, failure, network error or
-  abort — `guardedFetch` releases it in `finally`), and unproven reads are
-  refused while landed failures plus those in flight reach `EDGE_FAIL_SAFE`
-  (18, under the edge's 20). This is a separate, higher line than
-  `PAGE_FAIL_MAX` (10 landed failures) on purpose: one stray 403 followed by
-  opening an unvisited agent of the viewer's own (~10–15 first reads from
-  `preloadAll` and the panels) must all go out. In-flight counts are per tab;
-  two tabs bursting at the same moment can still sum past the line.
-- **Clean-page gap.** With no failure in the window nothing is counted, so the
-  first load's burst of parallel reads is never held back. The cost: the very
-  first navigation in a fresh tab to an agent the viewer cannot read (e.g. a
-  crafted link to someone else's public agent) sends its whole first-read set
-  uncapped — bounded by the size of one agent's panel set (~10–15 reads),
-  under the edge line. A stale or foreign selection replayed on
+- **In-flight slots for unproven reads (`acquire`).** Failures are known only
+  when responses arrive, so a burst of first reads could overshoot before the
+  first one lands — e.g. a crafted bundle-export link listing dozens of foreign
+  agents fires five owner-gated reads per id at once (review C-1 on #434).
+  Every read of a path not known to work therefore holds one of the guard's
+  slots while in flight: landed failures in the window plus slots held may not
+  reach `EDGE_FAIL_SAFE` (18, under the edge's 20). A read that finds no slot
+  **waits** for one instead of being refused, so a clean page's burst of first
+  reads all goes out (at most 18 at a time; reads take ~100ms, so the queue
+  costs little), while a burst of failing reads can never put more than 18
+  failures on the wire. If the failure budget fills while a read waits, it is
+  refused. `guardedFetch` releases the slot in `finally`; a read aborted while
+  waiting rejects with an AbortError and frees nothing. Paths that last
+  answered 2xx take no slot. Slots are per tab: two tabs bursting at the same
+  moment can still sum past the line. A stale or foreign selection replayed on
   every load is also removed at the root (`configStore.refreshAgents` clears a
   selection the server does not list; defaults never pick a stranger's agent).
+- **Page-wide limits are off for a known-local backend.** `edgeLimitsEnabled`
+  (wired in guardedFetch to `!knownLocalBackend()`, fail-closed: unknown means
+  on) switches off both the page failure budget and the slots when there is no
+  edge in front (desktop app, `run.sh`): there they could only refuse real work
+  — a minimal distribution polls routes of excluded plugins that 404 every 30s,
+  six failures a minute, permanently (review I-1 on #434). The per-URL failure
+  block stays on everywhere.
+- **Refusals by a page budget are immediate.** The 1s refusal delay is for the
+  per-URL verdicts (a retry loop on one URL is slowed); a page-wide state does
+  not change by retrying sooner, and delaying would stall callers that walk a
+  list one read at a time (review I-2 on #434).
 - **Known limit.** A path whose answers alternate between 2xx and failure
   stays "proven"; only the per-URL failure block holds it.
-- **Local mode too.** The failure layers also run against a local backend
-  (desktop app, `run.sh`), where no edge bans. That is intended: they hold a
-  failing loop off the local backend as well, and with paths that answered 2xx
-  exempt from the page pause, a normal session cannot be frozen by it.
 - **Rapid budget, shared across same-origin tabs** (`PAGE_WINDOW_MS` = 60s;
   `onSpend` reports each spend, `recordRemote` counts another tab's, because
   the edge counts per IP). A *rapid* repeat (the same URL again within 2s)

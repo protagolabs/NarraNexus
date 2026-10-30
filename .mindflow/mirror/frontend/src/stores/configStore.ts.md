@@ -32,7 +32,8 @@ stub: false
 ## 2026-10-30 — active agent id 拒收「不可能是真 agent」的值
 
 `setAgentId` 对非空且 `isSafeAgentId` 为假的值（空串以外的 dot 开头、含
-`/` `\` `%` NUL）**直接忽略**，保留原选中；persist 新增 `merge`，rehydrate 时
+`/` `\` `%` NUL）**直接忽略**，保留原选中，并 `console.warn` 一行（只说拒绝了，不打出 id——
+它常是链接可控内容）；persist 新增 `merge`，rehydrate 时
 把这类已存值清成 `''`。原因：后端对非单段路径的 agent id 记签名越界，监控 v2
 对同一账号 10 分钟内 ≥2 个不同越界值会封号+封其独占 IP；active agent id 是所有
 面板请求的拼接来源，一旦被恶意链接或旧状态写进来，用户自己的浏览器就会替攻击者

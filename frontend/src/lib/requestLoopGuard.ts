@@ -21,11 +21,15 @@
  *    tabs). Past that, reads of paths not known to work (last answer a failure,
  *    or never answered 2xx) are refused until the window drains; paths whose
  *    last answer was a success (`recordSuccess`) keep working, so a burst of
- *    403s from one panel cannot freeze the agent list or the chat. Once any
- *    read has failed, landed failures plus unproven reads still in flight
- *    (`track`) may not reach EDGE_FAIL_SAFE (18), so a burst of first reads
- *    cannot carry the page past the edge line, while one stray failure leaves
- *    room for an ordinary panel switch. The edge monitor (sentinel,
+ *    403s from one panel cannot freeze the agent list or the chat. Reads of
+ *    unproven paths also hold a slot while in flight (`acquire`): landed
+ *    failures plus slots held may not reach EDGE_FAIL_SAFE (18), and a read
+ *    that finds no slot waits for one. So a burst of first reads of any size —
+ *    a crafted link listing dozens of foreign agents included — reaches the
+ *    server at most 18 at a time, and the page stays under the edge's line
+ *    even if every one fails. Both page-wide limits are off for a known-local
+ *    backend (no edge in front of it; `edgeLimitsEnabled`, fail-closed in
+ *    guardedFetch); the per-URL failure block stays. The edge monitor (sentinel,
  *    monitoring v2) bans an IP at 20 probing-like failures a minute
  *    (400/403/404/405), so a looping client must stay below that line on its
  *    own. Limit: a path whose answers alternate between 2xx and failure stays
@@ -107,6 +111,8 @@ export interface RequestLoopGuardOptions {
   now?: Clock;
   /** Called when an admitted request spends a page budget (to tell other tabs). */
   onSpend?: (kind: BudgetKind) => void;
+  /** Whether the page-wide failure limits apply right now (only behind the edge). */
+  edgeLimitsEnabled?: () => boolean;
 }
 
 export class RequestLoopGuard {
@@ -119,6 +125,8 @@ export class RequestLoopGuard {
   /** Last outcome per path (true = 2xx, false = failure status); insertion-ordered, capped. */
   readonly #pathOk = new Map<string, boolean>();
   #inflightUnproven = 0;
+  readonly #slotWaiters = new Set<() => void>();
+  readonly #edgeLimitsEnabled: () => boolean;
   readonly #budget: Record<BudgetKind, number[]> = { rapid: [], fail: [] };
   readonly #reportedAt = new Map<string, number>();
   readonly #now: Clock;
@@ -128,6 +136,7 @@ export class RequestLoopGuard {
     const opts = typeof options === 'function' ? { now: options } : options;
     this.#now = opts.now ?? (() => Date.now());
     this.#onSpend = opts.onSpend;
+    this.#edgeLimitsEnabled = opts.edgeLimitsEnabled ?? (() => true);
   }
 
   /**
@@ -139,11 +148,10 @@ export class RequestLoopGuard {
    *
    * Failing: a URL that `recordFailure` saw fail FAIL_MAX times inside
    * FAIL_WINDOW_MS is refused until FAIL_BLOCK_MS after the last of them.
-   * While the page's failure budget is spent (PAGE_FAIL_MAX failures landed),
-   * or once any read has failed and landed failures plus unproven reads still
-   * in flight (`track`) reach EDGE_FAIL_SAFE, a read is refused unless the last
-   * answer for its path (see `pathOf`: agent_id kept, other query parameters
-   * dropped) was a success.
+   * While the page's failure budget is spent (PAGE_FAIL_MAX failures landed,
+   * edge limits on), a read is refused unless the last answer for its path
+   * (see `pathOf`: agent_id kept, other query parameters dropped) was a
+   * success. In-flight slots are handled by `acquire`, after this check.
    *
    * Page: a rapid repeat spends the rapid budget; when it is spent the request
    * is refused. A request refused by the budget spends nothing and does not
@@ -168,7 +176,8 @@ export class RequestLoopGuard {
     const failed = this.#expireBudget('fail', now).length;
     if (
       this.#pathOk.get(pathOf(key)) !== true
-      && (failed >= PAGE_FAIL_MAX || (failed > 0 && failed + this.#inflightUnproven >= EDGE_FAIL_SAFE))
+      && failed >= PAGE_FAIL_MAX
+      && this.#edgeLimitsEnabled()
     ) {
       return 'fail_budget';
     }
@@ -211,23 +220,56 @@ export class RequestLoopGuard {
   }
 
   /**
-   * An admitted read of `key` is going out; call the returned function once it
-   * settles (success, failure, network error or abort alike). While any read
-   * has failed in the window, a read of a path not known to work counts as a
-   * pending failure until then, so concurrent first reads cannot overshoot the
-   * page failure budget. On a clean page (no failures) nothing is counted, so
-   * the first load's burst of reads is never held back.
+   * An admitted read of `key` is about to go out. Reads of paths not known to
+   * work (never answered 2xx, or last answered with a failure) hold one of a
+   * fixed number of slots while in flight: landed failures in the window plus
+   * slots held may not reach EDGE_FAIL_SAFE. A read that finds no slot WAITS
+   * for one (it is not refused) — so a burst of first reads, however large,
+   * reaches the server at most EDGE_FAIL_SAFE at a time, and even if every one
+   * of them fails the page stays under the edge's line. Resolves to the release
+   * function (call it once the read settles, however it settles), or to null
+   * when the page's failure budget is spent while waiting (refuse the read).
+   * Paths that last answered 2xx, and every read when the edge limits are off
+   * (a known-local backend), take no slot.
    */
-  track(key: string): () => void {
-    if (this.#pathOk.get(pathOf(key)) === true) return NOOP;
-    if (this.#expireBudget('fail', this.#now()).length === 0) return NOOP;
-    this.#inflightUnproven += 1;
-    let settled = false;
-    return () => {
-      if (settled) return;
-      settled = true;
-      this.#inflightUnproven -= 1;
-    };
+  acquire(key: string, signal?: AbortSignal | null): Promise<(() => void) | null> {
+    if (this.#pathOk.get(pathOf(key)) === true || !this.#edgeLimitsEnabled()) return Promise.resolve(NOOP);
+    return new Promise((resolve, reject) => {
+      const attempt = (): boolean => {
+        const failed = this.#expireBudget('fail', this.#now()).length;
+        if (failed >= PAGE_FAIL_MAX) {
+          resolve(null);
+          return true;
+        }
+        if (failed + this.#inflightUnproven >= EDGE_FAIL_SAFE) return false;
+        this.#inflightUnproven += 1;
+        let released = false;
+        resolve(() => {
+          if (released) return;
+          released = true;
+          this.#inflightUnproven -= 1;
+          for (const wake of [...this.#slotWaiters]) wake();
+        });
+        return true;
+      };
+      if (attempt()) return;
+      if (signal?.aborted) {
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      const onAbort = () => {
+        this.#slotWaiters.delete(wake);
+        reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+      };
+      const wake = () => {
+        if (attempt()) {
+          this.#slotWaiters.delete(wake);
+          signal?.removeEventListener('abort', onAbort);
+        }
+      };
+      this.#slotWaiters.add(wake);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   /** A read of `key` came back 2xx: its path is known to work. */

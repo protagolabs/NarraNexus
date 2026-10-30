@@ -32,7 +32,7 @@ import {
   WelcomeRail,
   type WelcomeRailStep,
 } from '@/components/welcome';
-import { pickGuideAgent } from '@/lib/guideAgent';
+import { pickGuideAgent } from '@/lib/agentIdentity/guideAgent';
 import type { AppMode } from '@/types/platform';
 import { useAgentImported } from '@/hooks';
 import { api } from '@/lib/api';
@@ -40,7 +40,7 @@ import { dismissGuideCoachmark, isGuideCoachmarkPending } from '@/lib/guideCoach
 import { writeMigrationGuide } from '@/lib/migrationGuide';
 import { wipeAllSessionData } from '@/lib/sessionWipe';
 import { buildWelcomeSteps, shouldProbeDetections, type WelcomeStepId } from '@/lib/welcomeSteps';
-import { markWelcomeSeen } from '@/lib/onboardingGate';
+import { markWelcomeSeen } from '@/lib/agentIdentity/onboardingGate';
 import { isSafeReturnTo } from '@/lib/safe-return';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { useChatStore, useConfigStore, useRuntimeStore } from '@/stores';

@@ -23,7 +23,7 @@ import { useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import type { ConfirmOptions, AlertOptions } from '@/components/ui/ConfirmDialog';
 import type { UpdateAgentResponse } from '@/types';
-import { pickDefaultAgent } from '@/lib/defaultAgent';
+import { pickDefaultAgent } from '@/lib/agentIdentity/defaultAgent';
 
 export interface AgentActionDialogs {
   confirm: (opts: ConfirmOptions) => Promise<boolean>;

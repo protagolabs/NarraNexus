@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowRight, Bot, CalendarDays, Brain, Loader2, Pencil } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { api } from '@/lib/api';
-import { pickGuideAgent } from '@/lib/guideAgent';
+import { pickGuideAgent } from '@/lib/agentIdentity/guideAgent';
 import { WelcomeStepFrame } from './WelcomeStepFrame';
 import type { AgentInfo } from '@/types';
 import { useConfigStore } from '@/stores';

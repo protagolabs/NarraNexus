@@ -13,8 +13,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
+const storeState = vi.hoisted(() => ({ agents: [] as Array<{ agent_id: string; name: string; created_by: string }> }));
+
 vi.mock('@/stores', () => ({
-  useConfigStore: () => ({ agents: [], userId: 'u1' }),
+  useConfigStore: () => ({ agents: storeState.agents, userId: 'u1' }),
   useTeamsStore: () => ({ teams: [], refresh: vi.fn() }),
 }));
 type MockProps = { children?: React.ReactNode; onClick?: () => void };
@@ -87,15 +89,22 @@ describe('BundleExportPage standalone exit (#4)', () => {
 });
 
 describe('BundleExportPage ?agents= quick-launch', () => {
-  it('drops ids that cannot be a real agent before anything requests them', async () => {
-    // The query is link-controlled; an unsafe id would be sent as a
-    // tenant-boundary violation (the edge bans on several of them).
+  it("takes only the viewer's own agents from the link", async () => {
+    // The query is link-controlled. Unsafe ids would be sent as tenant-boundary
+    // violations, and well-formed foreign ids — any number of them — would fire
+    // five owner-gated preview reads each into 403/404s (the edge bans on 20).
+    // A team only ever holds its owner's agents, so nothing legitimate is lost.
+    storeState.agents = [
+      { agent_id: 'agent_1', name: 'Mine', created_by: 'u1' },
+      { agent_id: 'public_1', name: 'Theirs', created_by: 'stranger' },
+    ];
     vi.mocked(api.previewBusChannels).mockClear();
     vi.mocked(api.previewBusChannels).mockResolvedValue({ success: true, channels: [] } as never);
-    renderStandalone(['/app/bundle/export?agents=..,a%2Fb,.x,agent_1']);
+    renderStandalone(['/app/bundle/export?agents=..,a%2Fb,.x,foreign_1,public_1,agent_1']);
     await vi.waitFor(() => expect(api.previewBusChannels).toHaveBeenCalled());
     for (const [ids] of vi.mocked(api.previewBusChannels).mock.calls) {
       expect(ids).toEqual(['agent_1']);
     }
+    storeState.agents = [];
   });
 });

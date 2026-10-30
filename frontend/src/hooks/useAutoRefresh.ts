@@ -22,7 +22,7 @@ import { api } from '@/lib/api';
 import { isGuideCoachmarkPending } from '@/lib/guideCoachmark';
 import { teamHasUnread } from '@/lib/unread';
 import type { ToastItem } from '@/stores/chatStore';
-import { ownsAnyAgent } from '@/lib/defaultAgent';
+import { ownsAnyAgent } from '@/lib/agentIdentity/defaultAgent';
 
 // ── Polling interval config ─────────────────────
 
