@@ -10,12 +10,20 @@ is refused at several independent guards. Each used to log in its own words
 (or not at all), so nothing downstream could tell "a user hit a stale link"
 from "someone is probing the boundary". Selected guards call
 ``log_boundary_violation`` (surfaces: agent_route.agent_id, agent_files.path,
-agent_files.workspace_symlink, artifact.heal_symlink, bundle_import.preflight,
-bundle_import.confirm), and the line always starts with the same marker,
-so a log watcher matches one fixed token instead of a list of phrasings.
+agent_files.listed_name, agent_files.link_escape, agent_files.workspace_symlink,
+service_route.agent_id, service_files.path, artifact.heal_symlink,
+bundle_import.preflight, bundle_import.confirm), and the line always starts with
+the same marker, so a log watcher matches one fixed token instead of a list of
+phrasings.
 
-Only call it where an honest client can never land. A false positive here
-becomes an alert. Deliberately NOT wired: ``confine_entry`` (artifact
+Only call it where an honest client can never land, and choose the surface in
+code. The deploy repo's sentinel suspends the account on the FIRST signed line
+on an escalating surface (agent_route.agent_id, agent_files.path), so those two
+may only ever mean "the account owner's own hand typed this". Anything a third
+party can make the owner's session or the owner's agent send gets its own
+surface, which only alerts; a false positive there is an alert, on the two
+escalating ones it is a suspended customer. The sentinel never parses ``detail``.
+Deliberately NOT wired: ``confine_entry`` (artifact
 confinement). Legacy-layout artifact rows are refused there on every
 freshness pass, so it would alert continuously on honest data.
 """
@@ -44,9 +52,11 @@ BOUNDARY_MARKER = "[security.boundary]"
 # line carries sig = HMAC-SHA256(key, surface|actor|owner|detail) truncated to
 # 32 hex chars, and the sentinel attributes the alert to an account only when
 # the signature verifies. Unset key -> `sig=-` (the sentinel then never names
-# an account from the line). The signature does not cover time: a copied
-# genuine line verifies again (replay), so it may support an alert, never an
-# automatic enforcement decision.
+# an account from the line). The signature does not cover time, so a copied
+# genuine line verifies again (replay). Enforcement accepts that only because
+# the sentinel reads these lines from the backend container's own log stream
+# alone (see BoundaryViolationRule._TRUSTED_SOURCES / _EMITTERS): a verified
+# line on an escalating surface suspends the account on the first hit.
 BOUNDARY_KEY_ENV = "NX_BOUNDARY_LOG_KEY"
 _SIG_HEX = 32
 

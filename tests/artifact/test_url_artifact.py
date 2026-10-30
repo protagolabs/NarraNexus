@@ -214,6 +214,111 @@ async def test_open_url_allows_genuine_third_party(env, monkeypatch):
     assert result.artifact_id.startswith("art_")
 
 
+# Each of these reads as a different host to urlparse and to a browser, or has
+# no host for urlparse while a browser finds one. The self-origin compare cannot
+# trust them, so they are refused whatever the configured origin is.
+AMBIGUOUS_URLS = [
+    "https://agent.narra.nexus\\@evil.example/",
+    "https://evil.example\\.agent.narra.nexus/",
+    "https://agent.narra.nexus\\",
+    "https://%61gent.narra.nexus/",
+    "https://agent%2Enarra.nexus/",
+    "https://user%40@evil.example/",
+    "https://agent.narra\t.nexus/",
+    "https://agent.narra.nexus\n/",
+    "https:/agent.narra.nexus/",
+    "https:agent.narra.nexus/",
+    "https:///agent.narra.nexus/",
+    "https://[::1/",
+    "https://agent.narra.nexus:port/",
+    "https://a..b.example/",
+    "not a url",
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("public_base_url", ["", "https://agent.narra.nexus"])
+@pytest.mark.parametrize("url", AMBIGUOUS_URLS)
+async def test_open_url_refuses_a_url_a_browser_could_read_differently(
+    env, monkeypatch, url, public_base_url
+):
+    from narranexus.platform.settings import settings as sa_settings
+    monkeypatch.setattr(sa_settings, "public_base_url", public_base_url, raising=False)
+    with pytest.raises(ArtifactError):
+        await env["service"].open_url(agent_id="agent_x", user_id="user_y", session_id="s1", url=url)
+    assert not (env["base"] / WS_REL / "tabs").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://\uff41\uff47\uff45\uff4e\uff54.narra.nexus/",  # fullwidth letters
+        "https://agent\u3002narra\u3002nexus/",  # ideographic full stops
+        "https://agent\uff0enarra\uff0enexus/",  # fullwidth full stops
+        "https://AGENT.Narra.Nexus./".replace("Nexus./", "Nexus/"),
+        "https://agent.narra.ne\u00adxus/",  # soft hyphen, dropped by IDNA
+        " https://agent.narra.nexus/",  # a browser strips surrounding whitespace
+        "https://agent.narra.nexus/a b",
+    ],
+)
+async def test_open_url_normalises_the_host_before_comparing(env, monkeypatch, url):
+    from narranexus.platform.settings import settings as sa_settings
+    monkeypatch.setattr(sa_settings, "public_base_url", "https://agent.narra.nexus", raising=False)
+    with pytest.raises(ArtifactError, match="own origin"):
+        await env["service"].open_url(agent_id="agent_x", user_id="user_y", session_id="s1", url=url)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/",
+        "http://example.com:8080/a%20b?q=%2F#frag",
+        "https://user@example.com/",
+        "https://\u4f8b\u3048.\u30c6\u30b9\u30c8/path",
+        "https://sub.agent.narra.nexus/",
+        "https://agent.narra.nexus:8443/",
+        "https://example.com/a b",
+        "https://example.com/?q=a\\b",
+        "https://example.com/#a\\b",
+        "  https://example.com/\n",
+    ],
+)
+async def test_open_url_still_allows_genuine_external_urls(env, monkeypatch, url):
+    from narranexus.platform.settings import settings as sa_settings
+    monkeypatch.setattr(sa_settings, "public_base_url", "https://agent.narra.nexus", raising=False)
+    result = await env["service"].open_url(
+        agent_id="agent_x", user_id="user_y", session_id="s1", url=url
+    )
+    assert result.artifact_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "edited",
+    ["https://agent.narra.nexus/", "https://agent.narra.nexus\\@evil.example/"],
+)
+async def test_set_embed_mode_will_not_rewrite_a_doc_an_agent_pointed_at_us(env, monkeypatch, edited):
+    """page.url.json is a workspace file: it can change after open_url checked it."""
+    from narranexus.platform.settings import settings as sa_settings
+    monkeypatch.setattr(sa_settings, "public_base_url", "https://agent.narra.nexus", raising=False)
+    result = await env["service"].open_url(
+        agent_id="agent_x", user_id="user_y", session_id="s1", url="https://example.com/"
+    )
+    art = await env["repo"].get_by_id(result.artifact_id)
+    doc_path = env["base"] / art.file_path
+    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    doc["url"] = edited
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+
+    with pytest.raises(ArtifactError):
+        await env["service"].set_embed_mode(
+            agent_id="agent_x", artifact_id=result.artifact_id, mode="iframe"
+        )
+    assert json.loads(doc_path.read_text(encoding="utf-8"))["embed"]["user_override"] is None
+
+
 @pytest.mark.asyncio
 async def test_set_embed_mode_missing_doc_raises_content_gone(env):
     from narranexus.platform.artifact import ArtifactContentGone
@@ -321,3 +426,10 @@ async def test_set_embed_mode_never_rewrites_a_doc_behind_a_swapped_link(env):
             agent_id="agent_x", artifact_id=result.artifact_id, mode="stream",
         )
     assert victim_doc.read_bytes() == before
+
+
+@pytest.mark.asyncio
+async def test_open_url_stores_the_url_a_browser_would_load(env, monkeypatch):
+    from narranexus.platform.artifact._artifact_impl.url_artifact import strip_like_browser
+    assert strip_like_browser("\t https://example.com/x \n") == "https://example.com/x"
+

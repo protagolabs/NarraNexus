@@ -9,7 +9,7 @@
  */
 
 import { Image as ImageIcon } from 'lucide-react';
-import { useAttachmentBlobUrl } from '@/hooks/useAttachmentBlobUrl';
+import { canOpenAttachmentBlob, useAttachmentBlobUrl } from '@/hooks/useAttachmentBlobUrl';
 import { cn } from '@/lib/utils';
 
 interface AttachmentImageProps {
@@ -20,7 +20,8 @@ interface AttachmentImageProps {
   className?: string;
   /** When true and a blob URL is available, wrap the <img> in an <a> that
    *  opens the image in a new tab. The <a> uses the same blob URL, which
-   *  is valid for navigation as long as this component stays mounted. */
+   *  is valid for navigation as long as this component stays mounted.
+   *  Raster types only: an SVG opened from a blob: URL runs on the app origin. */
   zoomable?: boolean;
 }
 
@@ -32,9 +33,9 @@ export function AttachmentImage({
   className,
   zoomable = false,
 }: AttachmentImageProps) {
-  const blobUrl = useAttachmentBlobUrl(agentId, userId, fileId);
+  const blob = useAttachmentBlobUrl(agentId, userId, fileId);
 
-  if (!blobUrl) {
+  if (!blob) {
     return (
       <div
         className={cn(
@@ -49,10 +50,10 @@ export function AttachmentImage({
     );
   }
 
-  const img = <img src={blobUrl} alt={alt} className={className} />;
-  if (zoomable) {
+  const img = <img src={blob.url} alt={alt} className={className} />;
+  if (zoomable && canOpenAttachmentBlob(blob.type)) {
     return (
-      <a href={blobUrl} target="_blank" rel="noopener noreferrer" className="block">
+      <a href={blob.url} target="_blank" rel="noopener noreferrer" className="block">
         {img}
       </a>
     );

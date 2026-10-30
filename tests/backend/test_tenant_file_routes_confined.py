@@ -101,6 +101,7 @@ def test_download_serves_the_owners_file_with_attachment_headers(env):
     assert r.content == b"owner-a"
     assert 'filename="a.txt"' in r.headers["content-disposition"]
     assert r.headers["content-type"].startswith("text/plain")
+    assert r.headers["x-content-type-options"] == "nosniff"
 
 
 def test_download_swap_after_resolve_never_serves_the_victim(env, monkeypatch):

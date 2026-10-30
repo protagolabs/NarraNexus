@@ -377,12 +377,25 @@ async def _resolve_owner_cached(db, agent_id: str) -> Optional[str]:
     return owner
 
 
+def _is_path_safe(agent_id: str) -> bool:
+    from narranexus.platform.utils.fs.workspace_paths import safe_id_segment
+
+    try:
+        safe_id_segment(agent_id, label="agent_id")
+    except ValueError:
+        return False
+    return True
+
+
 async def check_agent_ownership(agent_id: Any) -> Optional[str]:
     """The verified caller must OWN the target agent. None = allow; an error
     string = deny (enforce only).
 
     No verified identity / local mode / unknown agent → allow: this policy can
     only ever TIGHTEN a proven identity, never break the fail-open baseline.
+    An id that is not one path segment is not an "unknown agent": it can never
+    exist, so it is denied like a foreign one (the caller-identity wrapper
+    normally stops it first; this is the policy's own answer).
     Denials are recorded to instance_executor_audit in audit AND enforce mode
     (incident lesson #5 — the DB row is the measurement that gates the
     audit→enforce flip).
@@ -409,9 +422,12 @@ async def check_agent_ownership(agent_id: Any) -> Optional[str]:
     from narranexus.platform.utils.db.db_factory import get_db_client
 
     db = await get_db_client()
-    owner = await _resolve_owner_cached(db, agent_id)
-    if not owner or owner == ident.user_id:
-        return None
+    if _is_path_safe(agent_id):
+        owner = await _resolve_owner_cached(db, agent_id)
+        if not owner or owner == ident.user_id:
+            return None
+    else:
+        owner = ""
     logger.warning(
         f"[mcp-auth] {mode}: token user {ident.user_id!r} does not own "
         f"agent {agent_id!r} (owner {owner!r})"

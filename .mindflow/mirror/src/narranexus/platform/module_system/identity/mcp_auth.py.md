@@ -4,6 +4,11 @@ stub: false
 last_verified: 2026-10-30
 ---
 
+## 2026-10-30 — 非路径段的 agent id 按未持有拒绝
+
+`check_agent_ownership` 对 unknown agent 仍放行（fail-open 基线未改，这部分不在本次范围），但不是一个路径段的 id 不可能存在，不算 unknown：在 owner 查询之前判定，走同样的审计行和 enforce 拒绝，audit 模式只记不拦。
+正常路径上 [[_mcp_identity]] 的守卫先拦住，这里是策略自身的答案。
+
 ## 2026-10-30 — tokenless 测量改用共享的 `WindowedAuditCounter`
 
 截断、溢出桶、窗口写行都移到 [[_audit_window]]（与 `user_id` 覆盖审计共用一份实现，

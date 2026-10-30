@@ -13,17 +13,34 @@
  * Local mode: no token in localStorage → empty Authorization header →
  * backend `_is_cloud_mode()=False` bypass passes through. Same code path
  * works for both modes.
+ *
+ * The blob's type is returned with the URL because a blob: URL inherits the
+ * app's origin: navigating to one renders it as a same-origin document, and an
+ * SVG document runs its scripts. `rel=noopener` and Content-Disposition do
+ * nothing for it. Only `canOpenAttachmentBlob` types may become an <a href>;
+ * anything else stays an <img>, where an SVG cannot script.
  */
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 
+export interface AttachmentBlob {
+  url: string;
+  type: string;
+}
+
+const OPENABLE_BLOB_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+export function canOpenAttachmentBlob(type: string): boolean {
+  return OPENABLE_BLOB_TYPES.has(type.split(';')[0].trim().toLowerCase());
+}
+
 export function useAttachmentBlobUrl(
   agentId: string | null | undefined,
   userId: string | null | undefined,
   fileId: string | null | undefined,
-): string | null {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+): AttachmentBlob | null {
+  const [blobUrl, setBlobUrl] = useState<AttachmentBlob | null>(null);
 
   useEffect(() => {
     if (!agentId || !userId || !fileId) {
@@ -42,7 +59,7 @@ export function useAttachmentBlobUrl(
       .then((blob) => {
         if (cancelled) return;
         createdUrl = URL.createObjectURL(blob);
-        setBlobUrl(createdUrl);
+        setBlobUrl({ url: createdUrl, type: blob.type });
       })
       .catch(() => {
         // Silent: caller renders a placeholder when the URL is null.

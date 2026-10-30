@@ -73,6 +73,7 @@ from loguru import logger
 
 from narranexus.platform.module_system._audit_window import AuditField, WindowedAuditCounter
 from narranexus.platform.schema.executor_audit import EVENT_MCP_IDENTITY_USER_OVERRIDE
+from narranexus.platform.utils.fs.workspace_paths import safe_id_segment
 
 # The honest header. Lowercased on lookup — HTTP headers are case-insensitive
 # and Starlette normalises them.
@@ -246,6 +247,27 @@ def is_placeholder_agent_id(value: Any) -> bool:
     return v.lower() in PLACEHOLDER_AGENT_IDS
 
 
+def is_invalid_agent_id(value: Any) -> bool:
+    """True when ``value`` cannot name an agent: a placeholder, or a string that
+    is not one path segment.
+
+    Applied to every self-declared id: the header and the bearer are set by
+    whatever process holds the MCP connection, and the parameter by the model.
+    Such an id must stop here. Further down it becomes part of a backend URL
+    (``.x/files#`` retargets the request) and a refused segment there is a
+    tenant-boundary line against the owner, written by an injected agent.
+    """
+    if is_placeholder_agent_id(value):
+        return True
+    if not isinstance(value, str):
+        return False
+    try:
+        safe_id_segment(value, label="agent_id")
+    except ValueError:
+        return True
+    return False
+
+
 # The user_id spellings a model reaches for when guessing. NOTE the asymmetry
 # with agent ids: ``None`` is NOT in scope here and never will be — retrieval
 # tools use ``user_id=None`` as a legitimate "no filter" value, so only a
@@ -369,12 +391,12 @@ def caller_agent_id_from_request() -> Optional[str]:
         return None
     try:
         injected = _explicit_header(headers, AGENT_ID_HEADER)
-        if injected and not is_placeholder_agent_id(injected):
+        if injected and not is_invalid_agent_id(injected):
             return injected
 
         # Codex path: identity rides a borrowed bearer.
         candidate = _bearer(headers).agent_id
-        if candidate and not is_placeholder_agent_id(candidate):
+        if candidate and not is_invalid_agent_id(candidate):
             return candidate
     except Exception as e:  # noqa: BLE001 — identity is never flow control
         logger.debug(f"[mcp-identity] could not read caller identity: {e}")
@@ -549,10 +571,10 @@ def resolve_caller_agent_id(supplied: Any) -> Any:
     if not injected:
         return supplied
 
-    if is_placeholder_agent_id(supplied):
+    if is_invalid_agent_id(supplied):
         # The exact P1 failure: model guessed, platform knows better.
         logger.info(
-            f"[mcp-identity] agent_id={supplied!r} is a placeholder — "
+            f"[mcp-identity] agent_id={supplied!r} is not a usable id — "
             f"using the injected caller identity instead"
         )
         return injected
@@ -716,7 +738,7 @@ def _wrap_fn(fn: Callable, *, tool_name: Optional[str] = None) -> Callable:
         value = _resolved_agent_id(args, kwargs)
         if value is None and "agent_id" not in kwargs:
             return None
-        return value if is_placeholder_agent_id(value) else None
+        return value if is_invalid_agent_id(value) else None
 
     async def _ownership_denial(args: tuple, kwargs: dict) -> Optional[str]:
         """OwnerScopedPolicy (identity/mcp_auth.py) over the resolved id.
@@ -985,6 +1007,7 @@ __all__ = [
     "caller_agent_id_from_request",
     "caller_user_id_from_request",
     "install_caller_identity",
+    "is_invalid_agent_id",
     "is_placeholder_agent_id",
     "is_placeholder_user_id",
     "parse_bearer_identity",

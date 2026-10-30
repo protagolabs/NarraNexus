@@ -6,14 +6,16 @@
  * Bus counterpart to `useAttachmentBlobUrl`. Bus attachments are addressed by
  * `rel_path` and served by `GET /api/agent-inbox/attachments/raw`, which — like
  * every /api/* route — needs an Authorization/X-User-Id header that <img>/<a>
- * cannot attach. This hook does the authed GET and returns a `blob:` URL.
+ * cannot attach. This hook does the authed GET and returns a `blob:` URL with
+ * its type; see `useAttachmentBlobUrl` for why callers need the type.
  */
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import type { AttachmentBlob } from './useAttachmentBlobUrl';
 
-export function useBusAttachmentBlobUrl(relPath: string | null | undefined): string | null {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+export function useBusAttachmentBlobUrl(relPath: string | null | undefined): AttachmentBlob | null {
+  const [blobUrl, setBlobUrl] = useState<AttachmentBlob | null>(null);
 
   useEffect(() => {
     if (!relPath) return;
@@ -26,7 +28,7 @@ export function useBusAttachmentBlobUrl(relPath: string | null | undefined): str
       .then((blob) => {
         if (cancelled) return;
         createdUrl = URL.createObjectURL(blob);
-        setBlobUrl(createdUrl);
+        setBlobUrl({ url: createdUrl, type: blob.type });
       })
       .catch(() => {
         // Silent: caller renders a placeholder/chip when the URL is null.

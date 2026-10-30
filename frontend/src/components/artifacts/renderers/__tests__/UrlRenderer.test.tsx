@@ -10,6 +10,8 @@
  *      relaxes it further (e.g. allow-top-navigation) this test surfaces it.
  *   2. stream mode renders the fallback card (no iframe), where the future
  *      streaming renderer plugs in.
+ *   3. a doc that is not cross-origin http(s) renders nothing live. The doc is a
+ *      workspace file an agent can edit after the backend checked it.
  */
 import { describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -99,6 +101,46 @@ describe('UrlRenderer', () => {
     });
     expect(container.querySelector('iframe')?.getAttribute('src')).toBe('https://github.com');
   });
+  test.each([
+    ['same origin', `${window.location.origin}/app`],
+    ['same origin, other path', `${window.location.origin}/api/public/artifacts/raw/t/`],
+    ['javascript', 'javascript:alert(document.domain)'],
+    ['data', 'data:text/html,<script>alert(1)</script>'],
+    ['blob', `blob:${window.location.origin}/x`],
+    ['file', 'file:///etc/passwd'],
+    ['relative', '/app/agents'],
+    ['not a url', 'not a url'],
+  ])('%s doc makes no iframe and offers nothing to open', async (_name, url) => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    currentDoc = {
+      schema_version: 1,
+      url,
+      title: 'Tampered',
+      embed: { recommended: 'iframe', reason: 'no-blocking-headers', probe_status: 'ok', user_override: 'iframe' },
+    };
+    const { container, findByText } = render(<UrlRenderer artifact={artifact} />);
+    await findByText('Tampered');
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(container.querySelector('button')).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  test('another origin on the same host is still embedded', async () => {
+    const other = new URL(window.location.origin);
+    other.port = '8443';
+    currentDoc = {
+      schema_version: 1,
+      url: other.origin,
+      title: 'Other',
+      embed: { recommended: 'iframe', reason: 'no-blocking-headers', probe_status: 'ok', user_override: null },
+    };
+    const { container } = render(<UrlRenderer artifact={artifact} />);
+    await waitFor(() => {
+      if (!container.querySelector('iframe')) throw new Error('iframe not rendered');
+    });
+  });
+
   test('mode switch failure reports in-app, never through window.alert', async () => {
     // wry does not render window.alert, so the native one was invisible on the
     // DMG: the toggle silently refused to change and said nothing.

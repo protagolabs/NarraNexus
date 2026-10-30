@@ -94,24 +94,46 @@ def _read_doc(abs_path: str) -> UrlArtifactDoc:
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
+def strip_like_browser(url: str) -> str:
+    """Drop leading and trailing C0 controls and spaces, as URL parsers do."""
+    return url.strip("".join(chr(c) for c in range(0x21)))
+
+
 def _origin_tuple(url: str) -> Optional[tuple[str, str, Optional[int]]]:
     """(scheme, host, effective_port) normalized the way a BROWSER compares
     origins: scheme + host lowercased, userinfo dropped, the default port for
-    the scheme filled in. Returns None when there is no host to compare.
+    the scheme filled in, the host run through IDNA so fullwidth letters and
+    dots collapse as they do in the browser. Returns None when there is no host
+    to compare, or when urlparse and a browser could read the URL differently.
 
     This is the crux of the self-origin guard: a naive `netloc == netloc`
     string compare is bypassable (`AGENT.narra.nexus`, `host:443`,
     `u@host` all read as same-origin to the browser but differ as strings).
+
+    The refused shapes are parser differentials, not style. A browser treats a
+    backslash as a slash (`https://ours\\@evil.example` is OURS to it and
+    evil.example to urlparse), drops tabs and newlines anywhere in a URL (urlparse
+    does too, silently), and percent-decodes the host (`%61gent.narra.nexus`).
+    `https:/ours` has no netloc for urlparse and a host for the browser. Backslash
+    and spaces only matter before the path ends: `?q=a\\b` and `/a b` are ordinary.
+    Surrounding whitespace is stripped first, as a browser does.
     """
-    p = urlparse(url)
-    host = (p.hostname or "").lower()
-    if not host:
+    url = strip_like_browser(url)
+    if any(ch in url for ch in "\t\r\n"):
         return None
-    scheme = (p.scheme or "").lower()
+    head = url.split("?", 1)[0].split("#", 1)[0]
+    authority = head.split("/", 3)[2] if head.count("/") >= 2 else head
+    if "\\" in head or any(ord(ch) <= 0x20 for ch in authority):
+        return None
     try:
+        p = urlparse(url)
+        if "%" in p.netloc or not p.hostname:
+            return None
+        host = p.hostname.encode("idna").decode("ascii").lower()
+        scheme = (p.scheme or "").lower()
         port = p.port or _DEFAULT_PORTS.get(scheme)
-    except ValueError:
-        return None  # malformed port
+    except ValueError:  # malformed netloc or port; UnicodeError is a ValueError
+        return None
     return (scheme, host, port)
 
 
@@ -126,6 +148,14 @@ def _reject_self_origin(url: str, *, extra_origins: tuple[str, ...] = ()) -> Non
     grant safe (a URL tab is only ever meant to hold cross-origin third-party
     content).
 
+    This judges the URL as written, which is all it can see: a third-party page
+    can still redirect the iframe to our origin. What holds there is the
+    `Content-Security-Policy: sandbox` response header on our public content
+    routes, which makes the landed document opaque whatever the iframe grants.
+
+    A URL that cannot be judged is refused, on every deployment: `_origin_tuple`
+    returning None means a browser may see a different host than we do.
+
     Candidate origins: `settings.public_base_url` (set in cloud; the MCP path
     has only this) plus any `extra_origins` the caller derived from the request
     (the HTTP route passes the browser-visible origin, so the guard holds even
@@ -135,7 +165,7 @@ def _reject_self_origin(url: str, *, extra_origins: tuple[str, ...] = ()) -> Non
     """
     target = _origin_tuple(url)
     if target is None:
-        return
+        raise ArtifactError("refusing to open a URL tab with an ambiguous or malformed URL")
     for candidate in (settings.public_base_url, *extra_origins):
         candidate = (candidate or "").strip()
         if not candidate:
@@ -222,6 +252,7 @@ async def open_url(
     Raises:
         ArtifactError: URL is our own origin, or not a safe public http(s) target.
     """
+    url = strip_like_browser(url)
     _reject_self_origin(url, extra_origins=(app_origin,) if app_origin else ())
     try:
         await assert_public_http_url(url)
@@ -300,6 +331,11 @@ async def set_embed_mode(
         doc = _read_doc(abs_entry)
     except ArtifactPathEscape:
         raise ArtifactNotFound("URL artifact not found") from None
+    # The doc is a workspace file, so an agent can have edited its url since
+    # open_url checked it. This only keeps the override API from re-blessing such
+    # a doc: the browser reads the doc through the raw route, not through here,
+    # so UrlRenderer repeats the check before it renders anything.
+    _reject_self_origin(doc.url)
     if doc.embed is None:
         # No probe verdict on disk (shouldn't happen for a real URL tab, but be
         # defensive): synthesize an iframe default to hang the override on.

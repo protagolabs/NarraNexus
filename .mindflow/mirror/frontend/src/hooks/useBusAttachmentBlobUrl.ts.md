@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/hooks/useBusAttachmentBlobUrl.ts
-last_verified: 2026-07-20
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 返回 `{url,type}`
+
+理由同 [[useAttachmentBlobUrl.ts]]：调用方要靠类型判断能不能把 blob 做成链接。
 
 # useBusAttachmentBlobUrl.ts — authed blob URL for a bus attachment
 

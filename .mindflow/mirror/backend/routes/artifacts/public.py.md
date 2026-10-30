@@ -4,6 +4,15 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 响应头自带 sandbox
+
+iframe 的 `sandbox` 属性只约束渲染器自己建的那个框，而这个 URL 在 app 同源上：顶层导航、链接、或第三方页面把 URL tab（其 iframe 带 `allow-same-origin`）重定向过来时，
+都没有那层属性。所以 sandbox 写进响应：HTML 入口 `sandbox allow-scripts; ...` 并加 `form-action 'none'`，非 HTML 入口和同目录资产是无 token 的 `sandbox`。
+GET/HEAD、入口/资产、`?edit_bridge=1` 全部走同一套 CSP。**永远不要加 `allow-same-origin`**：那会让 artifact 变成同源脚本。
+
+不影响现有渲染：HTML 入口的 iframe 本来就只有 `allow-scripts`，CSP sandbox 与属性取交集后不变；图片/PDF/CSV/Markdown/图表都是 `fetch()` 字节后再渲染，PDF 用 `<object>` 载 blob URL，不框这个地址。
+**Gotcha**：触发=新渲染器直接 `<iframe src=raw_url>` 框非 HTML 入口 → 症状=Chromium 拒绝在 sandbox 文档里跑 PDF 查看器、内容空白 → 根因=无 token 的 sandbox 也作用于这次导航；要框就先 fetch 成 blob。
+
 ## 2026-10-30（复审）— `ConfinedFileResponse` 移到 `backend/routes/_confined_response.py`
 
 响应类与 `open_tenant_file` 现在是各路由共享的 helper（见 [[_confined_response]]），本文件只改 import。

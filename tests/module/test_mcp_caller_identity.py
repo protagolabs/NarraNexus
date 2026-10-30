@@ -35,6 +35,7 @@ from narranexus.platform.module_system._mcp_identity import (
     agent_id_headers,
     caller_agent_id_from_request,
     install_caller_identity,
+    is_invalid_agent_id,
     is_placeholder_agent_id,
     resolve_caller_agent_id,
 )
@@ -209,6 +210,73 @@ async def test_guard_matches_a_str_returning_tool():
     out = await _fn(mcp, "returns_text")(agent_id="self")
     assert isinstance(out, str)
     assert "placeholder" in out
+
+
+# Self-declared ids that are not one path segment. Left alone they reach a
+# backend URL, and a refused segment there is a boundary line against the owner.
+UNSAFE_IDS = [".x", "..", "a/b", "a\\b", ".x/files#", "nul\x00byte"]
+
+
+@pytest.mark.parametrize("value", UNSAFE_IDS)
+def test_unsafe_ids_are_invalid(value):
+    assert is_invalid_agent_id(value)
+
+
+@pytest.mark.parametrize("value", [REAL, "agent_a_abb17376", "legacy id with space"])
+def test_real_and_legacy_ids_are_valid(value):
+    assert not is_invalid_agent_id(value)
+
+
+@pytest.mark.parametrize("value", ["agent_current", "", None])
+def test_placeholders_stay_invalid(value):
+    assert is_invalid_agent_id(value)
+
+
+@pytest.mark.parametrize("value", UNSAFE_IDS)
+def test_an_unsafe_header_is_not_an_identity(value):
+    with injected({AGENT_ID_HEADER: value}):
+        assert caller_agent_id_from_request() is None
+
+
+@pytest.mark.parametrize("value", [".x", "..", "a/b"])
+def test_an_unsafe_bearer_is_not_an_identity(value):
+    with injected({"Authorization": f"Bearer {BEARER_AGENT_PREFIX}{value}"}):
+        assert caller_agent_id_from_request() is None
+
+
+def test_an_unsafe_header_falls_through_to_a_valid_bearer():
+    headers = {AGENT_ID_HEADER: ".x", "Authorization": f"Bearer {BEARER_AGENT_PREFIX}{REAL}"}
+    with injected(headers):
+        assert caller_agent_id_from_request() == REAL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", UNSAFE_IDS)
+async def test_an_unsafe_parameter_yields_to_the_injected_identity(value):
+    mcp, seen = _server()
+    with injected(agent_id_headers(REAL)):
+        out = await _fn(mcp, "needs_agent")(agent_id=value, entity_id="e1")
+    assert out["agent_id"] == REAL
+    assert seen["agent_id"] == REAL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", UNSAFE_IDS)
+async def test_an_unsafe_parameter_never_runs_the_tool_without_injection(value):
+    mcp, seen = _server()
+    out = await _fn(mcp, "needs_agent")(agent_id=value, entity_id="e1")
+    assert out["success"] is False
+    assert "your instructions" in out["error"].lower()
+    assert seen == {}
+
+
+@pytest.mark.asyncio
+async def test_an_unsafe_header_with_an_unsafe_parameter_never_runs_the_tool():
+    mcp, seen = _server()
+    with injected({AGENT_ID_HEADER: ".y"}):
+        out = await _fn(mcp, "needs_agent")(agent_id=".x", entity_id="e1")
+    assert out["success"] is False
+    assert seen == {}
 
 
 @pytest.mark.asyncio

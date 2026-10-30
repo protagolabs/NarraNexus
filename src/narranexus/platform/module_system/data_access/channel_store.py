@@ -59,15 +59,10 @@ from collections.abc import Iterator, Mapping
 
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol
-from urllib.parse import quote
 
 from loguru import logger
 
-
-def _seg(value: str) -> str:
-    """Percent-encode an id used as a URL PATH SEGMENT — see store.py's ``_seg``
-    for the full rationale (LLM-supplied ids may contain ``?``/``#``/``..``)."""
-    return quote(str(value), safe="")
+from narranexus.platform.module_system.data_access.store import _seg
 
 
 def deep_merge(base: dict, patch: dict) -> dict:

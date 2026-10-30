@@ -6,10 +6,10 @@
  *
  * The backend refuses an agent id that is not ONE path segment (separators,
  * NUL, dot-led names such as `..`; workspace_paths.safe_id_segment) and logs
- * a signed tenant-boundary violation that the edge monitor bans on when the
- * same account sends different such values. A crafted link
- * (`/app/agents/.x`) would otherwise make the victim's own browser send them,
- * so ids that cannot be real are dropped before any request carries them.
+ * a signed tenant-boundary violation. The edge monitor suspends the account on
+ * the FIRST such line from a person's session, so a crafted link
+ * (`/app/agents/.x`) must never make the victim's own browser send one: ids that
+ * cannot be real are dropped before any request carries them.
  * `%` is refused as well: no real id contains it, and a second decoding layer
  * is how `..` gets smuggled past a single decode. Legacy ids with spaces or
  * odd shapes stay valid — the rule is about path safety, not id format.
