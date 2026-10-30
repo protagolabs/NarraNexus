@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `getSession` 注释：sessionGuard 走 guardedFetch 的不受守卫通道
+
+仅注释：sessionGuard 探测 `/api/auth/session` 现在用 guardedFetch 导出的 raw 通道（全局 fetch 已被
+守卫包装，见 [[guardedFetch]]），行为不变。
+
 ## 2026-10-30 — `getChatLatest(agentIds)`
 
 `GET /api/agents/chat-latest`（每个 id 一个 `agent_ids` 查询参数）：一次拿一批 agent（≤200）对话 tab 最新一行的时间戳，供

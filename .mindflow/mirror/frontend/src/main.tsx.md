@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `bootPlugins()` 之前安装全局 fetch 守卫
+
+`installGlobalFetchGuard()` 必须早于任何插件加载：插件 bundle 直接调全局 `fetch`，安装之后它们发往
+本站后端的读请求才走请求循环守卫（见 [[guardedFetch]]）。测试钉住调用顺序。
+
 ## 2026-10-30 — mock 模式首帧前按需加载 fixtures
 
 首帧渲染包进 `render()`。`MOCK_ENABLED`（[[flag]]）为真时先 `import('./lib/mock')`

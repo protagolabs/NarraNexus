@@ -22,6 +22,7 @@
  */
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 import { getAuthHeaders } from './authHeaders';
+import { rawFetch } from './guardedFetch';
 
 export interface SessionDeathSuspicion {
   /** The endpoint whose 401 raised the suspicion (for diagnostics). */
@@ -48,7 +49,8 @@ export function resetSessionGuard(): void {
 
 async function probe(): Promise<'dead' | 'alive' | 'unknown'> {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/api/auth/session`, {
+    // rawFetch, not guardedFetch: a refusal here would read as a dead session.
+    const res = await rawFetch(`${getApiBaseUrl()}/api/auth/session`, {
       headers: getAuthHeaders(),
     });
     if (res.status === 401) return 'dead';

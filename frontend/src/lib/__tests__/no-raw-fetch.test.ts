@@ -20,7 +20,12 @@ const SRC = join(process.cwd(), 'src');
 
 /** Files allowed to call `fetch` directly, each for a stated reason. */
 const ALLOWED = new Set([
-  // The guard's own implementation.
+  // The guard's own implementation (it also installs the global fetch guard).
+  'lib/guardedFetch.ts',
+]);
+
+/** Files allowed to call `rawFetch` (the unguarded escape hatch), each for a reason. */
+const RAW_FETCH_ALLOWED = new Set([
   'lib/guardedFetch.ts',
   // The session-death referee: a refusal here would read as a dead session and
   // log the user out. It runs only after a real 401, so it cannot loop on its own.
@@ -62,6 +67,14 @@ describe('no raw fetch', () => {
       'raw network calls bypass the request-loop guard; use guardedFetch (lib/guardedFetch.ts) ' +
         'or add an explicit exemption with a reason',
     ).toEqual([]);
+  });
+
+  test('only the allowlisted files use the unguarded rawFetch', () => {
+    const offenders = sourceFiles(SRC)
+      .map((f) => relative(SRC, f))
+      .filter((rel) => !RAW_FETCH_ALLOWED.has(rel))
+      .filter((rel) => /\brawFetch\b/.test(readFileSync(join(SRC, rel), 'utf8')));
+    expect(offenders).toEqual([]);
   });
 
   test('the scan catches the shapes it claims to', () => {
