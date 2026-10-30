@@ -239,6 +239,21 @@ async def test_external_user_id_tool_is_left_alone(external):
 # Adding such a tool must turn this red until it is consciously classified.
 
 EXTERNAL_USER_ID_TOOLS = {"discord_dm"}
+# Every other tool whose user_id names the NarraNexus account (turn owner).
+# A new user_id tool is in neither set until someone decides which it is.
+ACCOUNT_USER_ID_TOOLS = {
+    "agent_self", "compare_dates", "create_narrative", "job_create",
+    "job_retrieval_by_keywords", "job_retrieval_semantic", "list_artifacts",
+    "notify_owner", "open_url", "plugin_activate", "plugin_deactivate",
+    "plugin_diff", "plugin_docs", "plugin_edit", "plugin_install", "plugin_list",
+    "plugin_observe", "plugin_publish_hint", "plugin_register", "plugin_rollback",
+    "plugin_scaffold", "plugin_search", "plugin_test", "plugin_upgrade",
+    "plugin_validate", "register_artifact", "reply_owner", "resolve_relative_date",
+    "skill_backup_from_github", "skill_backup_from_local_zip", "skill_backup_from_md",
+    "skill_install", "skill_list_required_env", "skill_list_unbackedup",
+    "skill_save_config", "skill_save_study_summary", "skill_search_marketplace",
+    "skill_uninstall", "submit_feedback",
+}
 
 
 def _real_user_id_tools():
@@ -266,16 +281,23 @@ def _real_user_id_tools():
 
 
 def test_every_user_id_tool_is_classified():
+    """Full classification, not just the marked set: a NEW user_id tool (marked
+    or not) is in neither list and turns this red until someone decides whether
+    its user_id is our account or a third-party id. Set equality also fails if
+    a module stops building (its tools vanish), so the swallowed construction
+    errors in _real_user_id_tools cannot hollow the gate out."""
+    assert not (ACCOUNT_USER_ID_TOOLS & EXTERNAL_USER_ID_TOOLS)
     tools = _real_user_id_tools()
-    external = {n for n, fn in tools.items() if getattr(fn, "_nx_external_user_id", False)}
-    assert external == EXTERNAL_USER_ID_TOOLS, (
-        f"tools marked @external_user_id changed: {sorted(external)}. A user_id that "
-        f"is NOT a NarraNexus account must be marked; update EXTERNAL_USER_ID_TOOLS "
-        f"deliberately."
+    unclassified = set(tools) - ACCOUNT_USER_ID_TOOLS - EXTERNAL_USER_ID_TOOLS
+    missing = (ACCOUNT_USER_ID_TOOLS | EXTERNAL_USER_ID_TOOLS) - set(tools)
+    assert not unclassified, (
+        f"new user_id tools {sorted(unclassified)}: add each to ACCOUNT_USER_ID_TOOLS, "
+        f"or mark it @external_user_id and add it to EXTERNAL_USER_ID_TOOLS"
     )
-    # Coverage floor (see test_every_agent_id_tool_is_async): the except/continue
-    # above would otherwise let this gate hollow out while staying green.
-    assert len(tools) >= 38, f"only {len(tools)} user_id tools inspected — coverage shrank"
+    assert not missing, f"classified tools no longer found (module failed to build?): {sorted(missing)}"
+    for name, fn in tools.items():
+        marked = bool(getattr(fn, "_nx_external_user_id", False))
+        assert marked == (name in EXTERNAL_USER_ID_TOOLS), name
 
 
 @pytest.mark.asyncio

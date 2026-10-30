@@ -14,8 +14,10 @@ stub: false
 真正指外部平台用户的参数（目前只有 Discord 的 `discord_dm`，Discord snowflake）用
 `@external_user_id` 标注（放在 `@mcp.tool()` 下面），wrapper 对其 `user_id` 完全不做
 解析，`agent_id` 照常解析。新增工具如果 `user_id` 是第三方 id，必须加这个标注；
-`test_every_user_id_tool_is_classified` 钉死了带标注的集合（遍历真实的
-`build_instrumented_mcp_server()`，带覆盖下限），漏标会变红。
+`test_every_user_id_tool_is_classified` 钉死**完整分类**（遍历真实的
+`build_instrumented_mcp_server()`）：所有声明 `user_id` 的工具必须出现在
+`ACCOUNT_USER_ID_TOOLS` 或 `EXTERNAL_USER_ID_TOOLS` 之一，且标注与所在集合一致；新增工具
+不归类就变红，逼人显式判断。
 
 范围说明：这一条防的是**模型在参数里填错/填别人的 id**。恶意直连 MCP 的调用方能否伪造
 注入身份本身，取决于 `NX_MCP_AUTH_MODE`——只有 enforce 模式下注入身份是经过签名证明的。

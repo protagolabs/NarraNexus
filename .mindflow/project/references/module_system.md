@@ -217,7 +217,8 @@ async def skill_save_config(agent_id: str, user_id: str, skill_name: str, ...):
 `user_id` 指的是**第三方平台的用户**（IM 用户 id 之类），必须在 `@mcp.tool()` 下面加
 `@external_user_id`（从 `narranexus.platform.module_system` 导入），否则参数会被静默
 改成 agent 属主。`tests/module/test_mcp_caller_user_identity.py` 的
-`test_every_user_id_tool_is_classified` 会在新增这类工具时变红，提醒你显式归类。
+`test_every_user_id_tool_is_classified` 钉死了所有 `user_id` 工具的分类：新增任何声明
+`user_id` 的工具都会让它变红，必须把工具名加进账号集合，或加标注并加进外部集合。
 
 **端口分配：**
 

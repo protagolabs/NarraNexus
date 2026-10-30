@@ -230,7 +230,7 @@ bearer——字段数约定见 [[_mcp_identity]])。
 身份走同一注入点、同一双通道（header + bearer 第 5 位）。`self.user_id`
 可能为 None（无属主的触发回合），builder 对 None 省略 header、bearer 尾
 字段掉落，服务端回退用模型参数。服务端的弱纪律（占位符才注入、None 不
-碰、mismatch 只计量）见 [[_mcp_identity]] 2026-08-04 条。
+碰、mismatch 只计量；mismatch 自 2026-10-30 起以回合所有者为准）见 [[_mcp_identity]] 2026-08-04 条。
 
 ## 2026-08-04 — 声明收集点 TypeError 单列(review)
 
