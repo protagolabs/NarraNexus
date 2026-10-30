@@ -15,7 +15,7 @@ from typing import Any
 from narranexus.platform.artifact import ArtifactService, MAX_ARTIFACT_BYTES
 from narranexus.platform.module_system.data_access import resolve_agent_workspace_cwd
 from narranexus.platform.settings import settings
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.db.db_factory import get_db_client
 
 

@@ -46,7 +46,7 @@ def dir_is_builtin(skill_dir: Path) -> bool:
     # into another tenant's tree). Paths outside the workspace base are platform
     # staging: parent trusted, leaf still O_NOFOLLOW.
     from narranexus.platform.settings import settings
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     try:
         root, rel = confined_io.split_source(str(skill_dir / SKILL_META_FILENAME), settings.base_working_path)

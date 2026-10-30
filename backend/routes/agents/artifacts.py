@@ -48,7 +48,7 @@ from narranexus.platform.artifact import (
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.settings import settings
 from narranexus.platform.schema import Artifact, EmbedMode, HealResult
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.db.db_factory import get_db_client
 
 from backend.middleware.body_size import MAX_OFFICE_ASSET_BYTES, PUT_CONTENT_MARGIN

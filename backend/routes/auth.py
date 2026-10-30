@@ -1800,7 +1800,7 @@ async def delete_agent(
         # 13. Workspace directory
         try:
             from narranexus.platform.settings import settings
-            from narranexus.platform.utils import confined_io
+            from narranexus.platform.utils.fs import confined_io
             from narranexus.platform.utils.workspace_paths import resolve_existing_workspace
             workspace_path = str(
                 resolve_existing_workspace(

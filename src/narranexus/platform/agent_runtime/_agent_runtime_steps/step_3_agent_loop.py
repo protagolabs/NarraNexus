@@ -101,7 +101,7 @@ def ensure_agent_workspace_dir(agent_working_path: str, base_working_path: str) 
     actionable message instead of silently working through the link. Replace the
     link with a real directory (or point ``base_working_path`` at the target).
     """
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     try:
         root, rel = confined_io.split_under_base(agent_working_path, base_working_path)

@@ -1,10 +1,13 @@
 ---
-code_file: src/narranexus/platform/utils/confined_io.py
+code_file: src/narranexus/platform/utils/fs/confined_io.py
 last_verified: 2026-10-30
 stub: false
 ---
 
-# confined_io.py — 让"检查路径"和"打开路径"成为同一个操作
+# fs/confined_io.py — 让"检查路径"和"打开路径"成为同一个操作
+
+> 位置：`utils/fs/`（PR #433 review I3 从 `utils/` 根搬入；分组的意图见 [[utils/fs/__init__]]）。
+> 调用方写 `from narranexus.platform.utils.fs import confined_io`；测试在 `tests/utils/fs/test_confined_io.py`。
 
 ## 为什么存在
 
@@ -31,6 +34,7 @@ stub: false
   目录不可读抛 `ConfinedScanError`、扫描中目录被换成链接抛 `SymlinkRefusedError`；绝不少算（总数用来执行大小上限，静默跳过会让租户把字节藏起来）。artifact 侧映射为
   `ArtifactTooLarge("artifact directory cannot be measured …")`，**不再**冒充 `ArtifactPathEscape`。
 - `list_dir(root, rel)`：目录 fd 上 scandir + 逐项 lstat（`DirEntryInfo`），链接条目按链接报告其自身元数据。
+- `list_fd(fd)` / `open_subdir(parent_fd, name)`：给**自己递归**、有 `walk_tree` 表达不了的预算/深度规则的调用方（`agents/files.py` 的 `_build_tree`：节点预算耗尽即停、深度触顶先看再判截断）。起点 `open_dir_fd` 一次，之下 `open_subdir` 一次 `openat`（链接 → `SymlinkRefusedError`），每层持有一个 fd，系统调用数 O(目录数)。**不要**对每个目录调 `list_dir(root, 完整路径)`——那会从根重走整条路径（PR #433 review I2：`_build_tree` 最坏约 9.5 万次 `openat`）。
 - `rename_within(root, src_rel, dst_rel)`：两个父目录各自逐级 `O_NOFOLLOW`，`renameat` 作用在两个 dir fd 上；链接叶子按链接改名；非空目标目录 →
   `FileExistsError`（不合并、不嵌套）；已存在的**文件**目标被原子替换（源也须是文件，目录覆盖文件 → `NotADirectoryError`）；已存在的**空目录**目标被替换（源须是目录，文件覆盖目录 → `IsADirectoryError`）。
 - `merge_tree(src_root, src_rel, dst_root, dst_rel)`：把**平台暂存区**目录的内容合并进目标目录（缺失则逐级创建）：目标路径逐级 `O_NOFOLLOW`（任何链接 → `SymlinkRefusedError`，之前什么都没写）；
@@ -49,6 +53,7 @@ stub: false
 - `make_dirs` / `copy_tree(make_parents=True)` 在 `create` 时会先创建缺失的**平台自有**根（首次运行没有 workspace base）。
 - `remove_tree`：fd 相对删除，`unlink`/`rmdir` 走 dir_fd，**从不跟随链接**；树内/叶子的链接只删链接本身；**迭代**（每层一个 fd），深度上限 = 进程 fd 软上限的 1/4
   （macOS 的 256 → 64，Linux 常见的 1024 → 256，封顶 4096，`_remove_depth_cap()`），**在为该层打开 fd 之前**就抛 `TreeTooDeepError`，远早于 EMFILE（EMFILE 会饿死本进程的其他请求）；已删部分不回滚；删除过程中被换成链接 / 常规文件的目录（顶层与嵌套一视同仁）**直接 unlink 那个链接/文件**，租户不能靠竞态把自己的树留下。
+  `_remove_dir_contents` 承诺关闭 `top_fd`，**所有路径**都成立——包括它第一次 scandir 就失败（PR #433 review M2：之前那一步在受保护块之外，泄漏一个 fd）。
 - `split_under_base(path, base)`：词法还原 (realpath(base), 相对尾段)，接受 base 的真实路径与配置拼写（相对/符号链接），租户尾段
   永不 resolve——对尾段做 realpath 会在"较晚的时刻"穿过已放好的链接，再 NOFOLLOW 打开就成了对受害者树的合法访问。
 - 所有 fd 在每条路径上都关闭（有 fd 泄漏测试）。
@@ -85,8 +90,8 @@ narramessenger `_matrix_send`。
 - **改名 / 复制**：skill 启停（`rename_within`）；skill 安装 / 物化 / 复制（`copy_tree`）；bus 暂存（`link_or_copy`）。
 - **删除**：`remove_skill`、skill 安装替换、`copy_skill_into_agent` / `applier` 替换、team 共享目录清空、agent 删除、`agents/files.py` 删除——全部 `remove_tree`。
   **删除目标必须是词法路径**：`ensure_within_directory` 的返回值已 `resolve()`，会把被换成链接的目录解析成受害者的真实路径，之后的受限遍历反而放行。
-- **列表 / stat / 打包**：`_build_tree`、manyfold `list` / `stat`、bundle 导出的 workspace tar 与 skill zip、`list_unbackedup`、对账（`skill_sync_service`）、
-  内置技能扫描——`list_dir` / `iter_tree` / `lstat`；链接条目按链接报告（打包时跳过）。
+- **列表 / stat / 打包**：`_build_tree`（`open_dir_fd` 一次 + `open_subdir` / `list_fd`）；manyfold `list` / `stat`、bundle 导出的 workspace tar 与 skill zip（`walk_tree`）、
+  `list_unbackedup`、对账（`skill_sync_service`）、内置技能扫描——`list_dir` / `iter_tree` / `lstat`；链接条目按链接报告（打包时跳过）。
 - 验证过的"不需要转换"：整 workspace 的删除里，`{base}/{user}` 是执行器的绑定挂载点（`executor_protocol.py:200`、`_bus_attachment_impl.py` 的说明），
   租户无法替换它本身；lark 的 HOME / 配置目录 `~/.narranexus/lark_workspaces/<agent>`（`_lark_workspace.py`，`LARK_WORKSPACE_BASE`）不在任何租户挂载内。
   （`lark_cli_client` 另有一处把**租户 workspace** 当子进程 cwd，见下方例外清单。）
@@ -125,5 +130,5 @@ narramessenger `_matrix_send`。
 
 ## 相关约束
 
-2026-10-28 跨租户读取事件的后续（见 [[artifact/_artifact_impl/confinement]]）；`tests/utils/test_confined_io.py` 与
+2026-10-28 跨租户读取事件的后续（见 [[artifact/_artifact_impl/confinement]]）；`tests/utils/fs/test_confined_io.py` 与
 `tests/artifact/test_confined_io_sites.py` 钉住竞态与正常路径。

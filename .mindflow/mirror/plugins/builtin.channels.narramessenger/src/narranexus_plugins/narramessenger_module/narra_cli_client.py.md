@@ -7,7 +7,7 @@ last_verified: 2026-10-30
 ## 2026-10-30（复审 2）— 子进程 cwd 是租户 workspace（例外清单）
 
 ~:345 的 `cwd = await resolve_agent_workspace_cwd(...)` 把租户可写的 agent workspace 交给 narra-cli 子进程当工作目录：创建由受限 `make_dirs` 完成，但路径交给另一个进程后无法传 fd，
-与 office_watch、lark-cli 同类，已在 [[utils/confined_io]] 的例外清单中列出。
+与 office_watch、lark-cli 同类，已在 [[utils/fs/confined_io]] 的例外清单中列出。
 
 ## 2026-09-09 — 端点随绑定注入（narra-cli 1.1.0 → 1.2.1）
 

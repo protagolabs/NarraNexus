@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（PR #433 review M6）— 临时 fd 的所有权
+
+`archive_local_zip` 里 `mkstemp` 的 fd 只有在 `os.fdopen` **返回之后**才归文件对象所有；`fdopen` 抛错时自己关 fd（并关源文件），
+与 `confined_io.open_new` / `write_atomic` 的 fd 纪律一致。`finally` 里按文件名清理 scratch 的逻辑不变。
+
 ## 2026-10-30 — 工作区 zip 的归档与未备份列表走受限路径
 
 `archive_local_zip`：`resolve_inside_workspace` 只是检查；zip 经受限 fd 读进**平台自有的临时文件**，对**这份拷贝**做 `validate_skill_archive_path`，通过后才

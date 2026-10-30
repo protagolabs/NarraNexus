@@ -4,10 +4,19 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（PR #433 review I2）— 目录树一次到达 workspace、之下按父 fd 打开、离开事件循环
+
+上一版每个目录都 `confined_io.list_dir(base, 完整路径)`，即**从 base 起重走整条路径**：最坏 5000 目录 × 约 19 次 `openat`
+≈ 9.5 万次系统调用，同步跑在事件循环上（阻塞本身是旧问题，放大是上一版引入的）。现在 `open_dir_fd` 只到达 workspace 一次，
+之下 `confined_io.open_subdir(父 fd, 名)` 一次 `openat`、`list_fd` 列目录，每层持有一个 fd，系统调用数 O(目录数)；
+`list_workspace_files` 用 `asyncio.to_thread(_build_tree, …)`。没用 `walk_tree`：它的 `max_depth` 是抛 `TreeTooDeepError`，
+而这里要的是"深度触顶先看再判截断"、"节点预算耗尽即停"，两条语义原样保留（`test_agents_files_traversal.py` 的截断用例）。
+测试：`test_tree_walks_from_the_base_once_not_once_per_directory`、`test_tree_is_built_off_the_event_loop`。
+
 ## 2026-10-30 — 目录树列表改为 fd 相对遍历
 
 `_build_tree` 每层按路径 `os.scandir(path)` 递归：目录在父级列出之后、递归之前被换成链接，会把受害者的文件名/大小/mtime 列进来。
-现在每个目录经 `confined_io.list_dir`（逐级 `O_NOFOLLOW`，scandir 在目录 fd 上，逐项 `lstat`）；递归中被换成链接的子目录整个跳过
+现在每个目录 fd 相对打开（逐级 `O_NOFOLLOW`，scandir 在目录 fd 上，逐项 `lstat`；遍历方式以下方 PR #433 review 条目为准）；递归中被换成链接的子目录整个跳过
 （日志告警），根被换成链接 → 路由 404。工作区不存在 → 空树。下载还加了 `within=[workspace]`（见 [[_confined_response]]）。
 
 ## 2026-10-30（复审 I2）— 下载/上传/删除全部走受限 fd

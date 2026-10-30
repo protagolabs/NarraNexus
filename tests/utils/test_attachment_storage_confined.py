@@ -9,7 +9,7 @@
 influenced bytes through it — into another tenant's file, or into any path the
 service account can write (a dangling link creates a new file). No race was
 needed. Storage, the index and the resolver now run through the link-free walk
-(``utils/confined_io``) with random O_EXCL temp names.
+(``utils/fs/confined_io``) with random O_EXCL temp names.
 """
 from __future__ import annotations
 

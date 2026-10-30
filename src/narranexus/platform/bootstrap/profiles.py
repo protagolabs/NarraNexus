@@ -185,7 +185,7 @@ async def apply_bootstrap(
     # Created / written / removed through the link-free walk below the base: the
     # workspace is the tenant's own mount, so a swapped directory or a link
     # planted at Bootstrap.md must never redirect these platform writes.
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     ws_root, ws_rel = confined_io.split_under_base(str(workspace), settings.base_working_path)
     confined_io.make_dirs(ws_root, ws_rel)
@@ -244,7 +244,7 @@ async def _create_welcome_artifact(
             return  # already created
 
     from narranexus.platform.settings import settings
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     art_dir = workspace / welcome.subdir
     entry = art_dir / welcome.filename

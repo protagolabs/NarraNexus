@@ -161,6 +161,16 @@ def test_build_bus_markers_shape(tmp_path):
     assert json.dumps(str(tmp_path))[:-1] in marker  # absolute path rebuilt from base
 
 
+def test_build_bus_markers_skips_a_rel_path_that_leaves_the_base(tmp_path):
+    """PR #433 review M5: rel_path is joined lexically; a row whose rel_path
+    climbs out of the base must not put that path into the prompt."""
+    atts = [
+        {"file_id": "att_x", "original_name": "x.txt", "rel_path": "../../etc/passwd"},
+        {"file_id": "att_y", "original_name": "y.txt", "rel_path": "/etc/shadow"},
+    ]
+    assert build_bus_markers(atts, from_agent="agent_x", base=str(tmp_path / "base")) == ""
+
+
 def test_build_bus_markers_empty():
     assert build_bus_markers(None) == ""
     assert build_bus_markers([]) == ""

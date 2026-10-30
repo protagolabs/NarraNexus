@@ -118,7 +118,7 @@ def resolve_workspace_file(
             f"file_path escapes the agent workspace: {file_path}",
         ) from e
     try:
-        from narranexus.platform.utils import confined_io
+        from narranexus.platform.utils.fs import confined_io
 
         croot, crel = confined_io.split_under_base(str(target), settings.base_working_path)
         regular = stat.S_ISREG(confined_io.lstat(croot, crel).st_mode)
@@ -375,7 +375,7 @@ async def send_media_impl(
     # Size pre-check via stat() BEFORE reading — never pull an oversized
     # file fully into memory just to reject it.
     from narranexus.platform.settings import settings as _settings
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     try:
         croot, crel = confined_io.split_under_base(str(target), _settings.base_working_path)

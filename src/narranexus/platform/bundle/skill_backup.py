@@ -259,7 +259,7 @@ async def archive_local_zip(
     except ValueError as e:
         raise ValueError(f"zip_file_path must be inside this agent's workspace ({e})") from None
     from narranexus.platform.settings import settings as core_settings
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     try:
         root, rel = confined_io.split_under_base(str(src), core_settings.base_working_path)
@@ -279,7 +279,14 @@ async def archive_local_zip(
 
     fd, scratch = tempfile.mkstemp(suffix=".zip", prefix="skill-local-zip-")
     try:
-        with source_file, os.fdopen(fd, "wb") as dst_f:
+        # fdopen owns the fd only once it returns: close it ourselves if it raises.
+        try:
+            dst_f = os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)
+            source_file.close()
+            raise
+        with source_file, dst_f:
             shutil.copyfileobj(source_file, dst_f)
         validate_skill_archive_path(Path(scratch), require_skill_md=True)
         out_path = prepare_archive_target(user_id, skill_name)
@@ -325,7 +332,7 @@ async def list_unbackedup(user_id: str, agent_id: str) -> List[str]:
     skills_dir = ws / "skills"
     # Listed through the link-free walk: a swapped `skills` directory lists empty.
     from narranexus.platform.settings import settings as core_settings
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     try:
         root, rel = confined_io.split_under_base(str(skills_dir), core_settings.base_working_path)

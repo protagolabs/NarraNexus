@@ -4,10 +4,18 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（PR #433 review M1，核实后不成立）— 排序与旧算法一致
+
+review 认为旧 `sorted(rglob)` 按整串路径比较、与新的 `.parts` 排序在跨 `/` 时不同。实测不成立：`PurePath.__lt__` 本身逐段比较
+（3.11–3.13 均如此，`sorted([docs.md, docs/b.md])` 得 `[docs/b.md, docs.md]`，与 `.parts` 一致），旧路径又都以 skill_dir 为前缀，
+两种顺序相同，已存哈希仍有效；唯一例外仍是"含符号链接文件的技能读成 modified 一次"。测试
+`test_content_hash_matches_the_previous_rglob_algorithm` 用旧算法在含 `assets/` + `assets.json`、`docs/` + `docs.md` 的树上复算并比对。
+**不要**改排序键。
+
 ## 2026-10-30（复审 2）— 哈希移出事件循环
 
 `compute_content_hash` 阶段 1 用线性的 `iter_tree` 列文件，阶段 2 按 `PurePosixPath.parts` 排序后逐个读取（每个文件一次深度≤64 的受限遍历）；过深抛 `TreeTooDeepError`。
-异步调用点（`_install_staged`）用 `asyncio.to_thread`，租户可控的深/大目录树不会卡住事件循环。摘要与顺序不变，已存哈希仍有效。
+异步调用点（`_install_staged`）用 `asyncio.to_thread`，租户可控的深/大目录树不会卡住事件循环。摘要与顺序不变，已存哈希仍有效（见上方 PR #433 review M1 条目）。
 
 ## 2026-10-30 — `compute_content_hash` fd 相对
 

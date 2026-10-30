@@ -114,7 +114,7 @@ def test_copy_tree_keeps_symlinks_as_links(tmp_path):
     (src / "SKILL.md").write_text("# s", encoding="utf-8")
     os.symlink(outside, src / "leak.txt")
     dst = tmp_path / "dst_skill"
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     confined_io.copy_tree(str(tmp_path), "src_skill", str(tmp_path), "dst_skill")
     assert (dst / "SKILL.md").read_text(encoding="utf-8") == "# s"

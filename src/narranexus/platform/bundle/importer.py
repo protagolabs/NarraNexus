@@ -2037,7 +2037,7 @@ def copy_skill_into_agent(
     skills_base = agent_workspace_path(target_aid, user_id, base=base) / "skills"
     safe_name = sanitize_filename(skill_name, label="skill name")
     target = ensure_within_directory(skills_base, safe_name, label="skill name")
-    # Everything below is fd-relative under the base (``utils/confined_io``):
+    # Everything below is fd-relative under the base (``utils/fs/confined_io``):
     # ``skills`` sits in the owner's own mount and can be swapped for a link to
     # another tenant's tree, which a by-path rmtree / mkdir / copytree would
     # follow (deleting there and writing there). Paths are LEXICAL
@@ -2047,7 +2047,7 @@ def copy_skill_into_agent(
     # SOURCE: ``src_skill_dir`` is an installed skill of the SAME tenant (or
     # platform staging) — never another tenant's tree; it is walked O_NOFOLLOW
     # too and links inside it are copied as links, never dereferenced.
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     root, skills_rel = confined_io.split_under_base(str(skills_base), base)
     confined_io.make_dirs(root, skills_rel)
@@ -2082,7 +2082,7 @@ def _import_workspace_tar(
     """
     import tempfile
 
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     staging = tempfile.mkdtemp(prefix="nx-ws-import-")
     try:

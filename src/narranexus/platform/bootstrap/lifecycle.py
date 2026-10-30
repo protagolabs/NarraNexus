@@ -82,7 +82,7 @@ def bootstrap_file_present(bootstrap_path: str) -> bool:
     import stat as stat_mod
 
     from narranexus.platform.settings import settings
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     try:
         root, rel = confined_io.split_under_base(str(bootstrap_path), settings.base_working_path)

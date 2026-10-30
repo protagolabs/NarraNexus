@@ -27,7 +27,7 @@ on its path lands it outside the lexical roots and fails closed.
 entry must not re-open the returned string: between the check and the open a
 directory on the path can be swapped for a link into another tenant's tree.
 The ``*_confined`` helpers at the bottom perform the I/O itself through
-``utils/confined_io`` (every component below the base opened with
+``utils/fs/confined_io`` (every component below the base opened with
 ``O_NOFOLLOW`` relative to its parent fd), so a link planted at any moment is
 refused instead of followed. 2026-10-30.
 """
@@ -37,7 +37,7 @@ import hashlib
 import os
 from typing import BinaryIO, Optional
 
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.workspace_paths import (
     workspace_candidate_relpaths,
     resolve_workspace_relative_file,

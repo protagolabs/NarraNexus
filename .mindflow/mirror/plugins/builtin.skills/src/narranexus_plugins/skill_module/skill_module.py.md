@@ -15,7 +15,7 @@ stub: false
 
 ## 2026-10-30（续）— 安装 / 启停 / 物化 / 元数据 / 扫描全部 fd 相对
 
-删除之外的同类写、改名、读也走 `utils/confined_io`（`skills`、`.disabled`、技能目录都在租户自己的挂载里，随时可被换成指向别的租户的链接）：
+删除之外的同类写、改名、读也走 `utils/fs/confined_io`（`skills`、`.disabled`、技能目录都在租户自己的挂载里，随时可被换成指向别的租户的链接）：
 - `install_from_dir`：`make_dirs` 建 `skills/`，把**平台自有的 staging**（clone / unzip 目录）`copy_tree` 到私有同级 `.installing.<name>.<rand>`，
   再 `rename_within` 到位（原子；失败清理）。原来的 `shutil.move`/`mkdir` 按路径落笔。staging 由调用方自己的 `finally` 清理，和以前一样。
 - `disable_skill` / `enable_skill`：`rename_within`（两个父目录都逐级 `O_NOFOLLOW`，`renameat` 作用在两个 dir fd 上）。目标已存在且非空 →
@@ -39,7 +39,7 @@ stub: false
 `ensure_within_directory` 的返回值——它会 `resolve()`，把被换成链接的 `skills` 解析成受害者的真实路径，之后的受限遍历反而放行。
 `skills_dir` 必须在 `settings.base_working_path` 之下（测试夹具要同步设置 `base_path`）。
 **（以下已过时——这些现已全部转换，见本文件更靠前的『安装 / 启停 / 物化 / 元数据 / 扫描全部 fd 相对』条目）**：`install_from_dir` 之后的 `shutil.move(...)`/`mkdir`/元数据写入，以及 `disable_skill`/`enable_skill` 的 `shutil.move`
-（同一类的写/改名，非删除）；见 [[utils/confined_io]] 的清单。
+（同一类的写/改名，非删除）；见 [[utils/fs/confined_io]] 的清单。
 
 ## 2026-10-28 — skill_name 只能是单个目录名
 

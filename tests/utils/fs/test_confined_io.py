@@ -2,7 +2,7 @@
 @file_name: test_confined_io.py
 @author: Bin Liang
 @date: 2026-10-30
-@description: Unit tests for utils/confined_io.py — fd-relative file operations
+@description: Unit tests for utils/fs/confined_io.py — fd-relative file operations
 that make "prove the path is inside the root" and "open it" ONE operation.
 
 The attack these pin: a tenant controls the contents of its own workspace and
@@ -17,7 +17,7 @@ import os
 
 import pytest
 
-from narranexus.platform.utils import confined_io as cio
+from narranexus.platform.utils.fs import confined_io as cio
 
 
 @pytest.fixture
@@ -310,6 +310,27 @@ def test_no_fd_leak_on_any_path(tree):
         cio.dir_regular_bytes(tree["root"], "a")
     assert _open_fd_count() == before
 
+
+def test_remove_tree_closes_the_top_fd_when_its_first_listing_fails(tree, monkeypatch):
+    """PR #433 review M2: _remove_dir_contents promises to close ``top_fd``, but
+    a failure of its FIRST scandir happened before the guarded block."""
+    before = _open_fd_count()
+    if before is None:
+        pytest.skip("needs /proc/self/fd")
+    real = cio.os.scandir
+
+    def failing(arg, *a, **k):
+        if isinstance(arg, int):
+            raise PermissionError(13, "Permission denied")
+        return real(arg, *a, **k)
+
+    monkeypatch.setattr(cio.os, "scandir", failing)
+    monkeypatch.setattr(cio.os, "supports_fd", cio.os.supports_fd | {failing})
+    for _ in range(5):
+        with pytest.raises(PermissionError):
+            cio.remove_tree(tree["root"], "a")
+    monkeypatch.undo()
+    assert _open_fd_count() == before
 
 # ── split_under_base (lexical; relative / symlinked base spellings) ──────────
 

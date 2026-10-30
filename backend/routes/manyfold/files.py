@@ -41,7 +41,7 @@ from pydantic import BaseModel, Field
 
 from backend.routes._confined_response import open_tenant_file
 from narranexus.platform.settings import settings as core_settings
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.db.db_factory import get_db_client
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 

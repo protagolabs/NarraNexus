@@ -504,7 +504,7 @@ class ArenaProvisioningService:
             cred_file = workspace / "skills" / "arena" / "credentials.json"
             import json as _json
 
-            from narranexus.platform.utils import confined_io
+            from narranexus.platform.utils.fs import confined_io
 
             # Read through the link-free walk below the base: the skill dir sits
             # in the agent's own mount, and a link swapped in must not make

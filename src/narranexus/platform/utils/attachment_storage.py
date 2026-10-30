@@ -54,7 +54,7 @@ from narranexus.platform.schema.attachment_schema import (
     FILE_MARKER_UNAVAILABLE_PATH,
     category_value,
 )
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.file_safety import (
     ensure_within_directory,
     sanitize_filename,
@@ -106,7 +106,7 @@ def _split(path: Path) -> tuple[str, str]:
 
     Everything below ``{workspace}/user_upload_files`` is tenant-writable (the
     owner's sandbox can plant links there), so all I/O under it goes through
-    ``utils/confined_io``: every component below the base O_NOFOLLOW, temp and
+    ``utils/fs/confined_io``: every component below the base O_NOFOLLOW, temp and
     target files created with O_EXCL, never by a path string. The tenant tail is
     never resolve()d. Raises ConfinedPathError (a ValueError) outside the base.
     """

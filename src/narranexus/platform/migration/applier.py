@@ -278,7 +278,7 @@ async def _copy_local_skill(agent_id: str, user_id: str, name: str, src: str) ->
     # followed (delete + copy by path would act on the victim). The SOURCE is the
     # importing user's own local directory (any path; its leaf is O_NOFOLLOW).
     from narranexus.platform.settings import settings
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     skills_dir = agent_workspace_path(agent_id, user_id) / "skills"
     dest = skills_dir / safe

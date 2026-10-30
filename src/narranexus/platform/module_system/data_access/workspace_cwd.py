@@ -62,7 +62,7 @@ async def resolve_agent_workspace_cwd(
         from narranexus.platform.utils.attachment_storage import get_workspace_path
 
         from narranexus.platform.settings import settings as core_settings
-        from narranexus.platform.utils import confined_io
+        from narranexus.platform.utils.fs import confined_io
 
         ws = get_workspace_path(agent_id, user_id)
         # Created through the link-free walk below the base: a swapped

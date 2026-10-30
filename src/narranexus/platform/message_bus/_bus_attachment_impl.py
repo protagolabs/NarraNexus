@@ -51,7 +51,7 @@ from narranexus.platform.utils.attachment_storage import (
     on_disk_suffix,
     resolve_attachment_path,
 )
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.file_safety import sanitize_filename
 from narranexus.platform.utils.workspace_paths import (
     agent_workspace_path,
@@ -85,7 +85,7 @@ def _split(path: "Path | str", base: Optional[str]) -> tuple[str, str]:
 
     Everything under a workspace or the per-user shared area is tenant-writable
     (the owner's sandbox can plant links there), so every read, write, link and
-    stat of such a file goes through ``utils/confined_io`` — each component below
+    stat of such a file goes through ``utils/fs/confined_io`` — each component below
     the base O_NOFOLLOW, operations relative to dir fds, never a path string and
     never a resolve()d tenant tail. ConfinedPathError (a ValueError) when the
     path is not strictly below the base.
@@ -202,7 +202,7 @@ def _new_target(dest_dir: Path, filename: str, base: Optional[str] = None) -> Pa
     file_id = generate_file_id()
     suffix = on_disk_suffix(filename)
     on_disk_name = f"{file_id}{suffix}" if suffix else file_id
-    sanitize_filename(on_disk_name, label="bus attachment")
+    on_disk_name = sanitize_filename(on_disk_name, label="bus attachment")
     return Path(root) / rel / on_disk_name
 
 
@@ -521,6 +521,7 @@ def build_bus_markers(
     if not attachments:
         return ""
     root = _base_root(_base(base))
+    real_root = os.path.realpath(str(root))
     lines: List[str] = []
     for att in attachments:
         if not isinstance(att, dict):
@@ -528,7 +529,11 @@ def build_bus_markers(
         rel = att.get("rel_path")
         if not rel:
             continue
-        path = os.path.normpath(os.path.join(os.path.realpath(str(root)), rel))
+        path = os.path.normpath(os.path.join(real_root, rel))
+        # rel_path is written by _bus_att_dict today; a row from any other
+        # writer must still not put a path outside the base into the prompt.
+        if not path.startswith(real_root + os.sep):
+            continue
         transcript = att.get("transcript")
         lines.append(
             file_marker(

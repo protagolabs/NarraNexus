@@ -78,7 +78,7 @@ def _module(skills_dir: Path) -> SkillModule:
 def _patch_iterdir(monkeypatch: pytest.MonkeyPatch, permute) -> None:
     """Make every directory listing hand back a caller-chosen permutation —
     Path.iterdir() and the confined walk's list_dir (what the scan uses now)."""
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     real_iterdir = Path.iterdir
     real_list_dir = confined_io.list_dir

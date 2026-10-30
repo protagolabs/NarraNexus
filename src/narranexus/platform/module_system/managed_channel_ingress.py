@@ -571,7 +571,7 @@ class ManagedChannelIngress:
 
                 def _read_confined(path=lexical) -> bytes:
                     # through the link-free walk: the guard above is only a check
-                    from narranexus.platform.utils import confined_io
+                    from narranexus.platform.utils.fs import confined_io
 
                     croot, crel = confined_io.split_under_base(
                         str(path), core_settings.base_working_path

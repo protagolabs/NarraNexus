@@ -37,7 +37,7 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.workspace_paths import safe_id_segment
 
 from narranexus.platform.module_system.base import XYZBaseModule, mcp_server_url
@@ -1579,7 +1579,7 @@ class SkillModule(XYZBaseModule):
     # Everything below a skill dir lives inside the owner's own mount, so any
     # directory on the path (``skills``, ``.disabled``, the skill dir itself)
     # can be swapped for a link into another tenant's tree. All writes, renames,
-    # copies and metadata reads therefore go through ``utils/confined_io``
+    # copies and metadata reads therefore go through ``utils/fs/confined_io``
     # (every component below the workspace base O_NOFOLLOW, operations relative
     # to dir fds). Paths passed in are LEXICAL (``self.skills_dir / name``) —
     # never the result of ``ensure_within_directory`` (it resolve()s).

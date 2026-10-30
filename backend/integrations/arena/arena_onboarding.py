@@ -437,7 +437,7 @@ class ArenaOnboarder:
         # into another tenant's tree — and this skill carries the agent's
         # credentials. ConfinedPathError (a ValueError) = refused.
         from narranexus.platform.settings import settings as core_settings
-        from narranexus.platform.utils import confined_io
+        from narranexus.platform.utils.fs import confined_io
 
         root, rel = confined_io.split_under_base(str(skill_dir), core_settings.base_working_path)
         confined_io.make_dirs(root, rel)

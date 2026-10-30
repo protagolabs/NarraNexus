@@ -760,7 +760,7 @@ def test_office_lock_probe_works_with_a_relative_base(tmp_path, monkeypatch):
 
 
 async def test_register_refuses_an_artifact_dir_deeper_than_the_scan_cap(env, monkeypatch):
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     monkeypatch.setattr(confined_io, "_MAX_SCAN_DEPTH", 3)
     deep = env["own"]
@@ -818,7 +818,7 @@ async def test_a_size_measuring_failure_after_the_write_does_not_desync_row_and_
 
 def test_dir_size_scan_failure_is_reported_as_too_large_not_path_escape(env, monkeypatch):
     from narranexus.platform.artifact import ArtifactTooLarge
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     monkeypatch.setattr(confined_io, "_MAX_SCAN_DEPTH", 2)
     deep = env["own"] / "a" / "b" / "c" / "d"

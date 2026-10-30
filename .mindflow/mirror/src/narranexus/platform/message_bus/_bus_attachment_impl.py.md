@@ -4,6 +4,13 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（PR #433 review M4/M5）— 两处小加固
+
+- `_new_target` 使用 `sanitize_filename` 的返回值（之前只靠它抛异常、丢弃返回值，读起来像"已处理"）。当前输入是平台生成的
+  `file_id + suffix`，恒等变换，`target.stem == file_id` 不变（`resolve_shared_file_by_id` 按前缀匹配依赖它）。
+- `build_bus_markers` 词法拼出的路径必须仍在 `realpath(base)` 之下，否则跳过该条。只构造提示词字符串、不碰磁盘；`rel_path` 今天只由
+  `_bus_att_dict` 写入，这条断言防的是将来别的写入方。测试：`test_build_bus_markers_skips_a_rel_path_that_leaves_the_base`。
+
 ## 2026-10-30 — 暂存 / 哈希 / 边车 / 共享区全部 fd 相对
 
 原来 `_resolve_ref_to_source` 返回 realpath，再按路径 `os.link` / `copy2` / 读哈希 / `stat`，共享区目录与文件也按路径创建：发送方把自己的某个目录

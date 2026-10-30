@@ -48,7 +48,7 @@ from narranexus.platform.schema.artifact_schema import (
     UrlArtifactDoc,
 )
 from narranexus.platform.settings import settings
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.url_safety import UnsafeUrlError, assert_public_http_url
 
 _URL_TABS_DIR = "tabs"

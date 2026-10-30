@@ -710,7 +710,7 @@ class ContextRuntime:
                 # Through the link-free walk on the LEXICAL path: the presence
                 # check above is only a check, and a tenant can swap its agent
                 # dir for a link into another tenant's tree before this delete.
-                from narranexus.platform.utils import confined_io
+                from narranexus.platform.utils.fs import confined_io
 
                 try:
                     root, rel = confined_io.split_under_base(

@@ -9,7 +9,7 @@ check-then-open-by-path window: ``open_tenant_file`` and a Starlette
 Routes used to hand ``FileResponse`` the resolved path string, and Starlette
 opens it again when the first byte is sent. A tenant who swaps a directory on
 that path for a symlink between resolution and sending made the backend serve
-another tenant's file. Routes now open the file through ``utils/confined_io``
+another tenant's file. Routes now open the file through ``utils/fs/confined_io``
 (every component below the workspace base O_NOFOLLOW) and give the response
 class the resulting file object; headers (Content-Length / Last-Modified / ETag /
 Accept-Ranges), HEAD, single and multi Range, If-Range and 416 behave exactly
@@ -28,7 +28,7 @@ from starlette.responses import FileResponse
 from starlette.types import Receive, Scope, Send
 
 from narranexus.platform.settings import settings
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 
 
 def open_tenant_file(

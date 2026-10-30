@@ -25,7 +25,8 @@ from loguru import logger
 from pydantic import BaseModel
 
 from narranexus.platform.settings import settings
-from narranexus.platform.utils import confined_io, format_for_api
+from narranexus.platform.utils import format_for_api
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils.db.dialect_time import event_time_str
 from narranexus.platform.utils.mime_sniff import sniff_mime_type

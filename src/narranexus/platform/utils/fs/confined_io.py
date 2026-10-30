@@ -379,17 +379,37 @@ def list_dir(root: str, rel: str = "") -> list[DirEntryInfo]:
     """
     fd = open_dir_fd(root, rel)
     try:
-        with os.scandir(fd) as it:
-            entries = list(it)
-        out: list[DirEntryInfo] = []
-        for entry in entries:
-            try:
-                out.append(DirEntryInfo(entry.name, entry.stat(follow_symlinks=False)))
-            except OSError:
-                continue
-        return out
+        return list_fd(fd)
     finally:
         os.close(fd)
+
+
+def list_fd(fd: int) -> list[DirEntryInfo]:
+    """``list_dir`` for a directory fd the caller already holds (from
+    :func:`open_dir_fd` / :func:`open_subdir`): scandir on the fd, per-entry
+    lstat, vanished entries skipped, unordered. The fd stays open."""
+    with os.scandir(fd) as it:
+        entries = list(it)
+    out: list[DirEntryInfo] = []
+    for entry in entries:
+        try:
+            out.append(DirEntryInfo(entry.name, entry.stat(follow_symlinks=False)))
+        except OSError:
+            continue
+    return out
+
+
+def open_subdir(parent_fd: int, name: str) -> int:
+    """Open the child directory ``name`` relative to ``parent_fd`` without
+    following a link — one ``openat``, no re-walk from the root. For callers
+    that recurse a tree themselves while holding one fd per level (a listing
+    with its own budget / depth rules that ``walk_tree`` does not express).
+    A link → SymlinkRefusedError; missing → FileNotFoundError; the caller
+    closes the returned fd."""
+    _require_support()
+    if not name or name in (".", "..") or "/" in name or "\x00" in name:
+        raise ConfinedPathError(f"invalid directory name {name!r}")
+    return _open_dir_at(parent_fd, name, create=False)
 
 
 #: Hard cap on the depth ``walk_tree`` / ``iter_tree`` descend (one held fd per
@@ -945,7 +965,12 @@ def _remove_dir_contents(top_fd: int) -> None:
             return list(it)
 
     depth_cap = _remove_depth_cap()
-    stack = [(top_fd, _entries(top_fd), None)]
+    try:
+        top_entries = _entries(top_fd)
+    except BaseException:
+        os.close(top_fd)  # the docstring's "closes it" holds on every path
+        raise
+    stack = [(top_fd, top_entries, None)]
     try:
         while stack:
             fd, entries, child_name = stack[-1]

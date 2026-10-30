@@ -8,7 +8,7 @@ after an ``islink``-style check. The owner's sandbox can swap a directory for a
 link into another tenant's tree at any moment, so a swap between a listing and
 the read packed the victim's files into the owner's export, copied a victim's
 zip into the archive registry, or recorded a victim's skills as the owner's.
-All of it now walks fd-relative (``utils/confined_io``).
+All of it now walks fd-relative (``utils/fs/confined_io``).
 
 The ``*_swap_*`` cases list a directory, THEN swap it for a link, then let the
 code read — they go red if the read is a path-string open again.
@@ -314,6 +314,34 @@ def test_content_hash_is_stable_ignores_meta_and_never_follows_links(trees):
     assert h1 == f"sha256:{expect.hexdigest()}"
 
 
+
+def test_content_hash_matches_the_previous_rglob_algorithm(trees):
+    """Recorded hashes were computed by ``sorted(skill_dir.rglob("*"))`` +
+    ``is_file()``. The confined walk must reproduce that digest byte for byte,
+    including sibling pairs that differ only across a "/" (``assets/`` vs
+    ``assets.json``) — PurePath ordering is component-wise, like ``.parts``."""
+    import hashlib
+
+    from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import compute_content_hash
+
+    d = trees["own"] / "skills" / "pairs"
+    for rel, data in {
+        "SKILL.md": b"# s",
+        "assets/x.png": b"x",
+        "assets.json": b"{}",
+        "docs/b.md": b"b",
+        "docs.md": b"d",
+        "docs-old/c.md": b"c",
+    }.items():
+        (d / rel).parent.mkdir(parents=True, exist_ok=True)
+        (d / rel).write_bytes(data)
+    old = hashlib.sha256()
+    for p in sorted(d.rglob("*")):
+        if p.is_file() and p.name != ".skill_meta.json":
+            old.update(p.relative_to(d).as_posix().encode("utf-8"))
+            old.update(p.read_bytes())
+    assert compute_content_hash(d) == f"sha256:{old.hexdigest()}"
+
 def test_content_hash_of_a_swapped_dir_refuses_instead_of_hashing_the_victim(trees):
     from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import compute_content_hash
 
@@ -407,7 +435,7 @@ def test_content_hash_of_a_deep_tree_is_fast_within_the_cap_and_refuses_beyond_i
     import time
 
     from narranexus.platform.marketplace._skill_marketplace_impl.install_pipeline import compute_content_hash
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     skills = trees["own"] / "skills"
     skills.mkdir()
@@ -422,7 +450,7 @@ def test_content_hash_of_a_deep_tree_is_fast_within_the_cap_and_refuses_beyond_i
 
 def test_export_of_a_too_deep_tree_fails_loudly_instead_of_dropping_content(trees):
     from narranexus.platform.bundle import builder
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     _deep_skill(trees["own"] / "deep", 90)
     with pytest.raises(confined_io.TreeTooDeepError):
@@ -516,3 +544,47 @@ def test_import_workspace_tar_never_writes_through_links_inside_the_target(trees
     assert sorted(os.listdir(trees["vic"] / "secret")) == ["a.txt"]
     assert not os.path.islink(target / "notes.md") and (target / "notes.md").read_bytes() == b"u1 rewrite me"
     assert not os.path.islink(target / "sub") and (target / "sub" / "a.txt").read_bytes() == b"attacker"
+
+
+@pytest.mark.parametrize("packer", ["workspace", "skill_zip"])
+def test_export_with_an_unenterable_subdir_fails_instead_of_dropping_it(trees, monkeypatch, packer):
+    """PR #433 review M3: a subdirectory the walk cannot enter used to be
+    skipped with a server-side WARNING, so the export silently lost a subtree
+    and the owner found out only at import time."""
+    from narranexus.platform.bundle import builder
+    from narranexus.platform.utils.fs import confined_io
+
+    real = confined_io._open_dir_at
+
+    def refusing(parent_fd, name, *, create):
+        if name == "work":
+            raise PermissionError(13, "Permission denied", name)
+        return real(parent_fd, name, create=create)
+
+    monkeypatch.setattr(confined_io, "_open_dir_at", refusing)
+    with pytest.raises(PermissionError):
+        if packer == "workspace":
+            builder._pack_workspace_sync(trees["own"], trees["tmp"] / "o.tar.gz", set(), user_id="u1")
+        else:
+            builder._zip_dir(trees["own"], trees["tmp"] / "s.zip")
+
+
+def test_export_of_a_missing_start_dir_is_empty_not_an_error(trees):
+    from narranexus.platform.bundle import builder
+
+    assert list(builder._walk_confined(trees["own"] / "nope", strict=True)) == []
+
+
+def test_export_of_an_unreadable_start_dir_fails_in_strict_mode(trees, monkeypatch):
+    """Only a MISSING (or link-swapped) start dir means "nothing to export"; an
+    unreadable one is content the strict export would silently lose."""
+    from narranexus.platform.bundle import builder
+    from narranexus.platform.utils.fs import confined_io
+
+    def refusing(*a, **k):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(confined_io, "open_dir_fd", refusing)
+    with pytest.raises(PermissionError):
+        list(builder._walk_confined(trees["own"], strict=True))
+    assert list(builder._walk_confined(trees["own"])) == []

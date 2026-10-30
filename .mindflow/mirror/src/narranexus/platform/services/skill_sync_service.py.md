@@ -4,9 +4,16 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（PR #433 review I2）— 磁盘侧整段在线程里跑
+
+上一版只把哈希放进线程，`skills/` / `.disabled/` 列表、meta 读取，以及 `reconcile_all` 的 base → user → agent 三级列表和 `skills` lstat
+（`用户数 × agent 数` 次）仍在 workers 的事件循环上。现在 `_scan_disk(module, skills_dir)` 与 `_skill_workspaces(base)` 是同步函数，
+各用一次 `asyncio.to_thread`；事件循环上只剩 DB 读写。受限语义不变（仍是 `list_dir` / `lstat`，链接不当 workspace / 技能）。
+测试：`tests/marketplace/test_reconciler.py::test_reconcile_lists_and_reads_disk_off_the_event_loop`。
+
 ## 2026-10-30（复审 2）— 对账里的哈希在线程里跑
 
-`reconcile_workspace` 对每个技能用 `asyncio.to_thread(self._live_status, …)`：`backend/main.py` 周期性对账覆盖所有租户，一个租户的深目录树不能再阻塞后端事件循环。
+`reconcile_workspace` 对每个技能用 `asyncio.to_thread(self._live_status, …)`（已被上方 PR #433 review I2 条目取代：整个磁盘侧一起进线程）：`backend/main.py` 周期性对账覆盖所有租户，一个租户的深目录树不能再阻塞后端事件循环。
 
 ## 2026-10-30 — 对账列表走受限路径
 

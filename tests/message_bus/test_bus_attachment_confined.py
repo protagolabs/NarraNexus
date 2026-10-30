@@ -8,7 +8,7 @@ area's directories and files by path. The sender controls its own workspace
 (links, swapped directories), so a directory swapped between the resolution and
 the link made the platform copy ANOTHER tenant's file into the sender's shared
 area (a cross-tenant read), and a link planted in the shared area was written
-through. Everything now runs through the link-free walk (``utils/confined_io``).
+through. Everything now runs through the link-free walk (``utils/fs/confined_io``).
 
 Each ``*_swap_*`` case swaps right AFTER the resolver and asserts the victim's
 bytes never reach the staged area and nothing is created in the victim's tree.

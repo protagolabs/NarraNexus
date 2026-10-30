@@ -269,6 +269,55 @@ def test_tree_swap_between_listing_and_recursion_never_lists_the_victim(files_cl
     assert "77" not in [str(n.get("size")) for n in r.json().get("tree", [])]
 
 
+def test_tree_walks_from_the_base_once_not_once_per_directory(files_client, monkeypatch):
+    """PR #433 review I2: each directory used to be listed by re-walking the
+    whole path from the base (~19 openat per directory). The walk below the
+    workspace now opens each child relative to its parent's fd."""
+    from narranexus.platform.utils.fs import confined_io
+
+    d = files_client["own"]
+    for i in range(6):
+        d = d / f"d{i}"
+        d.mkdir()
+        (d / f"f{i}.txt").write_bytes(b"x")
+    real = confined_io.open_dir_fd
+    calls = []
+
+    def counting(*a, **k):
+        calls.append(a)
+        return real(*a, **k)
+
+    monkeypatch.setattr(confined_io, "open_dir_fd", counting)
+    r = files_client["client"].get(f"/api/agents/{A_OWN}/files", headers={"X-User-Id": OWNER})
+    assert sorted(_tree_names(r.json()["tree"])) == sorted(
+        [f"d{i}" for i in range(6)] + [f"f{i}.txt" for i in range(6)]
+    )
+    assert len(calls) == 1
+
+
+def test_tree_is_built_off_the_event_loop(files_client, monkeypatch):
+    """The tree walk is pure filesystem work over up to MAX_TREE_NODES entries;
+    run on the loop it stalls every request the process serves."""
+    import asyncio
+
+    files_mod = files_client["files_mod"]
+    real = files_mod._build_tree
+    on_loop = []
+
+    def recording(root):
+        try:
+            asyncio.get_running_loop()
+            on_loop.append(True)
+        except RuntimeError:
+            on_loop.append(False)
+        return real(root)
+
+    monkeypatch.setattr(files_mod, "_build_tree", recording)
+    r = files_client["client"].get(f"/api/agents/{A_OWN}/files", headers={"X-User-Id": OWNER})
+    assert r.json()["success"] is True
+    assert on_loop == [False]
+
+
 # ── manyfold list / stat ─────────────────────────────────────────────────────
 
 
@@ -590,7 +639,7 @@ def test_study_status_round_trips_for_the_owner(ws):
 
 def test_copy_skill_into_agent_source_behind_a_swapped_link_is_refused(ws, tmp_path):
     from narranexus.platform.bundle import importer
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     victim = _victim_skill(ws)
     _link(ws["own"] / "skills", ws["vic"] / "skills")  # the SOURCE walks through this

@@ -1408,30 +1408,53 @@ def _builtin_skill_relpaths(src: Path) -> set:
     return roots
 
 
-def _walk_confined(src: Path, *, skip=None, only_dir: str = "", recurse: bool = True):
+def _walk_confined(
+    src: Path, *, skip=None, only_dir: str = "", recurse: bool = True, strict: bool = False
+):
     """Yield ``(rel_posix, TreeNode)`` for every directory and regular file under
     ``src`` (or under ``src/only_dir``) — ``confined_io.walk_tree`` (linear time:
     one held fd per level, files opened with one ``openat`` via
     ``node.open_file()`` while the walk is on that entry) with the export's
-    logging. A directory swapped for a link after an earlier ``islink`` check
-    lists as absent instead of packing another tenant's files into the export;
-    links and special files are never yielded. A tree deeper than
-    ``confined_io.MAX_TREE_DEPTH`` raises TreeTooDeepError — an export must not
-    silently lose content. ``src`` below the workspace base is walked from the
-    base; anywhere else (staging) its parent is trusted and the leaf is
-    O_NOFOLLOW."""
+    logging. Links and special files are never yielded. A tree deeper than
+    ``confined_io.MAX_TREE_DEPTH`` raises TreeTooDeepError. A missing start dir
+    (or one swapped for a link) yields nothing with a WARNING. A subdirectory
+    that cannot be entered (unreadable, swapped for a link mid-walk) is skipped
+    with a WARNING — or, with ``strict=True`` (the export packers), raises: an
+    export must not silently lose a subtree. ``src`` below the workspace base is
+    walked from the base; anywhere else (staging) its parent is trusted and the
+    leaf is O_NOFOLLOW."""
     from narranexus.platform.settings import settings as core_settings
-    from narranexus.platform.utils import confined_io
+    from narranexus.platform.utils.fs import confined_io
 
     root, base_rel = confined_io.split_source(str(src), core_settings.base_working_path)
     start = "/".join(p for p in (base_rel, only_dir) if p)
+    walker = confined_io.walk_tree(root, start, skip=skip, recurse=recurse, strict=strict)
+    # Only the START failing is tolerated: walk_tree opens it on the first
+    # next(), before any node. Errors after that (a strict subdir failure, a
+    # too-deep tree) propagate — catching them here would turn the strict
+    # export back into a silent truncation.
     try:
-        for node in confined_io.walk_tree(root, start, skip=skip, recurse=recurse):
-            yield (f"{only_dir}/{node.rel}" if only_dir else node.rel), node
+        first = next(walker, None)
     except confined_io.TreeTooDeepError:
         raise
-    except (OSError, ValueError) as e:  # missing, or the start dir swapped for a link
+    except (FileNotFoundError, NotADirectoryError, confined_io.ConfinedPathError) as e:
+        # missing, or the start dir swapped for a link / a file
         logger.warning(f"bundle export: {start!r} not walked: {e}")
+        return
+    except OSError as e:
+        if strict:
+            raise  # an unreadable start dir is content the export would lose
+        logger.warning(f"bundle export: {start!r} not walked: {e}")
+        return
+    if first is None:
+        return
+
+    def _rel(node) -> str:
+        return f"{only_dir}/{node.rel}" if only_dir else node.rel
+
+    yield _rel(first), first
+    for node in walker:
+        yield _rel(node), node
 
 
 def _pack_workspace_sync(
@@ -1475,7 +1498,7 @@ def _pack_workspace_sync(
         root_ti.type = tarfile.DIRTYPE
         root_ti.mode = 0o755
         tar.addfile(root_ti)
-        for rel, node in _walk_confined(src, skip=_skip):
+        for rel, node in _walk_confined(src, skip=_skip, strict=True):
             entry, is_dir = node.entry, node.is_dir
             arcname = f"./{rel}"
             if is_dir:
@@ -1570,7 +1593,7 @@ def _zip_dir(src: Path, dst: Path, scrub_secrets: bool = False) -> None:
     from narranexus.platform.bundle.skill_secrets import SKILL_META_FILENAME, scrub_skill_meta
 
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
-        for rel, node in _walk_confined(src):
+        for rel, node in _walk_confined(src, strict=True):
             entry = node.entry
             if node.is_dir:
                 continue

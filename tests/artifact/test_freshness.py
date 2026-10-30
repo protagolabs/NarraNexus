@@ -166,3 +166,28 @@ async def test_null_hash_row_with_changed_bytes_is_still_fresh(env):
     assert row.content_hash == _sha("# rewritten while unfingerprinted\n")
     assert await _history(env["db"], "art_fresh001") == []
     assert await _events(env["db"]) == []
+
+
+async def test_null_hash_row_claims_the_hash_even_when_size_is_unmeasurable(env, monkeypatch):
+    """PR #433 review I1: measuring a directory entry can now raise (too deep,
+    unreadable, a link swapped in). The legacy-row claim must still write the
+    hash — keeping the previous size — or the fast screen never arms and every
+    render re-hashes the entry."""
+    import narranexus.platform.artifact._artifact_impl.freshness as freshness_mod
+    from narranexus.platform.artifact._artifact_impl.errors import ArtifactTooLarge
+
+    await env["db"].update(
+        "instance_artifacts", {"artifact_id": "art_fresh001"}, {"content_hash": None}
+    )
+
+    def unmeasurable(abs_entry, artifact):
+        raise ArtifactTooLarge("tree too deep to measure")
+
+    monkeypatch.setattr(freshness_mod, "entry_size_bytes", unmeasurable)
+    art = await env["repo"].get_by_id("art_fresh001")
+    verdict = await env["svc"].refresh_external_state(art)
+    assert verdict == "fresh"
+    row = await env["repo"].get_by_id("art_fresh001")
+    assert row.content_hash == _sha("# v1\n")
+    assert row.size_bytes == 5
+    assert await _history(env["db"], "art_fresh001") == []

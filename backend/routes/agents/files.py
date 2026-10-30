@@ -18,6 +18,7 @@ etc. Raw / delete endpoints accept nested relative paths so the viewer can
 download / preview / remove anything in the tree.
 """
 
+import asyncio
 import mimetypes
 import os
 from pathlib import Path, PurePosixPath
@@ -36,7 +37,7 @@ from narranexus.platform.schema import (
     FileDeleteResponse,
 )
 from narranexus.platform.settings import settings as platform_settings
-from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.utils.file_safety import (
     enforce_max_bytes,
@@ -87,9 +88,8 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
     Hidden files (regular files whose name starts with `.`) are also skipped
     for the same reason.
 
-    Symlinks are not followed when recursing (`os.scandir(follow_symlinks=False)`)
-    to keep cycles and out-of-workspace escapes off the table; symlinks
-    themselves appear as their target type via the default scandir behaviour.
+    Symlinks are never followed and never listed (every entry is an lstat), so
+    cycles and out-of-workspace escapes are off the table.
 
     Sort order: directories first, then files, each alphabetically — so the
     tree renders predictably.
@@ -103,25 +103,24 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
     """
     budget = {"nodes": MAX_TREE_NODES, "truncated": False}
 
-    # Every directory is listed through the link-free walk below the workspace
-    # base (confined_io.list_dir: O_NOFOLLOW per component, scandir on the fd,
-    # per-entry lstat). Recursing by PATH string (the old scandir(path) per
-    # level) let a directory swapped for a link between the is_dir check and the
-    # recursion list another tenant's names, sizes and mtimes into this tree.
+    # The workspace dir is reached ONCE by the link-free walk below the base
+    # (O_NOFOLLOW per component); below it every directory is opened relative to
+    # its parent's fd (confined_io.open_subdir — one openat) and listed through
+    # that fd with per-entry lstat. One fd per level, O(directories) syscalls.
+    # Recursing by PATH string (the old scandir(path) per level) let a directory
+    # swapped for a link between the is_dir check and the recursion list another
+    # tenant's names, sizes and mtimes into this tree; re-walking from the base
+    # per directory (PR #433 round 1) cost ~19 openat per directory.
     base_root, ws_rel = confined_io.split_under_base(
         str(workspace_root), platform_settings.base_working_path
     )
 
-    def _walk(rel_dir: str, depth: int = 0) -> List[FileInfo]:
+    def _walk(dir_fd: int, rel_dir: str, depth: int = 0) -> List[FileInfo]:
         nodes: List[FileInfo] = []
         try:
-            entries = confined_io.list_dir(base_root, rel_dir)
-        except confined_io.ConfinedPathError as e:
-            # Swapped for a link since the parent listing: nothing of it is shown.
-            logger.warning(f"workspace scan refused at {rel_dir}: {e}")
-            return nodes
+            entries = confined_io.list_fd(dir_fd)
         except OSError as e:
-            logger.warning(f"workspace scan failed at {rel_dir}: {e}")
+            logger.warning(f"workspace scan failed at {rel_dir or '.'}: {e}")
             return nodes
         if depth >= MAX_TREE_DEPTH:
             # Look before claiming truncation: only a visible entry below the
@@ -138,10 +137,23 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
                 break
             budget["nodes"] -= 1
 
-            entry_rel = f"{rel_dir}/{entry.name}"
-            rel = entry_rel[len(ws_rel) + 1:]
+            rel = f"{rel_dir}/{entry.name}" if rel_dir else entry.name
 
             if entry.is_dir:
+                try:
+                    child_fd = confined_io.open_subdir(dir_fd, entry.name)
+                except confined_io.ConfinedPathError as e:
+                    # Swapped for a link since the listing: nothing of it is shown.
+                    logger.warning(f"workspace scan refused at {rel}: {e}")
+                    children: List[FileInfo] = []
+                except OSError as e:
+                    logger.warning(f"workspace scan failed at {rel}: {e}")
+                    children = []
+                else:
+                    try:
+                        children = _walk(child_fd, rel, depth + 1)
+                    finally:
+                        os.close(child_fd)
                 nodes.append(
                     FileInfo(
                         name=entry.name,
@@ -149,7 +161,7 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
                         is_dir=True,
                         size=0,
                         modified_at=str(entry.st.st_mtime),
-                        children=_walk(entry_rel, depth + 1),
+                        children=children,
                     )
                 )
             elif entry.is_file:
@@ -169,10 +181,13 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
         return nodes
 
     try:
-        os.close(confined_io.open_dir_fd(base_root, ws_rel))
+        root_fd = confined_io.open_dir_fd(base_root, ws_rel)
     except FileNotFoundError:
         return [], False
-    tree = _walk(ws_rel)
+    try:
+        tree = _walk(root_fd, "")
+    finally:
+        os.close(root_fd)
     return tree, budget["truncated"]
 
 
@@ -247,7 +262,9 @@ async def list_workspace_files(
     try:
         workspace_path = _get_workspace_path(agent_id, user_id)
         try:
-            tree, truncated = _build_tree(Path(workspace_path))
+            # Pure filesystem work: off the event loop so a large workspace
+            # does not stall every other request this process serves.
+            tree, truncated = await asyncio.to_thread(_build_tree, Path(workspace_path))
         except confined_io.ConfinedPathError:
             raise HTTPException(404, "agent not found")
         if truncated:
