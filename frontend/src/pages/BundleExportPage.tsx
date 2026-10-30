@@ -140,7 +140,7 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
     else navigate(-1);
   };
   const [searchParams] = useSearchParams();
-  const { agents, userId } = useConfigStore();
+  const { agents, agentsLoaded, userId } = useConfigStore();
   const { teams, refresh: refreshTeams } = useTeamsStore();
   const { alert, confirm: confirmDialog, dialog } = useConfirm();
 
@@ -287,15 +287,17 @@ export default function BundleExportPage({ embedded = false }: { embedded?: bool
   // its owner's agents (the teams route refuses anyone else's), and every other
   // id — however many a crafted link carries — would fire the five per-agent
   // preview reads below into 403/404s, the failures the edge bans an IP on.
+  // Judged against THIS session's list only: the persisted one may predate an
+  // agent the link names (created on another device), which would be dropped.
   useEffect(() => {
     const pending = quickLaunchAgents.current;
-    if (!pending || !userId) return;
+    if (!pending || !userId || !agentsLoaded) return;
     const own = new Set(agents.filter((a) => a.created_by === userId).map((a) => a.agent_id));
-    if (own.size === 0) return; // the list has not arrived yet
+    if (own.size === 0) return; // nothing of theirs yet; keep the link for when there is
     quickLaunchAgents.current = null;
     const ids = pending.filter((id) => own.has(id));
     if (ids.length > 0) setSelectedAgents(new Set(ids));
-  }, [agents, userId]);
+  }, [agents, agentsLoaded, userId]);
 
   // Team bundle: picking the team IS the selection — its live members
   // replace the agent set (agents that no longer exist locally are skipped).

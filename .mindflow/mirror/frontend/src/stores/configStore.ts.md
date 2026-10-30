@@ -25,6 +25,12 @@ stub: false
   选中第一个 agent（不导航）；arenaLanding / open:true 导入随后显式选自己的目标，中间可能
   多一轮对自己 agent 的面板请求，不会 403。
 - **登出 / 换号后到达的响应直接丢弃**（`get().userId` 已变），不写进新会话。
+- **`agentsLoaded`**：**只有** `refreshAgents` 成功拿到列表时置 true（`setAgents` 不置位：
+  LoginPage 直接写入的列表、`useCreateAgent` 的乐观插入都不算「本次会话取过」；bundle-export 是
+  `layout: 'app'`，进入前侧栏 AgentList 挂载时必然已刷新过），`login` / `logout` 置 false；rehydrate 的
+  `merge` 强制回 false，所以存储里的值永远不算数（没用 `partialize`，省下首屏体积）。`agents` 本身仍持久化（侧栏首屏靠它
+  立即出内容），所以冷启动时它可能是上一次会话的旧列表；需要按「当前列表」判断的代码（如
+  BundleExportPage 的 `?agents=` 快捷入口）等这个标记。
 - `success:false` / 网络失败一律不动选中与列表。
 - `chatStore.activeAgentId` 不在这里同步：BrowserNotices 读它，对已失效 id 最多再请求一次
   （403/404 后停止轮询）。

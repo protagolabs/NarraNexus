@@ -28,6 +28,11 @@ interface ConfigState {
   // Agent state
   agentId: string;
   agents: AgentInfo[];
+  /** The agent list was fetched from the server in THIS session. `agents` is
+   * persisted and may be a previous session's (stale) list; code that must
+   * judge against the current list waits for this. Forced false on rehydrate,
+   * so a stored value never counts. */
+  agentsLoaded: boolean;
 
   // Awareness update tracking (red dot notification)
   awarenessUpdatedAgents: string[];
@@ -56,6 +61,7 @@ export const useConfigStore = create<ConfigState>()(
       email: '',
       agentId: '',
       agents: [],
+      agentsLoaded: false,
       awarenessUpdatedAgents: [],
 
       // Actions
@@ -67,6 +73,7 @@ export const useConfigStore = create<ConfigState>()(
         resetSessionGuard();
         set({
           isLoggedIn: true,
+          agentsLoaded: false,
           userId,
           token: token || '',
           role: role || '',
@@ -99,6 +106,7 @@ export const useConfigStore = create<ConfigState>()(
           email: '',
           agentId: '',
           agents: [],
+          agentsLoaded: false,
           awarenessUpdatedAgents: [],
         });
         // Symmetric reset — see comment in login(). Logging out and back
@@ -161,8 +169,10 @@ export const useConfigStore = create<ConfigState>()(
               // flow may be newer); otherwise their newest own agent.
               ? (pickGuideAgent(res.agents, userId)?.agent_id || pickDefaultAgent(res.agents, userId)) : '';
             set(stale
-              ? { agents: res.agents, agentId: '' }
-              : firstOwn ? { agents: res.agents, agentId: firstOwn } : { agents: res.agents });
+              ? { agents: res.agents, agentsLoaded: true, agentId: '' }
+              : firstOwn
+                ? { agents: res.agents, agentsLoaded: true, agentId: firstOwn }
+                : { agents: res.agents, agentsLoaded: true });
           } else {
             // Keeping the previous list is deliberate (a backend hiccup must
             // not blank the sidebar) — being SILENT about it was not. The
@@ -208,6 +218,7 @@ export const useConfigStore = create<ConfigState>()(
       merge: (persisted, current) => {
         const restored = { ...current, ...(persisted as Partial<ConfigState>) };
         if (restored.agentId && !isSafeAgentId(restored.agentId)) restored.agentId = '';
+        restored.agentsLoaded = false; // describes this session, never a stored one
         return restored;
       },
     }

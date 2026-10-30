@@ -86,6 +86,11 @@ export const EDGE_FAIL_SAFE = 18;
  * all of them; the read then fails visibly instead of spinning forever — it is
  * never let through, which would break the bound). */
 export const SLOT_WAIT_MAX_MS = 15_000;
+/** Most reads that may wait for a slot at once; past it a read is refused as
+ * 'slot_full' (after the per-URL refusal delay, so a retry loop is slowed
+ * rather than spinning). Bounds the queue and its timers under a loop whose
+ * reads never settle. */
+export const MAX_SLOT_WAITERS = 200;
 const REPORT_EVERY_MS = 60_000;
 const MAX_TRACKED_KEYS = 500;
 const MAX_TRACKED_PATHS = 1000;
@@ -112,7 +117,7 @@ function pathOf(key: string): string {
 type Clock = () => number;
 const NOOP = (): void => {};
 
-export type LoopVerdict = 'ok' | 'loop' | 'failing' | 'rapid_budget' | 'fail_budget' | 'slot_wait';
+export type LoopVerdict = 'ok' | 'loop' | 'failing' | 'rapid_budget' | 'fail_budget' | 'slot_wait' | 'slot_full';
 export type BudgetKind = 'rapid' | 'fail';
 
 export interface RequestLoopGuardOptions {
@@ -128,7 +133,7 @@ export interface RequestLoopGuardOptions {
 }
 
 /** Why `acquire` refused a read instead of granting a slot. */
-export type SlotRefusal = 'fail_budget' | 'failing' | 'slot_wait';
+export type SlotRefusal = 'fail_budget' | 'failing' | 'slot_wait' | 'slot_full';
 
 interface SlotWaiter {
   key: string;
@@ -273,6 +278,10 @@ export class RequestLoopGuard {
       if (this.#slotQueue.length === 0 && this.#tryGrant(waiter)) return;
       if (signal?.aborted) {
         reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      if (this.#slotQueue.length >= MAX_SLOT_WAITERS) {
+        resolve('slot_full');
         return;
       }
       waiter.timer = setTimeout(() => {

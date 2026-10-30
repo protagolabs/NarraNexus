@@ -34,8 +34,12 @@ takes an in-flight slot from `guard.acquire(url, signal)` (unproven paths
 only; it waits when none is free, up to `SLOT_WAIT_MAX_MS`) and releases it in
 `finally`, so in one tab a burst of unproven reads reaches the server at most
 `EDGE_FAIL_SAFE` at a time. Refusals
-by a page budget throw at once; per-URL refusals wait `LOOP_BLOCK_DELAY_MS`
-first.
+by a page budget (and `slot_wait`, whose retry queues again for up to 15s)
+throw at once; per-URL refusals and `slot_full` (a full queue would refuse a
+retry again at once) wait `LOOP_BLOCK_DELAY_MS` first. A `slot_wait` refusal (no slot freed in time) throws
+`RequestLoopBlockedError('slow')`, whose message says the server is slow
+(`common.requestSlow`) rather than "too many requests" — the user sent one
+action; the backend is what lagged.
 
 The page-wide limits are switched off only when the backend is known to be
 local (`knownLocalBackend`: Tauri, forced-local config, runtime mode `local`,
@@ -43,7 +47,10 @@ or an API origin on a loopback host — `bash run.sh` in a browser). Forced clou
 / `cloud-web` and an unknown mode keep them on (fail-closed). In practice the
 app resolves the mode to `local` for every build not forced to cloud
 (`useResolveAppMode`), so the deciding input is the forced-cloud flag, which
-the cloud deployment sets (`NARRANEXUS_FORCE_MODE=cloud`). They were briefly removed with
+the cloud deployment sets (`NARRANEXUS_FORCE_MODE=cloud`). Because a
+deployment with an edge in front but without that flag would silently lose all
+page-wide protection, the first time a page decides "local" it logs one
+`console.info` line saying the edge limits are off. They were briefly removed with
 the volume budget, then restored for this switch only (review I-1 on #434: a
 minimal distribution's excluded plugins 404 on every poll, and there is no edge
 to protect against locally).

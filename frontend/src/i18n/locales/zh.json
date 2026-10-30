@@ -3035,7 +3035,8 @@
     "downloadFailed": "下载失败：{{error}}",
     "doneTitle": "已完成",
     "edit": "编辑",
-    "requestBlocked": "请求过多，请稍后再试。"
+    "requestBlocked": "请求过多，请稍后再试。",
+    "requestSlow": "服务响应较慢，请稍后再试。"
   },
   "toast": {
     "view": "查看",

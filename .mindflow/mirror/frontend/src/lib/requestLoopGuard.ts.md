@@ -76,7 +76,10 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   `slot_wait`). The wait limit matters because a slot is held until response
   headers arrive: a slow or degraded backend (requests running into upstream
   timeouts) can hold all 18, and the reads behind them then fail visibly
-  instead of spinning forever. The first time reads start queueing,
+  instead of spinning forever. The queue itself is bounded (`MAX_SLOT_WAITERS`,
+  200): past it a read is refused as `slot_full` after the per-URL refusal
+  delay (an immediate refusal would let a retry loop spin), so a loop whose
+  reads never settle cannot pile up promises and timers. The first time reads start queueing,
   guardedFetch logs one throttled warning. `guardedFetch` releases the slot in
   `finally`; a read aborted while waiting rejects with an AbortError and frees
   nothing. On a cold page nothing is proven yet: if a burst of foreign reads

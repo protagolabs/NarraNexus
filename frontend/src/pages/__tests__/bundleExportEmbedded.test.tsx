@@ -13,10 +13,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
-const storeState = vi.hoisted(() => ({ agents: [] as Array<{ agent_id: string; name: string; created_by: string }> }));
+const storeState = vi.hoisted(() => ({ agents: [] as Array<{ agent_id: string; name: string; created_by: string }>, agentsLoaded: true }));
 
 vi.mock('@/stores', () => ({
-  useConfigStore: () => ({ agents: storeState.agents, userId: 'u1' }),
+  useConfigStore: () => ({ agents: storeState.agents, agentsLoaded: storeState.agentsLoaded, userId: 'u1' }),
   useTeamsStore: () => ({ teams: [], refresh: vi.fn() }),
 }));
 type MockProps = { children?: React.ReactNode; onClick?: () => void };
@@ -108,14 +108,43 @@ describe('BundleExportPage ?agents= quick-launch', () => {
     storeState.agents = [];
   });
 
+  it('waits for THIS session\'s agent list: a stale persisted list must not drop a linked agent', async () => {
+    // agents is persisted; on a cold start it is the previous session's list,
+    // which may predate an agent the link names (created on another device).
+    storeState.agents = [{ agent_id: 'agent_old', name: 'Old', created_by: 'u1' }];
+    storeState.agentsLoaded = false;
+    vi.mocked(api.previewBusChannels).mockClear();
+    vi.mocked(api.previewBusChannels).mockResolvedValue({ success: true, channels: [] } as never);
+    const tree = () => (
+      <MemoryRouter initialEntries={['/app/bundle/export?agents=agent_new,agent_old']}>
+        <Routes><Route path="/app/bundle/export" element={<BundleExportPage />} /></Routes>
+      </MemoryRouter>
+    );
+    const view = render(tree());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.previewBusChannels).not.toHaveBeenCalled();
+    storeState.agents = [
+      { agent_id: 'agent_new', name: 'New', created_by: 'u1' },
+      { agent_id: 'agent_old', name: 'Old', created_by: 'u1' },
+    ];
+    storeState.agentsLoaded = true;
+    view.rerender(tree());
+    await vi.waitFor(() => expect(api.previewBusChannels).toHaveBeenCalled());
+    const last = vi.mocked(api.previewBusChannels).mock.calls.at(-1)![0];
+    expect([...last].sort()).toEqual(['agent_new', 'agent_old']);
+    storeState.agents = [];
+  });
+
   it('waits for the agent list before applying the link (a cold deep link)', async () => {
     storeState.agents = [];
+    storeState.agentsLoaded = false;
     vi.mocked(api.previewBusChannels).mockClear();
     vi.mocked(api.previewBusChannels).mockResolvedValue({ success: true, channels: [] } as never);
     const view = renderStandalone(['/app/bundle/export?agents=foreign_1,agent_1']);
     await new Promise((r) => setTimeout(r, 20));
     expect(api.previewBusChannels).not.toHaveBeenCalled();
     storeState.agents = [{ agent_id: 'agent_1', name: 'Mine', created_by: 'u1' }];
+    storeState.agentsLoaded = true;
     view.rerender(
       <MemoryRouter initialEntries={['/app/bundle/export?agents=foreign_1,agent_1']}>
         <Routes><Route path="/app/bundle/export" element={<BundleExportPage />} /></Routes>

@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError, RequestLoopBlockedError } from '../api';
 import { __resetRequestLoopGuardForTests, guardedFetch } from '../guardedFetch';
 import { useRuntimeStore } from '@/stores/runtimeStore';
+import i18n from '@/i18n';
 import {
   delayUnlessAborted,
   isGuardedMethod,
@@ -21,6 +22,7 @@ import {
   PAGE_FAIL_MAX,
   EDGE_FAIL_SAFE,
   SLOT_WAIT_MAX_MS,
+  MAX_SLOT_WAITERS,
   PAGE_WINDOW_MS,
   RequestLoopGuard,
 } from '../requestLoopGuard';
@@ -202,8 +204,7 @@ describe('RequestLoopGuard', () => {
   });
 
   it('a queued read is re-judged when it is served: a path proven meanwhile needs no slot', async () => {
-    let now = 0;
-    const g = new RequestLoopGuard({ now: () => now });
+    const g = new RequestLoopGuard({ now: () => 0 });
     const held: Array<() => void> = [];
     for (let i = 0; i < EDGE_FAIL_SAFE; i++) {
       const r = await g.acquire(`/api/held/${i}`);
@@ -215,6 +216,15 @@ describe('RequestLoopGuard', () => {
     g.recordSuccess('/api/agents/list?from=another-read'); // its path is proven meanwhile
     held[0]();
     expect(typeof (await queued)).toBe('function'); // served, not refused as fail_budget
+  });
+
+  it('the slot queue is bounded: past MAX_SLOT_WAITERS a read is refused at once', async () => {
+    const g = new RequestLoopGuard();
+    for (let i = 0; i < EDGE_FAIL_SAFE; i++) await g.acquire(`/api/held/${i}`);
+    const queued = Array.from({ length: MAX_SLOT_WAITERS }, (_, i) => g.acquire(`/api/q/${i}`));
+    expect(await g.acquire('/api/one-too-many')).toBe('slot_full');
+    g.dispose();
+    await Promise.all(queued);
   });
 
   it('dispose refuses queued reads instead of leaving them pending', async () => {
@@ -641,7 +651,11 @@ describe('guardedFetch in-flight slots and runtime mode', () => {
     for (let i = 0; i < EDGE_FAIL_SAFE; i++) void guardedFetch(`/api/hung/${i}`);
     const waiting = guardedFetch('/api/waiting').catch((e) => e);
     await vi.advanceTimersByTimeAsync(SLOT_WAIT_MAX_MS + 1);
-    expect(await waiting).toBeInstanceOf(RequestLoopBlockedError);
+    const err = await waiting;
+    expect(err).toBeInstanceOf(RequestLoopBlockedError);
+    // Says the server is slow, not that the user sent too much.
+    expect((err as Error).message).toBe(i18n.t('common.requestSlow'));
+    expect((err as Error).message).not.toBe(i18n.t('common.requestBlocked'));
     expect(spy).toHaveBeenCalledTimes(EDGE_FAIL_SAFE);
   });
 
@@ -742,6 +756,33 @@ describe('guardedFetch in-flight slots and runtime mode', () => {
     await guardedFetch('/api/opaque');
     for (let i = 0; i < PAGE_FAIL_MAX; i++) await guardedFetch(`/api/gone/${i}`);
     await expect(guardedFetch('/api/opaque')).rejects.toBeInstanceOf(RequestLoopBlockedError);
+  });
+
+  it('a full slot queue refuses after the per-URL delay, so a retry loop does not spin', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => {}));
+    for (let i = 0; i < EDGE_FAIL_SAFE + MAX_SLOT_WAITERS; i++) void guardedFetch(`/api/stuck/${i}`).catch(() => null);
+    await vi.advanceTimersByTimeAsync(0);
+    let settled = false;
+    const refused = guardedFetch('/api/one-more').catch((e) => { settled = true; return e; });
+    await vi.advanceTimersByTimeAsync(LOOP_BLOCK_DELAY_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const err = await refused;
+    expect(err).toBeInstanceOf(RequestLoopBlockedError);
+    expect((err as Error).message).toBe(i18n.t('common.requestBlocked')); // not "the server is slow"
+  });
+
+  it('the first local-backend decision is logged once', async () => {
+    useRuntimeStore.setState({ mode: 'local' });
+    __resetRequestLoopGuardForTests();
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
+    await guardedFetch('/api/a');
+    await guardedFetch('/api/b');
+    expect(info.mock.calls.filter(([m]) => String(m).includes('edge limits off'))).toHaveLength(1);
   });
 
   it('a local backend has no page-wide limits (no edge in front of it)', async () => {

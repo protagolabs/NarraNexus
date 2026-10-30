@@ -188,6 +188,32 @@ describe('refreshAgents', () => {
     expect(useConfigStore.getState().agentId).toBe('');
   });
 
+  test('agentsLoaded marks a list fetched in this session, never a persisted one', async () => {
+    expect(useConfigStore.getState().agentsLoaded).toBe(false);
+    getAgents.mockResolvedValue({ success: true, agents: [] as AgentInfo[], count: 0 });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentsLoaded).toBe(true);
+    // A stored value never counts: rehydrate forces it false.
+    const stored = JSON.parse(localStorage.getItem('narra-nexus-config') ?? '{}');
+    localStorage.setItem('narra-nexus-config', JSON.stringify({ state: { ...stored.state, agentsLoaded: true }, version: 0 }));
+    await useConfigStore.persist.rehydrate();
+    expect(useConfigStore.getState().agentsLoaded).toBe(false);
+    // A refusal does not mark the list as loaded.
+    getAgents.mockResolvedValue({ success: false, agents: [], count: 0, error: 'boom' });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentsLoaded).toBe(false);
+    // login and logout reset it.
+    getAgents.mockResolvedValue({ success: true, agents: [] as AgentInfo[], count: 0 });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentsLoaded).toBe(true);
+    useConfigStore.getState().login('bob');
+    expect(useConfigStore.getState().agentsLoaded).toBe(false);
+    await useConfigStore.getState().refreshAgents();
+    useConfigStore.getState().logout();
+    expect(useConfigStore.getState().agentsLoaded).toBe(false);
+  });
+
   test('a refusal never clears the selection', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     useConfigStore.getState().setAgentId('agent_gone');

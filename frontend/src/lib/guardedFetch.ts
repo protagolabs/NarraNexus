@@ -76,7 +76,7 @@ function createGuard(): RequestLoopGuard {
     edgeLimitsEnabled: () => !knownLocalBackend(),
     onSlotWait: () => {
       if (g.shouldReport('<slot_queue>')) {
-        console.warn(`[request-loop-guard] reads are queueing for one of ${EDGE_FAIL_SAFE} in-flight slots (unproven paths)`);
+        console.warn(`[request-loop-guard] reads queueing for ${EDGE_FAIL_SAFE} in-flight slots`);
       }
     },
   });
@@ -98,6 +98,19 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
  * cloud flag, which the cloud deployment sets (NARRANEXUS_FORCE_MODE=cloud).
  */
 function knownLocalBackend(): boolean {
+  const local = detectLocalBackend();
+  // One line per page load, so a deployment that has an edge in front but
+  // forgot the forced-cloud flag is visible at a glance.
+  if (local && !reportedLocal) {
+    reportedLocal = true;
+    console.info('[request-loop-guard] edge limits off (local backend)');
+  }
+  return local;
+}
+
+let reportedLocal = false;
+
+function detectLocalBackend(): boolean {
   const mode = useRuntimeStore.getState().mode;
   if (isForcedCloud() || mode === 'cloud-web') return false;
   if (isTauri() || isForcedLocal() || mode === 'local') return true;
@@ -145,34 +158,38 @@ async function refuse(verdict: LoopVerdict, url: string, init: RequestInit | und
   // Budget reports throttle under one fixed key each, so the console gets one
   // line a minute rather than one per refused read.
   const pageWide = verdict === 'rapid_budget' || verdict === 'fail_budget' || verdict === 'slot_wait';
-  const reportKey = pageWide ? `<${verdict}>` : url;
+  const reportKey = pageWide || verdict === 'slot_full' ? `<${verdict}>` : url;
   if (guard.shouldReport(reportKey)) {
     console.error(
       verdict === 'loop'
-        ? `[request-loop-guard] refusing repeated read of ${url} (a component is fetching it in a loop)`
+        ? `[request-loop-guard] refusing repeated read of ${url} (fetch loop)`
         : verdict === 'failing'
           ? `[request-loop-guard] refusing ${url} for a minute: it keeps failing`
           : verdict === 'fail_budget'
-            ? `[request-loop-guard] ${guard.spent('fail')} failed reads in the last minute; pausing reads (refusing ${url})`
+            ? `[request-loop-guard] ${guard.spent('fail')} failed reads/min; pausing reads (refusing ${url})`
             : verdict === 'slot_wait'
-              ? `[request-loop-guard] no in-flight slot freed within ${SLOT_WAIT_MAX_MS / 1000}s (slow backend?); refusing ${url}`
-              : `[request-loop-guard] ${guard.spent('rapid')} rapid repeat reads in the last minute; refusing ${url}`,
+              ? `[request-loop-guard] no slot freed in ${SLOT_WAIT_MAX_MS / 1000}s (slow backend?); refusing ${url}`
+              : verdict === 'slot_full'
+                ? `[request-loop-guard] slot queue full; refusing ${url}`
+                : `[request-loop-guard] ${guard.spent('rapid')} rapid repeat reads/min; refusing ${url}`,
     );
   }
   // Per-URL verdicts slow a retry loop on that URL; a page-wide state does not
   // change by retrying sooner, so those refusals are immediate. ('slot_wait'
   // needs no delay either: a retry queues again and waits up to
-  // SLOT_WAIT_MAX_MS, which is what bounds such a loop.)
+  // SLOT_WAIT_MAX_MS. 'slot_full' does: the queue is full, so a retry would
+  // be refused again at once — the delay is what slows that loop.)
   //
   // A read refused here has already passed check(), so it counted toward its
   // URL's window and, if a rapid repeat, the rapid budget — accepted: refusals
   // are rare and only make the guard stricter.
   if (!pageWide) await delayUnlessAborted(LOOP_BLOCK_DELAY_MS, signalOf(input, init));
-  throw new RequestLoopBlockedError();
+  throw new RequestLoopBlockedError(verdict === 'slot_wait' ? 'slow' : 'limit');
 }
 
 /** Tests only: a fresh guard (and channel) so cases cannot leak budget into each other. */
 export function __resetRequestLoopGuardForTests(): void {
+  reportedLocal = false;
   guard.dispose();
   guard = createGuard();
 }
