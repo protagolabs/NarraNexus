@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审 2）— `bootstrap_active` 用 `bootstrap_file_present`
+
+agent 列表与 agent 更新两处的 `os.path.isfile(Bootstrap.md)` 改为 [[../../src/narranexus/platform/bootstrap/lifecycle]] 的受限判断。
+
 ## 2026-10-30 — 删除 agent 时的 workspace 清理走 `remove_tree`
 
 `{base}/{user}` 是执行器的绑定挂载点（租户不能替换它本身），`{agent}` 及以下都在租户可写范围内。`shutil.rmtree` 对顶层符号链接本来会拒绝

@@ -70,6 +70,25 @@ class BootstrapStatus(NamedTuple):
     bootstrap_path: str
 
 
+def bootstrap_file_present(bootstrap_path: str) -> bool:
+    """True when ``Bootstrap.md`` is a regular file at ``bootstrap_path``,
+    checked through the link-free walk below the workspace base: the workspace
+    is the tenant's own mount, so a ``Bootstrap.md`` link (or a swapped
+    directory) must read as absent — never as a peek into another tenant's
+    tree. The ONE presence test shared by the runtime gate and the
+    frontend-facing agent list / agent update routes."""
+    import stat as stat_mod
+
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils import confined_io
+
+    try:
+        root, rel = confined_io.split_under_base(str(bootstrap_path), settings.base_working_path)
+        return stat_mod.S_ISREG(confined_io.lstat(root, rel).st_mode)
+    except (OSError, ValueError):
+        return False
+
+
 async def is_bootstrap_active(
     db: "AsyncDatabaseClient",
     agent_id: str,
@@ -91,7 +110,7 @@ async def is_bootstrap_active(
         str(resolve_existing_workspace(agent_id, owner_id, settings.base_working_path)),
         "Bootstrap.md",
     )
-    if not os.path.isfile(bootstrap_path):
+    if not bootstrap_file_present(bootstrap_path):
         return BootstrapStatus(
             active=False, present=False, event_count=None, threshold=None,
             bootstrap_path=bootstrap_path,

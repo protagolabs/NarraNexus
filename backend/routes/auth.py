@@ -1067,7 +1067,9 @@ async def get_agents(request: Request):
                     )),
                     "Bootstrap.md"
                 )
-                bootstrap_active = os.path.isfile(bootstrap_path)
+                from narranexus.platform.bootstrap.lifecycle import bootstrap_file_present
+
+                bootstrap_active = bootstrap_file_present(bootstrap_path)
 
             # Per-agent greeting override (only meaningful while bootstrapping).
             # The frontend's instant greeting must match the DB-persisted one,
@@ -1490,7 +1492,9 @@ async def update_agent(
         workspace_path = str(resolve_existing_workspace(
             agent_id, updated_agent.created_by, settings.base_working_path
         ))
-        bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
+        from narranexus.platform.bootstrap.lifecycle import bootstrap_file_present
+
+        bootstrap_active = bootstrap_file_present(os.path.join(workspace_path, "Bootstrap.md"))
 
         agent_info = AgentInfo(
             agent_id=updated_agent.agent_id,

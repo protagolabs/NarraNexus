@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审 2）— 团队聊天附件的 size 走受限 lstat
+
+`_sanitized_attachment` 没有边车时用 `on_disk.stat().st_size` 按路径取大小：查找之后目录被换成链接会把别的租户的文件大小写进消息。现在 `_confined_size`（`split_under_base` + `lstat`），
+量不到 / 越界 / 链接 → 该附件被丢弃（返回 None），不再泄漏。
+
 ## 2026-10-30 — 清空团队共享目录走 `remove_tree`
 
 `_shared` 与 `teams` 都在属主自己的挂载里，可被换成指向别的租户的链接；原来的 `d.exists()` + `shutil.rmtree(d)` 会顺着链接删。

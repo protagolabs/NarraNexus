@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/bootstrap/lifecycle.py
-last_verified: 2026-09-04
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审 2）— `bootstrap_file_present`：Bootstrap.md 的存在性只在受限路径上判断
+
+`os.path.isfile(Bootstrap.md)` 按路径，会顺着租户在自己挂载里放的链接（或被换成链接的目录）去探别的租户的 workspace。现在 `bootstrap_file_present` 经 `split_under_base` + `lstat`，
+链接读作"没有"。运行期门（`is_bootstrap_active`）与面向前端的 agent 列表 / 更新路由（`backend/routes/auth.py` 的两处）共用这一个判断。
 
 ## 2026-08-20 — bootstrap_active 的单一判定源
 
