@@ -1329,9 +1329,9 @@ async def _confirm_inner(
             from narranexus.platform.settings import settings as core_settings
             from narranexus.platform.utils.workspace_paths import agent_workspace_path
             target = agent_workspace_path(new_aid, user_id, base=core_settings.base_working_path)
-            target.mkdir(parents=True, exist_ok=True)
-            await asyncio.to_thread(_extract_tar_safely, ws_tar, target)
-            await asyncio.to_thread(_rewrite_workspace_text_files, target, id_map, user_id)
+            await asyncio.to_thread(
+                _import_workspace_tar, ws_tar, target, core_settings.base_working_path, id_map, user_id
+            )
             ws_extracted = True
             ws_target = target
 
@@ -2059,6 +2059,40 @@ def copy_skill_into_agent(
     src_root, src_rel = confined_io.split_source(str(src_skill_dir), base)
     confined_io.copy_tree(src_root, src_rel, root, target_rel)
     return target
+
+
+def _import_workspace_tar(
+    tar_path: Path, target: Path, base: str, id_map: Dict[str, str], user_id: str
+) -> None:
+    """Land an exported workspace tar in the agent's workspace WITHOUT ever
+    letting attacker-influenced bytes touch a tenant-writable path by name.
+
+    The per-user executor mounts all of ``{base}/{user}``, so a tenant can
+    pre-create ``{user}/{new_agent_id}`` as a symlink into another tenant's tree
+    before this runs; extracting with ``extractall(target)`` (whose ``data``
+    filter uses ``realpath(target)`` as the destination) or rewriting files with
+    ``open(path, "w")`` would then write the bundle's contents there. So: extract
+    and rewrite inside PLATFORM-OWNED staging (``mkdtemp`` in the system temp
+    dir, outside every tenant mount), then merge the result into the LEXICAL
+    target through ``confined_io.merge_tree`` — every component below the base
+    is walked O_NOFOLLOW (a link anywhere refuses, nothing is written), files are
+    written through a private temp + rename. Raises ConfinedPathError (a
+    ValueError) when the target path crosses a link. Sync — caller wraps in
+    asyncio.to_thread().
+    """
+    import tempfile
+
+    from narranexus.platform.utils import confined_io
+
+    staging = tempfile.mkdtemp(prefix="nx-ws-import-")
+    try:
+        staged = Path(staging)
+        _extract_tar_safely(tar_path, staged)
+        _rewrite_workspace_text_files(staged, id_map, user_id)
+        root, rel = confined_io.split_under_base(str(target), base)
+        confined_io.merge_tree(staging, "", root, rel)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _extract_tar_safely(tar_path: Path, target: Path) -> None:

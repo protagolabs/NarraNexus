@@ -448,3 +448,71 @@ async def test_reconcile_hashes_skills_off_the_event_loop(trees, db_client, monk
     monkeypatch.setattr(SkillSyncService, "_live_status", staticmethod(recording))
     await SkillSyncService(db_client).reconcile_workspace("agent_own", "u1")
     assert seen == [False]
+
+
+# ── bundle import: workspace tar landing ─────────────────────────────────────
+
+
+def _workspace_tar(path: Path, files: dict) -> Path:
+    with tarfile.open(path, "w:gz") as tar:
+        for name, data in files.items():
+            ti = tarfile.TarInfo(name)
+            ti.size = len(data)
+            tar.addfile(ti, io.BytesIO(data))
+    return path
+
+
+def test_import_workspace_tar_lands_rewrites_and_merges_for_the_owner(trees):
+    from narranexus.platform.bundle import importer
+
+    target = trees["base"] / "u1" / "agent_new"
+    (target / "sub").mkdir(parents=True)
+    (target / "old.txt").write_bytes(b"old")
+    (target / "notes.md").write_bytes(b"stale")
+    tar = _workspace_tar(
+        trees["tmp"] / "ws.tar.gz",
+        {"./notes.md": b"owner=<original_owner>", "./sub/a.txt": b"a", "./new.bin": b"\x00\x01"},
+    )
+    importer._import_workspace_tar(tar, target, str(trees["base"]), {}, "u1")
+    assert (target / "notes.md").read_bytes() == b"owner=u1"  # placeholder rewritten, file replaced
+    assert (target / "sub" / "a.txt").read_bytes() == b"a"
+    assert (target / "new.bin").read_bytes() == b"\x00\x01"
+    assert (target / "old.txt").read_bytes() == b"old"  # merged, not wiped
+    assert not any(n.startswith(".narra_tmp_") for n in os.listdir(target))
+
+
+def test_import_workspace_tar_into_a_preplanted_link_writes_nothing_in_the_victim(trees):
+    """The per-user executor mounts all of {base}/{user}: a tenant can create
+    {user}/{new_agent_id} as a link BEFORE the import runs."""
+    from narranexus.platform.bundle import importer
+
+    victim_ws = trees["vic"]
+    before = sorted(os.listdir(victim_ws))
+    target = trees["base"] / "u1" / "agent_new"
+    os.symlink(victim_ws, target)
+    tar = _workspace_tar(trees["tmp"] / "ws.tar.gz", {"./pwn.txt": b"attacker bundle content", "./secret/a.txt": b"x"})
+    with pytest.raises(ValueError):
+        importer._import_workspace_tar(tar, target, str(trees["base"]), {}, "u1")
+    assert sorted(os.listdir(victim_ws)) == before
+    assert (victim_ws / "secret" / "a.txt").read_bytes() == SECRET
+
+
+def test_import_workspace_tar_never_writes_through_links_inside_the_target(trees):
+    from narranexus.platform.bundle import importer
+
+    target = trees["base"] / "u1" / "agent_new"
+    target.mkdir(parents=True)
+    victim_file = trees["vic"] / "precious.md"
+    victim_file.write_bytes(SECRET)
+    os.symlink(victim_file, target / "notes.md")  # a link at a file name
+    os.symlink(trees["vic"] / "secret", target / "sub")  # a link at a directory name
+    tar = _workspace_tar(
+        trees["tmp"] / "ws.tar.gz",
+        {"./notes.md": b"<original_owner> rewrite me", "./sub/a.txt": b"attacker"},
+    )
+    importer._import_workspace_tar(tar, target, str(trees["base"]), {}, "u1")
+    assert victim_file.read_bytes() == SECRET
+    assert (trees["vic"] / "secret" / "a.txt").read_bytes() == SECRET
+    assert sorted(os.listdir(trees["vic"] / "secret")) == ["a.txt"]
+    assert not os.path.islink(target / "notes.md") and (target / "notes.md").read_bytes() == b"u1 rewrite me"
+    assert not os.path.islink(target / "sub") and (target / "sub" / "a.txt").read_bytes() == b"attacker"

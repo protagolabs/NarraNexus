@@ -33,6 +33,8 @@ stub: false
 - `list_dir(root, rel)`：目录 fd 上 scandir + 逐项 lstat（`DirEntryInfo`），链接条目按链接报告其自身元数据。
 - `rename_within(root, src_rel, dst_rel)`：两个父目录各自逐级 `O_NOFOLLOW`，`renameat` 作用在两个 dir fd 上；链接叶子按链接改名；非空目标目录 →
   `FileExistsError`（不合并、不嵌套）；已存在的**文件**目标被原子替换（源也须是文件，目录覆盖文件 → `NotADirectoryError`）；已存在的**空目录**目标被替换（源须是目录，文件覆盖目录 → `IsADirectoryError`）。
+- `merge_tree(src_root, src_rel, dst_root, dst_rel)`：把**平台暂存区**目录的内容合并进目标目录（缺失则逐级创建）：目标路径逐级 `O_NOFOLLOW`（任何链接 → `SymlinkRefusedError`，之前什么都没写）；
+  同名文件走私有 temp + `rename` 替换（链接被替换，不被写穿）；应放目录处有链接 → unlink 该链接；应放文件处是目录 → `IsADirectoryError`（不删树）。用于 bundle 导入的工作区落地。
 - `link_or_copy`：两个父目录 fd 上 `linkat`（源必须是常规文件，链接/特殊文件 → `NotARegularFileError`；链接后复核类型，必要时撤销），失败（跨设备等）才字节复制；目标 `O_EXCL`。
 - `walk_tree(root, rel, skip=, recurse=, strict=, max_depth=64)`：**线性时间**的遍历——起点经一次受限遍历到达，之下**每层只持有一个目录 fd**，子目录与文件都相对其父 fd
   `openat`（`TreeNode.open_file()` 一次 `openat`，无需从根重走；只在迭代停在该条目期间有效）。链接 / FIFO / socket 不产出；`skip` 剪枝整棵子树；

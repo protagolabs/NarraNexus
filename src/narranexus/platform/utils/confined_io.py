@@ -765,22 +765,28 @@ def copy_tree(
         os.close(src_fd)
 
 
-def _copy_dir_fds(src_fd: int, dst_fd: int, depth: int, max_depth: int) -> None:
+def _copy_dir_fds(src_fd: int, dst_fd: int, depth: int, max_depth: int, merge: bool = False) -> None:
     if depth > max_depth:
         raise TreeTooDeepError(f"directory tree deeper than {max_depth} levels")
     with os.scandir(src_fd) as it:
         entries = list(it)
     for entry in entries:
         name = entry.name
+        if merge:
+            _clear_conflict(dst_fd, name, want_dir=entry.is_dir(follow_symlinks=False))
         if entry.is_symlink():
             os.symlink(os.readlink(name, dir_fd=src_fd), name, dir_fd=dst_fd)
         elif entry.is_dir(follow_symlinks=False):
             child_src = _open_dir_at(src_fd, name, create=False)
             try:
-                os.mkdir(name, 0o755, dir_fd=dst_fd)
+                try:
+                    os.mkdir(name, 0o755, dir_fd=dst_fd)
+                except FileExistsError:
+                    if not merge:
+                        raise
                 child_dst = _open_dir_at(dst_fd, name, create=False)
                 try:
-                    _copy_dir_fds(child_src, child_dst, depth + 1, max_depth)
+                    _copy_dir_fds(child_src, child_dst, depth + 1, max_depth, merge)
                 finally:
                     os.close(child_dst)
             finally:
@@ -793,8 +799,11 @@ def _copy_dir_fds(src_fd: int, dst_fd: int, depth: int, max_depth: int) -> None:
                     continue
                 os.set_blocking(in_fd, True)
                 mode = stat_mod.S_IMODE(st.st_mode) & 0o777
+                # merge: write a private temp then rename over the name, so a
+                # file (or link) already there is REPLACED, never written through
+                out_name = f".narra_tmp_{secrets.token_hex(6)}" if merge else name
                 out_fd = os.open(
-                    name,
+                    out_name,
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | _O_CLOEXEC,
                     mode,
                     dir_fd=dst_fd,
@@ -805,11 +814,68 @@ def _copy_dir_fds(src_fd: int, dst_fd: int, depth: int, max_depth: int) -> None:
                         while view:
                             view = view[os.write(out_fd, view):]
                     os.fchmod(out_fd, mode)
+                    if merge:
+                        os.rename(out_name, name, src_dir_fd=dst_fd, dst_dir_fd=dst_fd)
+                except BaseException:
+                    if merge:
+                        try:
+                            os.unlink(out_name, dir_fd=dst_fd)
+                        except OSError:
+                            pass
+                    raise
                 finally:
                     os.close(out_fd)
             finally:
                 os.close(in_fd)
-        # sockets / FIFOs / devices are not part of a skill: skipped
+        # sockets / FIFOs / devices are not part of the tree: skipped
+
+
+def _clear_conflict(dst_fd: int, name: str, *, want_dir: bool) -> None:
+    """Merge mode: remove a destination entry whose TYPE conflicts with the
+    incoming one (a link or file where a directory must go, a directory or link
+    where a file must go is handled by the temp+rename). A link is unlinked
+    itself, never followed."""
+    try:
+        st = os.stat(name, dir_fd=dst_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if want_dir and not stat_mod.S_ISDIR(st.st_mode):
+        os.unlink(name, dir_fd=dst_fd)
+    elif not want_dir and stat_mod.S_ISDIR(st.st_mode):
+        # a directory where a file/link must go: refuse rather than delete a tree
+        raise IsADirectoryError(errno.EISDIR, "destination is a directory", name)
+
+
+def merge_tree(
+    src_root: str,
+    src_rel: str,
+    dst_root: str,
+    dst_rel: str,
+    *,
+    max_depth: int = 64,
+) -> None:
+    """Copy the CONTENTS of the directory ``src_root/src_rel`` into the directory
+    ``dst_root/dst_rel`` (created, with parents, if missing), merging into what
+    is already there and replacing same-named files.
+
+    The destination path is walked O_NOFOLLOW from ``dst_root`` creating missing
+    components, so a symlink anywhere on it — a tenant pre-creating
+    ``{user}/{new_agent}`` as a link into another tenant's tree — is refused with
+    SymlinkRefusedError before anything is written. Inside, a file replaces a
+    same-named file or link through a private temp + rename (never written
+    through); a link where a directory must go is unlinked; a directory where a
+    file must go raises IsADirectoryError. Links in the source are copied as links.
+    The SOURCE must be platform-owned staging (e.g. a fresh extraction dir).
+    """
+    src_fd = open_dir_fd(src_root, src_rel)
+    try:
+        dst_fd = _walk(dst_root, _split(dst_rel), create=True)
+        try:
+            _copy_dir_fds(src_fd, dst_fd, 0, max_depth, merge=True)
+        finally:
+            os.close(dst_fd)
+    finally:
+        os.close(src_fd)
 
 
 def _remove_depth_cap() -> int:
