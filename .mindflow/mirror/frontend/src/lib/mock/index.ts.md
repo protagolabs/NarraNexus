@@ -8,8 +8,8 @@ stub: false
 
 `MOCK_ENABLED` / `setMockEnabled` 移到 [[flag]]；本文件只剩 `mockApi` 与 fixtures，
 由 [[main]] 在 mock 模式下 `import('./lib/mock')` 后交给 `installMockApi`，生产
-首屏不再携带（入口 chunk 约 −28KB）。除 `import type` 外不许任何源码静态 import
-本文件，`__tests__/mockLazy.test.ts` 扫源码兜底。
+首屏不再携带（入口 chunk 约 −28KB）。除 type-only 外不许任何源码静态引用本文件或
+fixtures，两道闸见 [[flag]]（源码扫描按解析后的路径比对 + 构建产物标记串检查）。
 
 ## 2026-09-24 ui.toolRenderers（第 18 个注册表）
 

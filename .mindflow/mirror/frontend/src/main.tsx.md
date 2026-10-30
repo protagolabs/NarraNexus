@@ -7,8 +7,10 @@ stub: false
 ## 2026-10-30 — mock 模式首帧前按需加载 fixtures
 
 首帧渲染包进 `render()`。`MOCK_ENABLED`（[[flag]]）为真时先 `import('./lib/mock')`
-再 `installMockApi(m.mockApi)`，之后才 render，保证首帧起所有 `api.*` 都走 mock；
-加载失败只打 console.error 并照常 render（Proxy 未装实现时全部透传真实后端）。
+再 `installMockApi(m.mockApi)`，之后才 render：首帧起 `mockApi` 覆盖的方法走 mock，
+其余方法（以及直接用 guardedFetch 的 `bootPlugins`）照旧打真实后端。加载失败时
+console.error 并在 #root 写一行提示（用 `?mock=0` 回真实后端），**不** render——
+否则会在「Mock data」角标下展示真实数据，误导开发者。
 非 mock 模式同步 render，与之前一致。目的：fixtures 不进生产入口 chunk。
 
 ## 2026-09-03（批 2d）— `bootPlugins()`

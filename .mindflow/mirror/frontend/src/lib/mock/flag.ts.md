@@ -17,5 +17,10 @@ mock 实现（[[index]] + fixtures，约 27KB）以前被 [[api]] 静态 import�
 
 ## 坑
 
-- 除 `import type` 外，任何源码静态 import `lib/mock`（index/fixtures）都会把
-  fixtures 拉回入口 chunk；`__tests__/mockLazy.test.ts` 扫源码兜住。
+- 除 `import type` / `export type` 外，任何源码静态引用 `lib/mock`（index /
+  fixtures，含 `export … from`、副作用 import、`.ts` 后缀、尾斜杠等写法）都会把
+  fixtures 拉回入口 chunk。两道闸：`__tests__/mockLazy.test.ts` 把每个模块说明符
+  **解析成绝对路径**再比对（不靠正则枚举写法；本文件也在扫描范围内，唯一豁免是
+  index.ts → ./fixtures）；构建后 `scripts/check_bundle_budget.mjs` 检查首屏文件不得
+  含 `budget.json` 的 `initial_forbidden_strings`（fixtures 的用户 id `demo.user`），
+  测试另钉住该标记串仍存在于 fixtures 里，改名不会悄悄让闸失效。

@@ -17,6 +17,12 @@ const problems = [];
 if (initial > budget.initial_total_bytes) problems.push(`initial set ${initial} > ${budget.initial_total_bytes}`);
 if (entry && entry[1] > budget.entry_script_bytes) problems.push(`entry ${entry[0]} ${entry[1]} > ${budget.entry_script_bytes}`);
 for (const [r] of sizes) for (const p of budget.initial_forbidden_chunk_patterns) if (r.includes(p)) problems.push(`initial set contains ${r} (forbidden: ${p})`);
+// Content that must load on demand only (e.g. the ?mock=1 fixtures): a marker string found in any
+// first-load file means a static import pulled it back in, whatever spelling the import used.
+for (const [r] of sizes) {
+  const text = readFileSync(resolve(dist, r), 'utf8');
+  for (const s of budget.initial_forbidden_strings ?? []) if (text.includes(s)) problems.push(`initial set file ${r} contains forbidden marker ${JSON.stringify(s)}`);
+}
 // Largest LAZY chunk (the entry is budgeted separately above).
 const largest = readdirSync(resolve(dist, 'assets')).filter((f) => f.endsWith('.js') && !/^index-/.test(f)).map((f) => [f, statSync(resolve(dist, 'assets', f)).size]).sort((a, b) => b[1] - a[1])[0];
 if (largest && largest[1] > budget.largest_lazy_chunk_bytes) problems.push(`largest chunk ${largest[0]} ${largest[1]} > ${budget.largest_lazy_chunk_bytes}`);

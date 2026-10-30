@@ -63,12 +63,18 @@ function render() {
 
 // Mock mode (?mock=1, dev/demo only) loads its fixtures on demand, before the
 // first render, so the production entry chunk never carries them. If they fail
-// to load the app still renders, against the real backend.
+// to load, say so instead of rendering real data under the "Mock data" banner.
 if (MOCK_ENABLED) {
   import('./lib/mock')
-    .then((m) => installMockApi(m.mockApi))
-    .catch((e) => console.error('[mock] failed to load the mock API layer; using the real backend', e))
-    .finally(render)
+    .then((m) => {
+      installMockApi(m.mockApi)
+      render()
+    })
+    .catch((e) => {
+      console.error('[mock] failed to load the mock API layer', e)
+      document.getElementById('root')!.textContent =
+        'Mock mode failed to load (see the console). Open the page with ?mock=0 to use the real backend.'
+    })
 } else {
   render()
 }
