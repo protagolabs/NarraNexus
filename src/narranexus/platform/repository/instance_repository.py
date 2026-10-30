@@ -201,6 +201,41 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
         )
         return [self._row_to_entity(row) for row in rows] if rows else []
 
+    async def list_ids_by_agents_and_user(
+        self,
+        agent_ids: List[str],
+        user_id: str,
+        module_class: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Lightweight listing of one user's own instances of one module class
+        across several agents: ``instance_id`` / ``agent_id`` / ``status`` only.
+
+        One query for a whole agent list (the batch twin of
+        ``get_by_agent_and_user(include_public=False)``, same newest-first
+        order), served by ``idx_module_instances_agent_user``. Projects away
+        the MEDIUMTEXT columns (config / state / dependencies / keywords) a
+        poll does not need.
+
+        Args:
+            agent_ids: Agent IDs (empty -> empty result)
+            user_id: The instances' user_id
+            module_class: e.g. "ChatModule"
+
+        Returns:
+            Rows ordered by agent, then created_at DESC
+        """
+        if not agent_ids or not user_id:
+            return []
+        placeholders = ", ".join(["%s"] * len(agent_ids))
+        query = f"""
+            SELECT instance_id, agent_id, status FROM {self.table_name}
+            WHERE agent_id IN ({placeholders}) AND user_id = %s AND module_class = %s
+            ORDER BY agent_id, created_at DESC
+        """
+        rows = await self._db.execute(query, params=(*agent_ids, user_id, module_class))
+        return list(rows) if rows else []
+
     async def get_by_agent_and_user(
         self,
         agent_id: str,

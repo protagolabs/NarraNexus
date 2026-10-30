@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `ChatLatestResponse`
+
+`latest: Record<agent_id, timestamp>`，没有对话行的 agent 不出现。见 [[api]] `getChatLatest`。
 
 ## 2026-10-28 — `FileListResponse.truncated?`
 

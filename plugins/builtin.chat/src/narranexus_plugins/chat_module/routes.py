@@ -10,15 +10,15 @@ Provides endpoints for:
 - GET /{agent_id}/simple-chat-history - Get simplified chat message list
 - GET /{agent_id}/event-log/{event_id} - Get one event's timeline
 - POST /{agent_id}/chat-history/by-instance - MCP seam twin of get_chat_history
+- GET /chat-latest - newest conversation-row timestamp per agent, for a list of agents
 """
 
-import json
-from typing import Optional, List, Dict, Any, Literal
+from typing import Annotated, Optional, List, Dict, Any, Literal
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 from narranexus.sdk.web import current_user_id
 from narranexus.sdk.web import require_agent_owner
@@ -27,7 +27,6 @@ from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils import format_for_api
 from narranexus.platform.repository import InstanceRepository, AgentRepository
 from narranexus.platform.narrative.wipe_service import wipe_agent_data
-from narranexus.platform.schema.hook_schema import BUS_PRODUCED_SOURCES
 from narranexus.platform.schema.team_schema import (
     TEAM_ROOM_OWNER_PREFIX,
     USER_SENDER_PREFIX,
@@ -45,23 +44,20 @@ from narranexus.platform.schema import (
 )
 from narranexus.platform.schema.api_schema import InstanceInfo
 from narranexus_plugins.chat_module.chat_history_timeline import build_event_timeline
+from narranexus_plugins.chat_module._chat_projection import (
+    CHAT_MEMORY_TABLE,
+    parse_json_field,
+    parse_timestamp,
+    project_message,
+)
+from narranexus_plugins.chat_module._chat_latest import (
+    CHAT_LATEST_ID_MAX_LENGTH,
+    CHAT_LATEST_MAX_AGENTS,
+    chat_latest_for_user,
+)
 
 
 router = APIRouter()
-
-#: working_source values produced by MessageBusTrigger for peer-agent (A2A)
-#: and team turns. The Activity Log surfaces these — and ONLY these — from a
-#: peer-scoped instance (see get_simple_chat_history). Sourced from the enum so
-#: a new bus transport updates every consumer at once (see chat_module).
-_A2A_TEAM_SOURCES = BUS_PRODUCED_SOURCES
-
-#: working_source values that represent a real human typing into a chat UI (as
-#: opposed to an IM channel trigger, scheduled job, or peer-agent call). For
-#: these the "user" side is a genuine user message and MUST be surfaced.
-#: "manyfold" — Manyfold's OpenAI-compat endpoint feeds the user input via the
-#: same input_content field as CHAT, so its row is a real user message (the
-#: 2026-05-26 symptom was the native UI showing only the agent's replies).
-_USER_FACING_SOURCES = ("chat", "manyfold")
 
 #: user_id prefixes MessageBusTrigger writes as the SENDER of a peer/team turn:
 #: the peer agent id (A2A, ``agent_``), a team room's own platform posts
@@ -81,57 +77,6 @@ _PEER_SCOPE_PREFIXES = ("agent_", TEAM_ROOM_OWNER_PREFIX, USER_SENDER_PREFIX)
 #: paging depth so a normal owner is never truncated; a hard ceiling so cost
 #: cannot grow without bound with the agent's social surface.
 _MAX_PEER_ACTIVITY_INSTANCES = 200
-
-
-def _parse_timestamp(ts: str) -> datetime:
-    """Parse various timestamp formats into datetime objects"""
-    if not ts:
-        return datetime.min
-    try:
-        ts_normalized = ts.replace('Z', '+00:00')
-        try:
-            dt = datetime.fromisoformat(ts_normalized)
-            if dt.tzinfo is not None:
-                dt = dt.replace(tzinfo=None)
-            return dt
-        except (ValueError, AttributeError):
-            pass
-
-        for fmt in [
-            "%Y-%m-%d %H:%M:%S.%f",
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%dT%H:%M:%S.%f",
-            "%Y-%m-%dT%H:%M:%S",
-            "%Y-%m-%d %H:%M:%S.%f%z",
-            "%Y-%m-%dT%H:%M:%S.%f%z",
-        ]:
-            try:
-                dt = datetime.strptime(ts, fmt)
-                if dt.tzinfo is not None:
-                    dt = dt.replace(tzinfo=None)
-                return dt
-            except ValueError:
-                continue
-
-        logger.warning(f"Unable to parse timestamp: {ts}")
-        return datetime.min
-    except Exception as e:
-        logger.warning(f"Error parsing timestamp {ts}: {e}")
-        return datetime.min
-
-
-def _parse_json_field(value: Any, default: Any) -> Any:
-    """Parse database fields that may be JSON strings"""
-    if value is None:
-        return default
-    if isinstance(value, (dict, list)):
-        return value
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            return default
-    return default
 
 
 def _drop_phantom_event_twins(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -181,7 +126,7 @@ def _drop_phantom_event_twins(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
         The same rows, in the same order, minus the copies.
     """
     def _identity(row: Dict[str, Any]) -> tuple:
-        env = _parse_json_field(row.get("env_context"), {})
+        env = parse_json_field(row.get("env_context"), {})
         user_input = env.get("input", "") if isinstance(env, dict) else ""
         return (
             row.get("trigger") or "",
@@ -192,14 +137,14 @@ def _drop_phantom_event_twins(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
     logged_identities = {
         _identity(row) for row in rows
-        if _parse_json_field(row.get("event_log"), [])
+        if parse_json_field(row.get("event_log"), [])
     }
     if not logged_identities:
         return list(rows)
 
     kept: List[Dict[str, Any]] = []
     for row in rows:
-        is_logless = not _parse_json_field(row.get("event_log"), [])
+        is_logless = not parse_json_field(row.get("event_log"), [])
         has_output = bool(row.get("final_output"))
         if is_logless and has_output and _identity(row) in logged_identities:
             logger.debug(
@@ -264,7 +209,7 @@ async def get_chat_history(
                 nar_row = await db_client.get_one("narratives", {"narrative_id": nar_id})
                 if nar_row:
                     valid_narrative_ids.append(nar_id)
-                    narrative_info = _parse_json_field(nar_row.get("narrative_info"), {})
+                    narrative_info = parse_json_field(nar_row.get("narrative_info"), {})
 
                     actors = narrative_info.get("actors", [])
                     if not any(a.get("id") == user_id for a in actors):
@@ -298,7 +243,7 @@ async def get_chat_history(
                 if not narrative_id:
                     continue
 
-                narrative_info = _parse_json_field(narrative.get("narrative_info"), None)
+                narrative_info = parse_json_field(narrative.get("narrative_info"), None)
                 if narrative_info is None:
                     continue
 
@@ -341,8 +286,8 @@ async def get_chat_history(
                     if status in ("cancelled", "archived"):
                         continue
 
-                    config = _parse_json_field(inst.get("config"), {})
-                    deps = _parse_json_field(inst.get("dependencies"), [])
+                    config = parse_json_field(inst.get("config"), {})
+                    deps = parse_json_field(inst.get("dependencies"), [])
 
                     instances.append(InstanceInfo(
                         instance_id=inst.get("instance_id", ""),
@@ -385,7 +330,7 @@ async def get_chat_history(
         for event in events_raw:
             event_id = event.get("event_id") or event.get("id")
             narrative_id = event.get("narrative_id")
-            event_log = _parse_json_field(event.get("event_log"), [])
+            event_log = parse_json_field(event.get("event_log"), [])
 
             events.append(EventInfo(
                 event_id=event_id,
@@ -492,6 +437,42 @@ async def clear_conversation_history(
     except Exception as e:
         logger.exception(f"Error clearing agent data: {e}")
         return ClearHistoryResponse(success=False, error=str(e))
+
+
+class ChatLatestResponse(BaseModel):
+    """agent_id -> timestamp of the newest conversation row (only agents with one)."""
+    success: bool
+    latest: Dict[str, str] = {}
+    error: Optional[str] = None
+
+
+@router.get("/chat-latest", response_model=ChatLatestResponse)
+async def get_chat_latest(
+    request: Request,
+    agent_ids: List[Annotated[str, StringConstraints(max_length=CHAT_LATEST_ID_MAX_LENGTH)]] = Query(
+        default=[],
+        # On a list, max_length bounds the number of items (raw, before the
+        # de-duplication below); the per-item length bound is on the item type.
+        max_length=CHAT_LATEST_MAX_AGENTS,
+        description=f"Agent ids, one parameter each (at most {CHAT_LATEST_MAX_AGENTS}).",
+    ),
+):
+    """
+    For each listed agent, the timestamp of the newest row the caller's
+    conversation tab (simple-chat-history, include='chat') would show — the
+    sidebar's background "agent replied" signal, one call for a whole list
+    (see _chat_latest for the projection, scope and cost).
+    """
+    user_id = await current_user_id(request)
+    ids = list(dict.fromkeys(a.strip() for a in agent_ids if a.strip()))
+    if not ids:
+        return ChatLatestResponse(success=True, latest={})
+    try:
+        db_client = await get_db_client()
+        return ChatLatestResponse(success=True, latest=await chat_latest_for_user(db_client, user_id, ids))
+    except Exception as e:
+        logger.exception(f"Error getting chat latest: {e}")
+        return ChatLatestResponse(success=False, error=str(e))
 
 
 @router.get("/{agent_id}/simple-chat-history", response_model=SimpleChatHistoryResponse)
@@ -606,12 +587,12 @@ async def get_simple_chat_history(
         for instance, peer_scoped in scoped_instances:
             try:
                 memory_row = await db_client.get_one(
-                    "instance_json_format_memory_chat",
+                    CHAT_MEMORY_TABLE,
                     filters={"instance_id": instance.instance_id}
                 )
 
                 if memory_row and memory_row.get("memory"):
-                    memory_data = _parse_json_field(memory_row["memory"], {})
+                    memory_data = parse_json_field(memory_row["memory"], {})
                     messages = memory_data.get("messages", [])
 
                     links = await db_client.get(
@@ -622,109 +603,14 @@ async def get_simple_chat_history(
                     narrative_id = links[0].get("narrative_id") if links else None
 
                     for msg in messages:
-                        meta_data = msg.get("meta_data", {})
-                        working_source = meta_data.get("working_source", "chat")
-                        role = msg.get("role", "unknown")
-
-                        # Peer-scoped (A2A / team) instances contribute
-                        # ACTIVITY only: their a2a / message_bus rows, which the
-                        # block below collapses to a compact marker. Any other
-                        # source (a user-facing chat, an IM channel) belonging
-                        # to a non-owner scope is dropped here, never surfaced.
-                        if peer_scoped and working_source not in _A2A_TEAM_SOURCES:
+                        row = project_message(msg, peer_scoped)
+                        if row is None:
                             continue
-
-                        # For non-user-facing sources (job/lark/slack/
-                        # telegram/message_bus/etc), only show assistant
-                        # messages — the "user" side is the trigger
-                        # prompt, not something a human typed.
-                        if (
-                            working_source not in _USER_FACING_SOURCES
-                            and role != "assistant"
-                        ):
-                            continue
-
-                        timestamp = meta_data.get("timestamp") or msg.get("created_at")
-                        message_type = meta_data.get("message_type", "chat")
-
-                        # Privacy guard for IM channels: agent replies sent
-                        # via platform tools (tg_cli sendMessage, slack_cli
-                        # chat.postMessage, lark_cli +messages-send) live in
-                        # the same instance memory as chat replies so the
-                        # agent's NEXT turn can still see them (long-term
-                        # memory). But surfacing the raw IM reply text to
-                        # the owner's chat panel mixes two contexts:
-                        #   (a) "owner ↔ agent direct chat"
-                        #   (b) "agent ↔ third party on IM"
-                        # The frontend chat panel is for (a); routine IM
-                        # chatter should stay on the IM platform. We
-                        # replace the content with a one-line activity
-                        # marker AND override ``message_type`` to
-                        # ``"activity"`` so the frontend renders it
-                        # compactly (small centered italic line) rather
-                        # than as a full agent reply bubble — see
-                        # ``ChatPanel.tsx`` ``if item.messageType ===
-                        # 'activity'`` branch.
-                        #
-                        # Carve-out: when the agent explicitly called
-                        # ``send_message_to_user_directly`` / ``notify_owner``
-                        # during the turn (the "tell owner about this important
-                        # thing" path the iron rules carve out), the writer
-                        # stashes that content on
-                        # ``meta_data.owner_notify_content``. We surface it
-                        # VERBATIM so the owner DOES see the notification while
-                        # routine IM/peer chatter stays hidden. Which tab it
-                        # lands in depends on scope — see the branch below.
-                        content = msg.get("content", "")
-                        # Privacy-collapse rule applies only to truly-IM
-                        # / background sources where the assistant reply
-                        # was meant for a third party, not for the owner
-                        # viewing this chat panel. Manyfold's assistant
-                        # reply IS the user-facing answer, so leave it
-                        # alone.
-                        if (
-                            working_source not in _USER_FACING_SOURCES
-                            and role == "assistant"
-                        ):
-                            owner_notify = meta_data.get("owner_notify_content", "")
-                            if owner_notify:
-                                content = owner_notify
-                                # Owner scope: the agent's own IM turn notifying
-                                # its owner — keep it in the conversation tab
-                                # (message_type stays 'chat'), the long-standing
-                                # behaviour. Peer scope (A2A/team): the
-                                # conversation tab never reads peer instances and
-                                # the activity stream keeps only
-                                # message_type=='activity', so a 'chat'-typed row
-                                # would vanish from BOTH tabs. Mark it 'activity'
-                                # (content stays verbatim, NOT collapsed) so the
-                                # Activity Log shows the agent's report.
-                                if peer_scoped:
-                                    message_type = "activity"
-                            else:
-                                content = f"Background activity ({working_source})"
-                                # Force compact rendering on the frontend.
-                                # Without this the row keeps the writer's
-                                # default message_type and renders as a
-                                # full chat bubble — observed 2026-05-13.
-                                message_type = "activity"
-
                         all_messages.append({
-                            "role": role,
-                            "content": content,
-                            "timestamp": timestamp,
+                            **row,
                             "narrative_id": narrative_id,
                             "instance_id": instance.instance_id,
-                            "working_source": working_source,
-                            "message_type": message_type,
-                            "event_id": meta_data.get("event_id"),
-                            # The seeded first-run greeting: the client folds the
-                            # same greeting into its session on the first send and
-                            # must recognise this row as that greeting (the two
-                            # texts differ once the client localises its copy).
-                            "bootstrap": bool(meta_data.get("bootstrap")),
-                            "attachments": msg.get("attachments"),
-                            "_sort_key": timestamp or ""
+                            "_sort_key": row["timestamp"] or "",
                         })
 
                     logger.debug(
@@ -734,7 +620,7 @@ async def get_simple_chat_history(
                 logger.warning(f"Failed to load chat history from instance {instance.instance_id}: {e}")
 
         # Sort by time
-        all_messages.sort(key=lambda m: _parse_timestamp(m.get("_sort_key", "")))
+        all_messages.sort(key=lambda m: parse_timestamp(m.get("_sort_key", "")))
 
         if all_messages:
             logger.debug(f"First message timestamp: {all_messages[0].get('_sort_key', 'N/A')}")
@@ -825,7 +711,7 @@ async def get_event_log_detail(agent_id: str, event_id: str, request: Request):
                 error="Event not found"
             )
 
-        event_log = _parse_json_field(event_row.get("event_log"), [])
+        event_log = parse_json_field(event_row.get("event_log"), [])
 
         # Extract thinking: concatenate streaming deltas into coherent blocks.
         # Each thinking_delta is stored as a separate step in event_log.
@@ -975,7 +861,7 @@ async def _build_event_meta(db_client, event_row: Dict[str, Any], *, tool_call_c
     Returns:
         EventLogMeta ready for the response.
     """
-    env_context = _parse_json_field(event_row.get("env_context"), {})
+    env_context = parse_json_field(event_row.get("env_context"), {})
     input_text = None
     if isinstance(env_context, dict):
         raw_input = env_context.get("input")

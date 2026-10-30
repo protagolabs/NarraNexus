@@ -136,6 +136,11 @@
   ],
   [
     "GET",
+    "/api/agents/chat-latest",
+    "get_chat_latest"
+  ],
+  [
+    "GET",
     "/api/agents/{agent_id}/artifacts",
     "list_artifacts"
   ],

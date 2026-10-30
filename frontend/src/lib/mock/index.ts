@@ -21,6 +21,7 @@ import type {
   SocialNetworkSearchResponse,
   ChatHistoryResponse,
   SimpleChatHistoryResponse,
+  ChatLatestResponse,
   EventLogResponse,
   CreateAgentResponse,
   UpdateAgentResponse,
@@ -205,6 +206,9 @@ export const mockApi = {
       narrative_count: mockNarratives.length,
       event_count: mockChatEvents.length,
     });
+  },
+  async getChatLatest(_agentIds: string[]): Promise<ChatLatestResponse> {
+    return ok({ success: true, latest: {} });
   },
   async getSimpleChatHistory(
     _agentId: string,
