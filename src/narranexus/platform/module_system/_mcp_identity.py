@@ -67,10 +67,12 @@ from __future__ import annotations
 
 import functools
 import inspect
-import time
 from typing import Any, Callable, NamedTuple, Optional
 
 from loguru import logger
+
+from narranexus.platform.module_system._audit_window import WindowedAuditCounter
+from narranexus.platform.schema.executor_audit import EVENT_MCP_IDENTITY_USER_OVERRIDE
 
 # The honest header. Lowercased on lookup — HTTP headers are case-insensitive
 # and Starlette normalises them.
@@ -446,64 +448,33 @@ def caller_event_id_from_request() -> Optional[str]:
 # aggregated audit row (instance_executor_audit, mcp_identity_user_override):
 # it silently changes which account a call lands under, and a log line alone
 # is gone after a restart (incident lesson #5). Same shape as mcp_auth's
-# tokenless measurement — in-process counts, bounded keys, one row per window.
-# `supplied` is caller-controlled, so its length and the key cardinality are
-# capped; past the cap everything folds into ONE constant bucket.
-_OVERRIDE_FLUSH_SECONDS = 60.0
-_OVERRIDE_VALUE_MAX = 64
-_OVERRIDE_KEYS_MAX = 256
-_OVERRIDE_OVERFLOW_KEY = ("<overflow>", "", "")
-_override_counts: dict[tuple[str, str, str], int] = {}
-_override_flush_deadline: float = 0.0
+# tokenless measurement, through the same helper (_audit_window): in-process
+# counts, every dimension capped (`supplied` is caller-controlled), one
+# constant overflow bucket past 256 keys, one row per window.
+_OVERRIDES = WindowedAuditCounter(
+    event_type=EVENT_MCP_IDENTITY_USER_OVERRIDE,
+    fields=("tool", "supplied", "owner"),
+    caps=(64, 64, 64),
+)
 
 
 def _note_user_override(tool: str, supplied: str, owner: str) -> None:
     """Count one override (sync, no I/O). Flushed by flush_user_overrides."""
-    key = (tool[:_OVERRIDE_VALUE_MAX], supplied[:_OVERRIDE_VALUE_MAX], owner[:_OVERRIDE_VALUE_MAX])
-    if key not in _override_counts and len(_override_counts) >= _OVERRIDE_KEYS_MAX:
-        key = _OVERRIDE_OVERFLOW_KEY
-    _override_counts[key] = _override_counts.get(key, 0) + 1
+    _OVERRIDES.note((tool, supplied, owner))
 
 
 async def flush_user_overrides() -> None:
     """Write the pending override counts as one audit row, at most once per
-    window. Called by the async tool wrapper right after identity resolution,
-    before the ownership check and the tool body (a dict check when nothing
-    is due); a call refused by the placeholder guard does not flush, its
-    counts wait for the next call. A sync tool cannot await the write: its
-    overrides are counted and land with the next async call in the same
-    process. The observer never breaks the observed: any failure is logged at
-    debug. Counts are cleared before the write, so a failed or cancelled
-    write loses that window's COUNTS — never the fact that overrides
-    happened, which each override's own warning line records.
+    window (shared shape: _audit_window.WindowedAuditCounter). Called by the
+    async tool wrapper right after identity resolution, before the ownership
+    check and the tool body; a call refused by the placeholder guard does not
+    flush, its counts wait for the next call. A sync tool cannot await the
+    write: its overrides are counted and land with the next async call in the
+    same process. A failed or cancelled write loses that window's COUNTS —
+    never the fact that overrides happened, which each override's own warning
+    line records.
     """
-    global _override_flush_deadline
-    if not _override_counts:
-        return
-    now = time.monotonic()
-    if now < _override_flush_deadline:
-        return
-    _override_flush_deadline = now + _OVERRIDE_FLUSH_SECONDS
-    counts = dict(_override_counts)
-    _override_counts.clear()
-    entries = [
-        {"tool": t, "supplied": s, "owner": o, "n": n}
-        for (t, s, o), n in sorted(counts.items())
-    ]
-    try:
-        from narranexus.platform.repository.executor_audit_repository import (
-            ExecutorAuditRepository,
-        )
-        from narranexus.platform.schema.executor_audit import EVENT_MCP_IDENTITY_USER_OVERRIDE
-        from narranexus.platform.utils.db.db_factory import get_db_client
-
-        db = await get_db_client()
-        await ExecutorAuditRepository(db).record(
-            event_type=EVENT_MCP_IDENTITY_USER_OVERRIDE,
-            detail={"total": sum(counts.values()), "counts": entries},
-        )
-    except Exception as e:  # noqa: BLE001 — the observer must not break the observed
-        logger.debug(f"[mcp-identity] user-override audit row not written: {e}")
+    await _OVERRIDES.flush()
 
 
 def resolve_caller_user_id(supplied: Any, *, tool: str = "") -> Any:
@@ -621,7 +592,7 @@ def install_caller_identity(mcp) -> None:
         if "agent_id" not in params and "user_id" not in params:
             continue
 
-        tool.fn = _wrap_fn(fn)
+        tool.fn = _wrap_fn(fn, tool_name=getattr(tool, "name", None))
         wrapped += 1
 
     if wrapped:
@@ -646,7 +617,7 @@ def _annotation_is_dict(annotation: Any) -> bool:
     return text.lower().startswith("dict")
 
 
-def _wrap_fn(fn: Callable) -> Callable:
+def _wrap_fn(fn: Callable, *, tool_name: Optional[str] = None) -> Callable:
     """Wrap one tool fn so caller identity is resolved before the body runs.
 
     Declared ``agent_id`` and ``user_id`` parameters follow their respective
@@ -673,7 +644,9 @@ def _wrap_fn(fn: Callable) -> Callable:
     # guard silently returns the wrong shape exactly where it matters most.
     returns_dict = _annotation_is_dict(sig.return_annotation)
     resolves_user = not getattr(fn, "_nx_external_user_id", False)
-    tool_name = getattr(fn, "__name__", "?")
+    # The REGISTERED tool name (what the classification gate and tool lists
+    # use); the function name only as a fallback for direct callers.
+    tool_name = tool_name or getattr(fn, "__name__", "?")
 
     def _guard(supplied: Any) -> Any:
         msg = placeholder_agent_id_error(supplied)

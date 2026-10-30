@@ -43,7 +43,7 @@ def _clean_module_state():
 
     yield
     mcp_auth._owner_cache.clear()
-    mcp_auth._tokenless_counts.clear()
+    mcp_auth._TOKENLESS.reset()
 
 
 def _keypair() -> tuple[bytes, bytes]:
@@ -664,7 +664,7 @@ def _audit_capture(tmp_path, monkeypatch):
         "narranexus.platform.repository.executor_audit_repository.ExecutorAuditRepository",
         FakeAuditRepo,
     )
-    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", 0.0)
+    mcp_auth._TOKENLESS.reset()  # pending counts dropped, window open
     return rows
 
 
@@ -705,21 +705,23 @@ def test_declared_caller_is_length_capped_and_cardinality_bounded(monkeypatch):
     # caller-controlled dimensions (caller AND path — round-5 #1: an overflow
     # key that kept path re-opened the hole on the other dimension). Extras
     # land in the ONE constant bucket; the total survives.
-    monkeypatch.setattr(mcp_auth, "_tokenless_flush_deadline", float("inf"))
-    mcp_auth._tokenless_counts.clear()
+    from narranexus.platform.module_system._audit_window import OVERFLOW_KEY
+
+    mcp_auth._TOKENLESS.reset()
+    monkeypatch.setattr(mcp_auth._TOKENLESS, "_deadline", float("inf"))  # hold the window open
     extra = 50
     for i in range(mcp_auth._TOKENLESS_KEYS_MAX + extra):
         asyncio.run(
             mcp_auth._note_tokenless(f"usr_{i}", "POST", f"/made-up/{i}", 7801)
         )
-    assert len(mcp_auth._tokenless_counts) == mcp_auth._TOKENLESS_KEYS_MAX + 1
-    assert mcp_auth._tokenless_counts[mcp_auth._OVERFLOW_KEY] == extra
-    total = sum(mcp_auth._tokenless_counts.values())
-    assert total == mcp_auth._TOKENLESS_KEYS_MAX + extra
+    pending = mcp_auth._TOKENLESS.pending()
+    assert len(pending) == mcp_auth._TOKENLESS_KEYS_MAX + 1
+    assert pending[OVERFLOW_KEY] == extra
+    assert sum(pending.values()) == mcp_auth._TOKENLESS_KEYS_MAX + extra
     # Path length is capped too — the middleware counts BEFORE routing, so a
     # made-up path of request-line size must not bloat an entry.
     asyncio.run(mcp_auth._note_tokenless("usr_x", "POST", "/p" * 5000, 7801))
-    longest = max(len(k[2]) for k in mcp_auth._tokenless_counts)
+    longest = max(len(k[2]) for k in mcp_auth._TOKENLESS.pending() if len(k) > 2)
     assert longest <= mcp_auth._PATH_MAX_LEN
 
 

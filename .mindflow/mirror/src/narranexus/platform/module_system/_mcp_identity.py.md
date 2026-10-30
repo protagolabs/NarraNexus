@@ -20,10 +20,12 @@ stub: false
 不归类就变红，逼人显式判断。
 
 **覆盖留 DB 审计**（auto-review #428）：每次覆盖真实值都进进程内计数
-（`_note_user_override`，同步、无 I/O），由 async 包装层在身份解析之后、归属检查和工具体之前
+（`_note_user_override` → 共享的 [[_audit_window]] `WindowedAuditCounter`，同步、无 I/O），
+由 async 包装层在身份解析之后、归属检查和工具体之前
 调用 `flush_user_overrides()`，按 60 秒窗口写一行 `mcp_identity_user_override`
-（instance_executor_audit）。形状照搬 mcp_auth 的 tokenless 测量：`supplied` 调用方可控，
-长度截 64、key 数上限 256，超出全部并入一个常量桶。sync 工具没法 await，计数留到同进程下一次
+（instance_executor_audit）。与 mcp_auth 的 tokenless 测量共用同一个计数器实现：三个维度各截
+64，key 上限 256，超出并入一个常量桶。审计行的 `tool` 是 FastMCP **注册名**（`tool.name`，
+`install_caller_identity` 传给 `_wrap_fn`），不是函数名。sync 工具没法 await，计数留到同进程下一次
 async 调用时落盘；被占位符拦截提前返回的调用不刷新，计数留到下一次。审计失败只记 debug，
 不影响工具；计数在写库前已清空，写失败/被取消丢的是这一窗口的计数，不是覆盖事实（每次覆盖
 都有 warning 行）。

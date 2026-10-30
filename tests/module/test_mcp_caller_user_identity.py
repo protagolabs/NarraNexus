@@ -355,9 +355,9 @@ def _clean_override_state():
     test's leftovers get flushed by a later test's tool call."""
     from narranexus.platform.module_system import _mcp_identity as ident
 
-    ident._override_counts.clear()
+    ident._OVERRIDES.reset()
     yield
-    ident._override_counts.clear()
+    ident._OVERRIDES.reset()
 
 
 @pytest.fixture
@@ -381,8 +381,7 @@ def audit_rows(monkeypatch):
         "narranexus.platform.repository.executor_audit_repository.ExecutorAuditRepository",
         FakeAuditRepo,
     )
-    ident._override_counts.clear()
-    monkeypatch.setattr(ident, "_override_flush_deadline", 0.0)
+    ident._OVERRIDES.reset()
     return rows
 
 
@@ -410,14 +409,16 @@ async def test_placeholder_and_matching_values_are_not_overrides(audit_rows):
 
 def test_override_keys_are_bounded(audit_rows, monkeypatch):
     from narranexus.platform.module_system import _mcp_identity as ident
+    from narranexus.platform.module_system._audit_window import OVERFLOW_KEY
 
-    monkeypatch.setattr(ident, "_override_flush_deadline", float("inf"))  # hold the window open
+    monkeypatch.setattr(ident._OVERRIDES, "_deadline", float("inf"))  # hold the window open
     with injected({USER_ID_HEADER: USER}):
-        for i in range(ident._OVERRIDE_KEYS_MAX + 50):
+        for i in range(256 + 50):
             resolve_caller_user_id(f"forged_user_{i:04d}" + "x" * 200, tool="t")
-    assert len(ident._override_counts) == ident._OVERRIDE_KEYS_MAX + 1
-    assert ident._override_counts[ident._OVERRIDE_OVERFLOW_KEY] == 50
-    assert all(len(k[1]) <= ident._OVERRIDE_VALUE_MAX for k in ident._override_counts)
+    pending = ident._OVERRIDES.pending()
+    assert len(pending) == 256 + 1
+    assert pending[OVERFLOW_KEY] == 50
+    assert all(len(k[1]) <= 64 for k in pending if k != OVERFLOW_KEY)
 
 
 @pytest.mark.asyncio
@@ -451,8 +452,7 @@ async def test_audit_failure_never_breaks_the_tool(monkeypatch):
         raise RuntimeError("db down")
 
     monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", boom)
-    ident._override_counts.clear()
-    monkeypatch.setattr(ident, "_override_flush_deadline", 0.0)
+    ident._OVERRIDES.reset()
     fn = _fn(_server(), "needs_both")
     with injected(agent_id_headers(AGENT, user_id=USER)):
         out = await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")
@@ -470,7 +470,7 @@ async def test_overrides_within_one_window_share_one_row(audit_rows):
         await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")   # counted, window open
         await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")
     assert len(audit_rows) == 1
-    assert ident._override_counts[("needs_both", OTHER_USER, USER)] == 2
+    assert ident._OVERRIDES.pending()[("needs_both", OTHER_USER, USER)] == 2
 
 
 @pytest.mark.asyncio
@@ -488,3 +488,22 @@ async def test_a_denied_call_still_flushes(audit_rows, monkeypatch):
         out = await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")
     assert out == {"success": False, "error": "not your agent"}
     assert len(audit_rows) == 1
+
+
+def test_audit_rows_name_the_registered_tool_not_the_function():
+    """`@mcp.tool(name=...)` may differ from the function name; the audit row
+    must carry the name the classification gate and tool lists use."""
+    from mcp.server.fastmcp import FastMCP
+
+    from narranexus.platform.module_system import _mcp_identity as ident
+
+    mcp = FastMCP("renamed")
+
+    @mcp.tool(name="public_name")
+    def _impl(user_id: str) -> dict:
+        return {}
+
+    install_caller_identity(mcp)
+    with injected({USER_ID_HEADER: USER}):
+        _fn(mcp, "public_name")(user_id=OTHER_USER)
+    assert ("public_name", OTHER_USER, USER) in ident._OVERRIDES.pending()

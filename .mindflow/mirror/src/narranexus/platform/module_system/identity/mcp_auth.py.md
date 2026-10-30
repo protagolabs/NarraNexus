@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/module_system/identity/mcp_auth.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — tokenless 测量改用共享的 `WindowedAuditCounter`
+
+截断、溢出桶、窗口写行都移到 [[_audit_window]]（与 `user_id` 覆盖审计共用一份实现，
+auto-review #428）。本文件只保留参数（caps：caller 64 / method 16 / path 128 / port 不截；
+256 key；60 秒窗口）和自己的 top-N WARNING 日志行。行为不变：计数后立即 flush。
 
 ## Why it exists
 
