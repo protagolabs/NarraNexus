@@ -17,7 +17,6 @@ Endpoints (all under /api/teams):
 """
 
 import mimetypes
-import shutil
 from datetime import datetime
 from typing import Any, List, Literal, Optional
 
@@ -25,7 +24,9 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
+from narranexus.platform.settings import settings
 from narranexus.platform.utils import format_for_api
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils.db.dialect_time import event_time_str
 from narranexus.platform.utils.mime_sniff import sniff_mime_type
@@ -232,9 +233,16 @@ async def _wipe_team_data(
 
         d = team_shared_dir(team.owner_user_id, team.team_id)
         try:
-            if d.exists():
-                shutil.rmtree(d)
+            # `_shared` and `teams` sit inside the owner's own mount, so the
+            # owner can swap either for a link to another tenant's tree; a
+            # by-path rmtree would then delete there. remove_tree walks every
+            # component O_NOFOLLOW and never follows a link.
+            root, rel = confined_io.split_under_base(str(d), settings.base_working_path)
+            try:
+                confined_io.remove_tree(root, rel)
                 result["files_removed"] = True
+            except FileNotFoundError:
+                pass
         except Exception as e:  # noqa: BLE001 — best-effort; never fail the wipe
             result["errors"].append(f"files: {e}")
             logger.warning(f"[team wipe] failed to delete shared dir {d}: {e}")
@@ -262,6 +270,13 @@ async def _wipe_team_data(
     return result
 
 
+def _confined_size(path) -> int:
+    """Size of a resolved shared file measured through the link-free walk (a
+    swapped directory must not report another tenant's file size)."""
+    root, rel = confined_io.split_under_base(str(path), settings.base_working_path)
+    return confined_io.lstat(root, rel).st_size
+
+
 def _sanitized_attachment(user_id: str, att: object) -> dict | None:
     """Rebuild one echoed attachment dict from server-side state only.
 
@@ -287,11 +302,15 @@ def _sanitized_attachment(user_id: str, att: object) -> dict | None:
         return meta
     guessed, _ = mimetypes.guess_type(on_disk.name)
     mime = guessed or "application/octet-stream"
+    try:
+        size_bytes = _confined_size(on_disk)
+    except (OSError, ValueError):  # gone, or a directory swapped for a link since the lookup
+        return None
     return {
         "file_id": on_disk.stem,
         "original_name": on_disk.name,
         "mime_type": mime,
-        "size_bytes": on_disk.stat().st_size,
+        "size_bytes": size_bytes,
         "category": derive_category_from_mime(mime).value,
         "rel_path": rel_path,
     }

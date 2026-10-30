@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/office_watch/proxy.py
-last_verified: 2026-10-29
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审）— `/office-watch/version` 的 size/mtime 走受限 fd
+
+`os.stat(abs_path)` 改为 `confined_stat`（`abs_path` 由 `resolve_workspace_relative_file` 词法拼出，可能带相对/符号链接的 base，
+`split_under_base` 已兼容）；目录被换成链接 → 404，不再成为别的租户 size/mtime/锁的探针。
+`/office-watch/open` 把路径交给另一个 officecli 进程，无法传 fd，仍按路径（仅由 `resolve_watch_file` 检查）——已知未转换。
+
 ### 2026-10-29（管线审查 M-1）
 
 **四跳都留痕**：`_log_if_token_rejected(status, user_id, hop)` 在 `/watch/ensure`、`/watch/version`、透传 GET（`_proxy_stream`，拿到 resp 后、进生成器之前打一次——SSE 不会逐 chunk 刷）、透传 POST（`_post_upstream` return 前）都调用：执行器拒绝平台 API token 是平台故障，透传 GET 承载 iframe 文档、静态资源与 SSE，是主干流量，不能只有 ensure 那一条日志。

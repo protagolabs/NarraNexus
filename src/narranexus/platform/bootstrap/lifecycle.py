@@ -59,8 +59,10 @@ class BootstrapStatus(NamedTuple):
     - event_count / threshold: for the caller's auto-delete decision + logging.
       event_count is None when it was NOT queried (file absent, or a
       threshold-None semantic-only profile) — do not read it as "0 events".
-    - bootstrap_path: the resolved Bootstrap.md path (so the caller can remove it
-      without re-resolving the workspace).
+    - bootstrap_path: the LEXICAL Bootstrap.md path (base realpath-ed, tenant
+      tail not resolved), so the caller can remove it through the link-free walk
+      without re-resolving the workspace. Never turn it into a realpath: a
+      swapped agent dir would then resolve into another tenant's tree.
     """
 
     active: bool
@@ -68,6 +70,25 @@ class BootstrapStatus(NamedTuple):
     event_count: Optional[int]
     threshold: Optional[int]
     bootstrap_path: str
+
+
+def bootstrap_file_present(bootstrap_path: str) -> bool:
+    """True when ``Bootstrap.md`` is a regular file at ``bootstrap_path``,
+    checked through the link-free walk below the workspace base: the workspace
+    is the tenant's own mount, so a ``Bootstrap.md`` link (or a swapped
+    directory) must read as absent — never as a peek into another tenant's
+    tree. The ONE presence test shared by the runtime gate and the
+    frontend-facing agent list / agent update routes."""
+    import stat as stat_mod
+
+    from narranexus.platform.settings import settings
+    from narranexus.platform.utils.fs import confined_io
+
+    try:
+        root, rel = confined_io.split_under_base(str(bootstrap_path), settings.base_working_path)
+        return stat_mod.S_ISREG(confined_io.lstat(root, rel).st_mode)
+    except (OSError, ValueError):
+        return False
 
 
 async def is_bootstrap_active(
@@ -91,7 +112,7 @@ async def is_bootstrap_active(
         str(resolve_existing_workspace(agent_id, owner_id, settings.base_working_path)),
         "Bootstrap.md",
     )
-    if not os.path.isfile(bootstrap_path):
+    if not bootstrap_file_present(bootstrap_path):
         return BootstrapStatus(
             active=False, present=False, event_count=None, threshold=None,
             bootstrap_path=bootstrap_path,

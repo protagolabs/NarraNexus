@@ -56,13 +56,12 @@ async def _extract_requirements_via_llm(
     from narranexus.platform.agent_framework.adapters.openai_agents import build_helper_openai_client
     from narranexus.platform.agent_framework.api_config import openai_config
 
-    skill_md_path = Path(skill_path) / "SKILL.md"
-    if not skill_md_path.exists():
-        return
-
-    try:
-        skill_content = skill_md_path.read_text(encoding="utf-8")
-    except Exception:
+    # Through the link-free walk on the LEXICAL path: this runs right after an
+    # agent turn in the tenant's own executor, which may have swapped
+    # skills/<name> for a link into another tenant's tree; a by-path read would
+    # send the victim's SKILL.md to the helper LLM.
+    skill_content = skill_module._read_confined_text(Path(skill_path) / "SKILL.md")
+    if skill_content is None:
         return
 
     if not openai_config.api_key:
@@ -478,6 +477,10 @@ async def disable_skill(
 
     except HTTPException:
         raise
+    except ValueError as e:
+        # A name clash (e.g. reinstalled while a disabled copy exists) or a
+        # refused unsafe path: a clear 409 instead of an opaque 500.
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to disable skill: {e}")
         raise HTTPException(status_code=500, detail="Skill operation failed.")
@@ -505,6 +508,10 @@ async def enable_skill(
 
     except HTTPException:
         raise
+    except ValueError as e:
+        # A name clash (e.g. reinstalled while a disabled copy exists) or a
+        # refused unsafe path: a clear 409 instead of an opaque 500.
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to enable skill: {e}")
         raise HTTPException(status_code=500, detail="Skill operation failed.")

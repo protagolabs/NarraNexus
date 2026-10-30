@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/artifact/__init__.py
-last_verified: 2026-08-20
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 导出 `confined_stat`
+
+office-watch 版本轮询（backend `office_watch/proxy.py`）需要在受限 fd 上取 size/mtime；公共口导出，不让路由直捅 `_impl`。
 
 # artifact/__init__.py — public surface of the artifact subsystem
 

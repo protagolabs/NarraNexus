@@ -639,6 +639,8 @@ async def test_failed_artifact_registration_removes_the_new_screenshot(monkeypat
     from narranexus_plugins.browser_module._browser_module_impl import evidence
 
     monkeypatch.setattr(evidence, "resolve_agent_workspace_cwd", AsyncMock(return_value=tmp_path))
+    # the screenshot is written through the link-free walk below base_working_path
+    monkeypatch.setattr(evidence.settings, "base_working_path", str(tmp_path.parent), raising=False)
     monkeypatch.setattr(evidence, "get_db_client", AsyncMock(return_value=object()))
     monkeypatch.setattr(evidence, "ArtifactService", lambda _: SimpleNamespace(register=AsyncMock(side_effect=ConnectionError("storage unavailable"))))
     capture = {"outcome": "OK", "mime_type": "image/png", "data": base64.b64encode(b"\x89PNG\r\n\x1a\nprivate").decode()}

@@ -28,6 +28,8 @@ Auth: same gateway-token middleware as the rest of ``/manyfold/...``.
 from __future__ import annotations
 
 import asyncio
+import os
+import stat as stat_mod
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -37,7 +39,9 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from backend.routes._confined_response import open_tenant_file
 from narranexus.platform.settings import settings as core_settings
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.db.db_factory import get_db_client
 from backend.auth_errors import GATEWAY_TOKEN_INVALID, AuthError
 
@@ -210,7 +214,17 @@ async def list_dir(
     workspace, _ = await _resolve_workspace_root(agent_id)
     target = _safe_resolve(workspace, path)
 
-    if not target.exists():
+    # Listed through the link-free walk below the base (scandir on the dir fd,
+    # per-entry lstat): _safe_resolve is only a check, and iterdir()/stat() by
+    # string followed a directory swapped for a link — and reported a planted
+    # link's TARGET size/mtime — from another tenant's tree. A link entry is now
+    # listed as a "link" with its own metadata.
+    try:
+        base_root, rel = confined_io.split_under_base(
+            str(target), str(core_settings.base_working_path)
+        )
+        infos = confined_io.list_dir(base_root, rel)
+    except FileNotFoundError:
         if target == workspace.resolve(strict=False):
             # Workspace dir hasn't been created yet — treat as empty
             # rather than 404 so the UI doesn't show a broken state
@@ -220,37 +234,26 @@ async def list_dir(
             status_code=404,
             detail=f"path does not exist: {path!r}",
         )
-    if not target.is_dir():
+    except NotADirectoryError:
         raise HTTPException(
             status_code=400,
             detail=f"not a directory: {path!r}",
         )
-
-    entries: list[dict[str, Any]] = []
-    for child in sorted(target.iterdir(), key=lambda p: p.name.lower()):
-        try:
-            stat = child.stat()
-        except OSError as exc:
-            # Don't fail the whole listing for one broken entry; log
-            # and skip so the rest of the dir still renders.
-            logger.warning(
-                f"[manyfold-files] stat failed for {child}: {exc}"
-            )
-            continue
-        entries.append(
-            FileEntry(
-                name=child.name,
-                type=(
-                    "dir"
-                    if child.is_dir()
-                    else "link"
-                    if child.is_symlink()
-                    else "file"
-                ),
-                size=stat.st_size,
-                mtime=int(stat.st_mtime),
-            ).model_dump()
+    except confined_io.ConfinedPathError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"path does not exist: {path!r}",
         )
+
+    entries: list[dict[str, Any]] = [
+        FileEntry(
+            name=info.name,
+            type="dir" if info.is_dir else "link" if info.is_link else "file",
+            size=info.st.st_size,
+            mtime=int(info.st.st_mtime),
+        ).model_dump()
+        for info in sorted(infos, key=lambda i: i.name.lower())
+    ]
     return {"entries": entries}
 
 
@@ -265,23 +268,28 @@ async def stat_file(
     _require_manyfold_auth(request)
     workspace, _ = await _resolve_workspace_root(agent_id)
     target = _safe_resolve(workspace, path)
-    if not target.exists():
+    # lstat through the link-free walk (see list_dir above), never target.stat().
+    try:
+        base_root, rel = confined_io.split_under_base(
+            str(target), str(core_settings.base_working_path)
+        )
+        st = confined_io.lstat(base_root, rel)
+    except (OSError, confined_io.ConfinedPathError):
         raise HTTPException(
             status_code=404,
             detail=f"path does not exist: {path!r}",
         )
-    stat = target.stat()
     entry = FileEntry(
         name=target.name,
         type=(
             "dir"
-            if target.is_dir()
+            if stat_mod.S_ISDIR(st.st_mode)
             else "link"
-            if target.is_symlink()
+            if stat_mod.S_ISLNK(st.st_mode)
             else "file"
         ),
-        size=stat.st_size,
-        mtime=int(stat.st_mtime),
+        size=st.st_size,
+        mtime=int(st.st_mtime),
     )
     return {"entry": entry.model_dump()}
 
@@ -301,18 +309,24 @@ async def read_file(
     _require_manyfold_auth(request)
     workspace, _ = await _resolve_workspace_root(agent_id)
     target = _safe_resolve(workspace, path)
-    if not target.exists():
+    # Open through the link-free walk below the workspace base and stream from
+    # THAT file object: _safe_resolve is only a check, and target.open() by
+    # string would follow a directory swapped for a link in the meantime into
+    # another tenant's tree.
+    served = open_tenant_file(target, within=[workspace])
+    if served is None:
+        if target.is_dir():
+            raise HTTPException(
+                status_code=400,
+                detail=f"path is a directory: {path!r}",
+            )
         raise HTTPException(
             status_code=404,
             detail=f"path does not exist: {path!r}",
         )
-    if target.is_dir():
-        raise HTTPException(
-            status_code=400,
-            detail=f"path is a directory: {path!r}",
-        )
-    stat = target.stat()
+    stat = os.fstat(served.fileno())
     if stat.st_size > _MAX_READ_BYTES:
+        served.close()
         raise HTTPException(
             status_code=413,
             detail=(
@@ -322,7 +336,7 @@ async def read_file(
         )
 
     def iterfile():
-        with target.open("rb") as fh:
+        with served as fh:
             while True:
                 chunk = fh.read(_READ_CHUNK_BYTES)
                 if not chunk:
@@ -420,8 +434,17 @@ async def write_file(
                 detail=f"file exists and overwrite=false: {path!r}",
             )
         def _write() -> None:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(body)
+            # Parents + file through the link-free walk below the base (every
+            # component O_NOFOLLOW, temp file + rename via the parent's fd): the
+            # checks above are only advice, and mkdir/write_bytes by string
+            # followed a directory swapped for a link into another tenant's tree.
+            try:
+                base_root, rel_target = confined_io.split_under_base(
+                    str(target), str(core_settings.base_working_path)
+                )
+                confined_io.write_atomic(base_root, rel_target, body, make_parents=True)
+            except confined_io.ConfinedPathError:
+                raise HTTPException(status_code=403, detail="path escapes the agent workspace")
 
         await asyncio.to_thread(_write)
         rel = str(target.relative_to(root))

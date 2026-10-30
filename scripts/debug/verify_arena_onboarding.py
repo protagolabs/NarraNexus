@@ -40,6 +40,11 @@ def main() -> None:
     # {base}/{agent_id}_{user_id}/skills/<skill>/
     agent_id, user_id = "agent_verify0001", "binliang"
     tmp_base = Path(tempfile.mkdtemp(prefix="arena_verify_"))
+    # The skill is written through the link-free walk BELOW the workspace base
+    # (ArenaOnboarder refuses a path outside it), so point the base at the temp dir.
+    from narranexus.platform.settings import settings
+
+    settings.base_working_path = str(tmp_base)
     workspace = tmp_base / f"{agent_id}_{user_id}"
     workspace.mkdir(parents=True)
 

@@ -169,3 +169,39 @@ async def test_meta_json_survives_reconcile_source_fields(db_client, workspace, 
     assert row.source_type == "github"
     assert row.source_url == "https://github.com/a/b"
     assert row.version == "0.9.0"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_lists_and_reads_disk_off_the_event_loop(db_client, workspace, monkeypatch):
+    """PR #433 review I2: the listings (every tenant, every skills dir) used to
+    run on the workers' loop; only the hash was in a thread."""
+    import asyncio
+
+    from narranexus.platform.utils.fs import confined_io
+
+    manual = _skills_dir() / "hand-made"
+    manual.mkdir(parents=True)
+    (manual / "SKILL.md").write_text("---\nname: hand-made\ndescription: d\n---\nBody.\n")
+    real_list, real_lstat = confined_io.list_dir, confined_io.lstat
+    on_loop = []
+
+    def _record():
+        try:
+            asyncio.get_running_loop()
+            on_loop.append(True)
+        except RuntimeError:
+            on_loop.append(False)
+
+    def list_dir(*a, **k):
+        _record()
+        return real_list(*a, **k)
+
+    def lstat(*a, **k):
+        _record()
+        return real_lstat(*a, **k)
+
+    monkeypatch.setattr(confined_io, "list_dir", list_dir)
+    monkeypatch.setattr(confined_io, "lstat", lstat)
+    totals = await SkillSyncService(db_client).reconcile_all()
+    assert totals["workspaces"] == 1 and totals["added"] == 1
+    assert on_loop and not any(on_loop)

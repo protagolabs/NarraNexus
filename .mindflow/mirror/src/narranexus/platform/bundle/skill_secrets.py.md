@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/bundle/skill_secrets.py
-last_verified: 2026-07-14
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `dir_is_builtin` 经受限路径读 meta
+
+`.skill_meta.json` 通过 `split_source` + `open_read` 读取（base 之下从 base 逐级 `NOFOLLOW`；之外视为平台 staging，父目录可信、叶子 `NOFOLLOW`）。
+被换成链接 → 读作"非内置"，不再窥探别的租户的目录。
 
 # skill_secrets.py — skill-secret scrubbing for bundle export
 

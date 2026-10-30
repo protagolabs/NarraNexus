@@ -25,12 +25,18 @@ import asyncio
 import os
 from typing import Literal
 
+from loguru import logger
+
 from narranexus.platform.artifact._artifact_impl.commit import (
     commit_content_refresh,
     entry_size_bytes,
 )
-from narranexus.platform.artifact._artifact_impl.confinement import confine_entry
-from narranexus.platform.artifact._artifact_impl.errors import ArtifactPathEscape
+from narranexus.platform.artifact._artifact_impl.confinement import (
+    confine_entry,
+    confined_path_exists,
+    open_confined_read,
+)
+from narranexus.platform.artifact._artifact_impl.errors import ArtifactError, ArtifactPathEscape
 from narranexus.platform.artifact._artifact_impl.registration import compute_entry_hash
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact
@@ -48,7 +54,9 @@ def office_lock_present(abs_entry: str) -> bool:
     the desktop app's own saves — direct-edit surfaces grey out on it.
     """
     directory, name = os.path.split(abs_entry)
-    return os.path.exists(os.path.join(directory, f"~${name}"))
+    # Probed through the confined lstat: a directory swapped for a link reads as
+    # "no lock" instead of an existence oracle into another tenant's folder.
+    return confined_path_exists(os.path.join(directory, f"~${name}"))
 
 
 async def refresh_external_state(
@@ -79,8 +87,13 @@ async def refresh_external_state(
     except ArtifactPathEscape:
         return "missing"
     try:
-        stat = os.stat(abs_entry)
-    except OSError:
+        # fstat on the fd of a confined (link-free) open: the mtime is never
+        # read through another tenant's tree. The hash below re-opens through
+        # the same confined walk, so a swap between the two reads is refused
+        # (-> "missing"); it is not guaranteed to be the very same inode.
+        with open_confined_read(abs_entry) as entry_file:
+            stat = os.fstat(entry_file.fileno())
+    except (OSError, ArtifactPathEscape):
         return "missing"
 
     # Fast screen: an mtime at or before the last commit point cannot be an
@@ -104,11 +117,24 @@ async def refresh_external_state(
         # history row, no event — deliberately NOT commit_content_refresh,
         # which packages exactly the two side effects this branch must avoid
         # (review #334 I2).
+        # Claiming the hash must not hinge on measuring the size: a directory
+        # that cannot be measured right now (too deep, unreadable, a link swapped
+        # in) would otherwise leave the hash unwritten forever — the fast screen
+        # never arms and every render re-hashes the entry. Same degrade as
+        # commit_content_refresh: keep the previous size, still claim the hash.
+        try:
+            size_bytes = entry_size_bytes(abs_entry, artifact)
+        except (OSError, ArtifactError) as e:
+            logger.warning(
+                f"artifact {artifact.artifact_id}: size not measurable while claiming the "
+                f"fingerprint ({type(e).__name__}: {e}); keeping the previous size"
+            )
+            size_bytes = artifact.size_bytes
         repo = ArtifactRepository(db)
         await repo.update_pointer(
             artifact.artifact_id,
             file_path=artifact.file_path,
-            size_bytes=entry_size_bytes(abs_entry, artifact.file_path),
+            size_bytes=size_bytes,
             content_hash=new_hash,
         )
         return "fresh"
