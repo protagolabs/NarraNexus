@@ -11,17 +11,34 @@
  * plugin loader — hits the same brake. NOT covered: plugin bundles. They run as
  * modules in this page's realm and can call the global `fetch` directly;
  * `HostAPI.http` (platform/host.ts) is guarded, but nothing forces a plugin to
- * use it. Reads that the guard refuses wait LOOP_BLOCK_DELAY_MS and throw
- * `RequestLoopBlockedError`; everything else is plain `fetch`, returning the
- * `Response` untouched so callers keep their own status handling.
+ * use it. Reads the guard refuses throw `RequestLoopBlockedError` — after
+ * LOOP_BLOCK_DELAY_MS for the per-URL verdicts and 'slot_full' (a retry would
+ * be refused again at once; the delay slows that loop), at once for the
+ * page-budget verdicts and 'slot_wait' (retrying sooner cannot change a
+ * page-wide state, and a slot_wait retry queues again for up to 15s).
+ * Everything else is plain `fetch`, returning the `Response` untouched so
+ * callers keep their own status handling.
  *
- * The total read budget is off only when the backend is known to be local
- * (`knownLocalBackend`); against it there is no edge ban to avoid. Unknown
- * means on.
+ * A guarded read that comes back with a probing-like failure status (400 /
+ * 403 / 404 / 405 — what the edge monitor bans on) is reported to the guard,
+ * which blocks a URL that keeps failing and, once the page (all tabs together)
+ * has failed PAGE_FAIL_MAX reads in a minute, pauses reads of paths not known
+ * to work; a loop on a deleted agent's 404 stays far below the edge's failure
+ * line, while paths whose last answer was a success (agent list, chat) keep
+ * working. Reads of
+ * unproven paths wait for one of the guard's in-flight slots (`acquire`), so in
+ * one tab a burst of them reaches the server at most EDGE_FAIL_SAFE at a time
+ * (slots are per tab; only landed failures are shared). A read that waits
+ * longer than SLOT_WAIT_MAX_MS is refused.
  *
- * Tabs share the page budgets over a BroadcastChannel because the edge flood
- * rule counts per IP: two tabs each staying under their own budget could still
- * sum past the ban line. Where BroadcastChannel is unavailable the guard
+ * The page-wide limits are switched off only when the backend is known to be
+ * local (`knownLocalBackend`: no edge ban in front of it, so they could only
+ * refuse real work — e.g. a minimal distribution whose excluded plugins'
+ * routes 404 on every poll). Unknown means on.
+ *
+ * Tabs share the page budgets over a BroadcastChannel because the edge's
+ * failure rule counts per IP: two tabs each staying under their own budget
+ * could still sum past the ban line. Where BroadcastChannel is unavailable the guard
  * degrades to per-tab budgets.
  */
 import { RequestLoopBlockedError } from './apiError';
@@ -30,10 +47,14 @@ import { isTauri } from './tauri';
 import { getApiBaseUrl, useRuntimeStore } from '@/stores/runtimeStore';
 import {
   delayUnlessAborted,
+  FAILURE_STATUSES,
   isGuardedMethod,
   LOOP_BLOCK_DELAY_MS,
   RequestLoopGuard,
+  EDGE_FAIL_SAFE,
+  SLOT_WAIT_MAX_MS,
   type BudgetKind,
+  type LoopVerdict,
 } from './requestLoopGuard';
 
 const CHANNEL_NAME = 'narranexus.request-loop-guard';
@@ -53,11 +74,16 @@ function createGuard(): RequestLoopGuard {
   }
   const g = new RequestLoopGuard({
     onSpend: (kind) => channel?.postMessage(kind),
-    totalBudgetEnabled: () => !knownLocalBackend(),
+    edgeLimitsEnabled: () => !knownLocalBackend(),
+    onSlotWait: () => {
+      if (g.shouldReport('<slot_queue>')) {
+        console.warn(`[request-loop-guard] reads queueing for ${EDGE_FAIL_SAFE} in-flight slots`);
+      }
+    },
   });
   if (channel) {
     channel.onmessage = (event: MessageEvent<unknown>) => {
-      if (event.data === 'rapid' || event.data === 'total') g.recordRemote(event.data as BudgetKind);
+      if (event.data === 'rapid' || event.data === 'fail') g.recordRemote(event.data as BudgetKind);
     };
   }
   return g;
@@ -66,12 +92,26 @@ function createGuard(): RequestLoopGuard {
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 /**
- * True only when the backend is known to be local — no edge flood ban in front
- * of it, so the total read budget would only refuse real work. Fail-closed:
- * an unknown mode keeps the budget on, because it is the only layer that holds
- * a loop whose query changes on every call.
+ * True only when the backend is known to be local — no edge ban in front of
+ * it. Fail-closed: an unknown mode keeps the page-wide limits on. Note the app
+ * resolves the mode to 'local' for every build that is not forced to cloud
+ * (App.tsx useResolveAppMode), so in practice the deciding input is the forced
+ * cloud flag, which the cloud deployment sets (NARRANEXUS_FORCE_MODE=cloud).
  */
 function knownLocalBackend(): boolean {
+  const local = detectLocalBackend();
+  // One line per page load, so a deployment that has an edge in front but
+  // forgot the forced-cloud flag is visible at a glance.
+  if (local && !reportedLocal) {
+    reportedLocal = true;
+    console.info('[request-loop-guard] edge limits off (local backend)');
+  }
+  return local;
+}
+
+let reportedLocal = false;
+
+function detectLocalBackend(): boolean {
   const mode = useRuntimeStore.getState().mode;
   if (isForcedCloud() || mode === 'cloud-web') return false;
   if (isTauri() || isForcedLocal() || mode === 'local') return true;
@@ -95,30 +135,62 @@ function methodOf(input: RequestInfo | URL, init?: RequestInit): string | undefi
 }
 
 export async function guardedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  if (isGuardedMethod(methodOf(input, init))) {
-    const url = urlOf(input);
-    const verdict = guard.check(url);
-    if (verdict !== 'ok') {
-      // Budget reports throttle under one fixed key each, so the console gets one
-      // line a minute rather than one per refused read.
-      const reportKey = verdict === 'loop' ? url : `<${verdict}>`;
-      if (guard.shouldReport(reportKey)) {
-        console.error(
-          verdict === 'loop'
-            ? `[request-loop-guard] refusing repeated read of ${url} (a component is fetching it in a loop)`
-            : verdict === 'rapid_budget'
-              ? `[request-loop-guard] ${guard.spent('rapid')} rapid repeat reads in the last minute; refusing ${url}`
-              : `[request-loop-guard] ${guard.spent('total')} reads in the last minute, at the edge ban line; refusing ${url}`,
-        );
-      }
-      await delayUnlessAborted(LOOP_BLOCK_DELAY_MS, init?.signal);
-      throw new RequestLoopBlockedError();
-    }
+  if (!isGuardedMethod(methodOf(input, init))) return fetch(input, init);
+  const url = urlOf(input);
+  const verdict = guard.check(url);
+  if (verdict !== 'ok') await refuse(verdict, url, init, input);
+  const release = await guard.acquire(url, signalOf(input, init));
+  if (typeof release !== 'function') await refuse(release, url, init, input);
+  try {
+    const response = await fetch(input, init);
+    if (FAILURE_STATUSES.has(response.status)) guard.recordFailure(url);
+    else if (response.status >= 200 && response.status < 400) guard.recordSuccess(url);
+    return response;
+  } finally {
+    if (typeof release === 'function') release();
   }
-  return fetch(input, init);
+}
+
+function signalOf(input: RequestInfo | URL, init?: RequestInit): AbortSignal | undefined {
+  return init?.signal ?? (input instanceof Request ? input.signal : undefined);
+}
+
+async function refuse(verdict: LoopVerdict, url: string, init: RequestInit | undefined, input: RequestInfo | URL): Promise<never> {
+  // Budget reports throttle under one fixed key each, so the console gets one
+  // line a minute rather than one per refused read.
+  const pageWide = verdict === 'rapid_budget' || verdict === 'fail_budget' || verdict === 'slot_wait';
+  const reportKey = pageWide || verdict === 'slot_full' ? `<${verdict}>` : url;
+  if (guard.shouldReport(reportKey)) {
+    console.error(
+      verdict === 'loop'
+        ? `[request-loop-guard] refusing repeated read of ${url} (fetch loop)`
+        : verdict === 'failing'
+          ? `[request-loop-guard] refusing ${url} for a minute: it keeps failing`
+          : verdict === 'fail_budget'
+            ? `[request-loop-guard] ${guard.spent('fail')} failed reads/min; pausing reads (refusing ${url})`
+            : verdict === 'slot_wait'
+              ? `[request-loop-guard] no slot freed in ${SLOT_WAIT_MAX_MS / 1000}s (slow backend?); refusing ${url}`
+              : verdict === 'slot_full'
+                ? `[request-loop-guard] slot queue full; refusing ${url}`
+                : `[request-loop-guard] ${guard.spent('rapid')} rapid repeat reads/min; refusing ${url}`,
+    );
+  }
+  // Per-URL verdicts slow a retry loop on that URL; a page-wide state does not
+  // change by retrying sooner, so those refusals are immediate. ('slot_wait'
+  // needs no delay either: a retry queues again and waits up to
+  // SLOT_WAIT_MAX_MS. 'slot_full' does: the queue is full, so a retry would
+  // be refused again at once — the delay is what slows that loop.)
+  //
+  // A read refused here has already passed check(), so it counted toward its
+  // URL's window and, if a rapid repeat, the rapid budget — accepted: refusals
+  // are rare and only make the guard stricter.
+  if (!pageWide) await delayUnlessAborted(LOOP_BLOCK_DELAY_MS, signalOf(input, init));
+  throw new RequestLoopBlockedError(verdict === 'slot_wait' ? 'slow' : 'limit');
 }
 
 /** Tests only: a fresh guard (and channel) so cases cannot leak budget into each other. */
 export function __resetRequestLoopGuardForTests(): void {
+  reportedLocal = false;
+  guard.dispose();
   guard = createGuard();
 }

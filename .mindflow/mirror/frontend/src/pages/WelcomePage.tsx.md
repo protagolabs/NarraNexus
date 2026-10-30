@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/pages/WelcomePage.tsx
-last_verified: 2026-09-03
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `pickGuideAgent` 传 userId
+
+步骤组装与 rail 名字都改为只认查看者自己的引导 agent（见 [[guideAgent]]），陌生人的公开
+bootstrap agent 不再被当成「你的 agent」介绍或在 openGuideAgent 里被选中。
 
 ## 2026-09-03 — mode 不再映射
 

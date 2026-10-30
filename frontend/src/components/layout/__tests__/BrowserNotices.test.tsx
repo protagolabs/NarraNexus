@@ -274,7 +274,18 @@ test('a 404 means the feature is absent on this server: no banner and polling st
   expect(getBrowserNotices).toHaveBeenCalledTimes(1);
 });
 
-test('a 5xx is still a visible, retried failure (only 404 is read as "feature absent")', async () => {
+test("a 403 (someone else's agent) is final: no banner and polling stops", async () => {
+  // Polling a 403 every 2s is a stream of 403s, which the edge monitor bans an IP on.
+  vi.useFakeTimers();
+  getBrowserNotices.mockRejectedValue(new ApiError(403, 'API error: 403 Forbidden'));
+  render(shell());
+  await act(async () => {});
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  expect(getBrowserNotices).toHaveBeenCalledTimes(1);
+});
+
+test('a 5xx is still a visible, retried failure (only 404 / 403 stop polling)', async () => {
   vi.useFakeTimers();
   getBrowserNotices.mockRejectedValueOnce(new ApiError(503, 'API error: 503 Service Unavailable')).mockResolvedValue({ pending: [] });
   render(shell());

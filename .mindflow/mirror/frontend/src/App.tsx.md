@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `onboardingGate` 路径变更
+
+`owesWelcomeFlow` 改从 `@/lib/agentIdentity/onboardingGate` 导入（该文件随 agent 身份相关模块
+移入 `lib/agentIdentity/`），行为不变。
+
 ## 2026-10-30 — 封号即退出登录 + 「账号不可用」提示
 
 挂 [[useAccountSuspendedSignOut]]：收到 `narranexus:account-suspended` 就 `logout()` 并显示

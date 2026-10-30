@@ -23,6 +23,9 @@ export function useAgentImported() {
   const navigate = useNavigate();
   return useCallback(
     async (results: MigrationApplyResult[], opts?: { open?: boolean }) => {
+      // For a user with no own agent yet, this refresh selects their first one
+      // (configStore.refreshAgents) even when opts.open is false: nothing is
+      // navigated, but an empty selection does not stay empty.
       await useConfigStore.getState().refreshAgents().catch(() => { /* best-effort */ });
       const first = results[0];
       if (!first || opts?.open === false) return;

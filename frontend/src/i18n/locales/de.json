@@ -2520,7 +2520,8 @@
     "savedTo": "Gespeichert unter {{path}}",
     "downloadFailed": "Download fehlgeschlagen: {{error}}",
     "doneTitle": "Fertig",
-    "requestBlocked": "Zu viele Anfragen. Bitte gleich erneut versuchen."
+    "requestBlocked": "Zu viele Anfragen. Bitte gleich erneut versuchen.",
+    "requestSlow": "Der Server antwortet langsam. Bitte gleich erneut versuchen."
   },
   "toast": {
     "view": "Ansehen",

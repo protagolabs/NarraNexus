@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/BrowserNotices.tsx
-last_verified: 2026-10-14
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 403 与 404 一样停止轮询
+
+403 = 当前 agent 不归查看者所有（别人的公开 agent）。再问也不会变，而每 2 秒一次
+的 403 正是边缘监控 v2 按失败数封 IP 的信号，所以与 404 一样：不出错误条、停止
+轮询。5xx / 网络错误仍是可见、可重试的失败。
 
 # BrowserNotices.tsx — 把浏览器登录请求送到用户真正在的地方
 

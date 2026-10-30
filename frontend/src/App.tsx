@@ -26,7 +26,7 @@ import { captureProductEvent } from '@/lib/productAnalytics';
 import { PAGES, useRegistryEntries } from '@/platform/registries';
 import { pageRouteElements } from '@/platform/pageRoutes';
 import { pluginsBootSettled, subscribePluginsBoot } from '@/platform/loader';
-import { owesWelcomeFlow } from '@/lib/onboardingGate';
+import { owesWelcomeFlow } from '@/lib/agentIdentity/onboardingGate';
 import { initWebAnalytics } from '@/lib/analytics/webAnalytics';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
@@ -92,7 +92,7 @@ function ProtectedRoute({
   // one way in: a ?next=/app/chat login, a bookmark or a refresh lands on a
   // protected route directly, and a new account must not skip the welcome flow
   // by arriving through one of those. Answer is cached per session
-  // (lib/onboardingGate), so this costs one request per login, not per mount.
+  // (lib/agentIdentity/onboardingGate), so this costs one request per login, not per mount.
   useEffect(() => {
     if (!gateNeeded) return;
     let alive = true;
@@ -184,7 +184,7 @@ function RootRedirect() {
       return;
     }
     // Does this user still owe the one-time welcome flow? Same cached,
-    // server-side answer ProtectedRoute uses — see lib/onboardingGate for why
+    // server-side answer ProtectedRoute uses — see lib/agentIdentity/onboardingGate for why
     // it is not a provider count any more.
     owesWelcomeFlow(userId)
       .then(setNeedsWelcome)

@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-09-11
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 挂载兜底选中改用 `pickDefaultAgent`，读刷新后的 store
+
+`fetchAgents` 在 `refreshAgents()` 之后从 store 现读 `agentId`（刷新可能刚把失效选中
+清掉），为空才用 [[defaultAgent.ts]] 挑查看者自己的 agent；不再取 `agents[0]`（可能
+是陌生人的公开 agent，各面板会对它成串 403）。
 
 ## 2026-09-11 — hosts the agent row ⋯ menu (OWNER-REQUIRED, reinstated after #383)
 

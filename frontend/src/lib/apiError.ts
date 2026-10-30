@@ -37,8 +37,10 @@ export class ApiError extends Error {
  * and carries no URL; the endpoint goes to the console report instead.
  */
 export class RequestLoopBlockedError extends ApiError {
-  constructor() {
-    super(0, i18n.t('common.requestBlocked'));
+  /** 'slow': no in-flight slot freed in time — the server is slow, not the user
+   * sending too much, so the message says that instead. */
+  constructor(reason: 'limit' | 'slow' = 'limit') {
+    super(0, i18n.t(reason === 'slow' ? 'common.requestSlow' : 'common.requestBlocked'));
     this.name = 'RequestLoopBlockedError';
   }
 }

@@ -2519,7 +2519,8 @@
     "savedTo": "{{path}} に保存しました",
     "downloadFailed": "ダウンロードに失敗しました: {{error}}",
     "doneTitle": "完了",
-    "requestBlocked": "リクエストが多すぎます。しばらくしてからお試しください。"
+    "requestBlocked": "リクエストが多すぎます。しばらくしてからお試しください。",
+    "requestSlow": "サーバーの応答が遅くなっています。しばらくしてからお試しください。"
   },
   "toast": {
     "view": "表示",

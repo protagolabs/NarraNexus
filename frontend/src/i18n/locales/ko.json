@@ -2519,7 +2519,8 @@
     "savedTo": "{{path}} 에 저장했습니다",
     "downloadFailed": "다운로드 실패: {{error}}",
     "doneTitle": "완료",
-    "requestBlocked": "요청이 너무 많습니다. 잠시 후 다시 시도하세요."
+    "requestBlocked": "요청이 너무 많습니다. 잠시 후 다시 시도하세요.",
+    "requestSlow": "서버 응답이 느립니다. 잠시 후 다시 시도하세요."
   },
   "toast": {
     "view": "보기",

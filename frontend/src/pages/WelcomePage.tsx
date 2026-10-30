@@ -32,7 +32,7 @@ import {
   WelcomeRail,
   type WelcomeRailStep,
 } from '@/components/welcome';
-import { pickGuideAgent } from '@/lib/guideAgent';
+import { pickGuideAgent } from '@/lib/agentIdentity/guideAgent';
 import type { AppMode } from '@/types/platform';
 import { useAgentImported } from '@/hooks';
 import { api } from '@/lib/api';
@@ -40,7 +40,7 @@ import { dismissGuideCoachmark, isGuideCoachmarkPending } from '@/lib/guideCoach
 import { writeMigrationGuide } from '@/lib/migrationGuide';
 import { wipeAllSessionData } from '@/lib/sessionWipe';
 import { buildWelcomeSteps, shouldProbeDetections, type WelcomeStepId } from '@/lib/welcomeSteps';
-import { markWelcomeSeen } from '@/lib/onboardingGate';
+import { markWelcomeSeen } from '@/lib/agentIdentity/onboardingGate';
 import { isSafeReturnTo } from '@/lib/safe-return';
 import { captureProductEvent } from '@/lib/productAnalytics';
 import { useChatStore, useConfigStore, useRuntimeStore } from '@/stores';
@@ -103,7 +103,7 @@ export function WelcomePage() {
         detectionCount: detections.length,
         // Either the guide agent is already here, or login told us one is
         // coming (is_new_user AND the server's provisioning switch is on).
-        guideAgentEnabled: Boolean(pickGuideAgent(agents)) || isGuideCoachmarkPending(),
+        guideAgentEnabled: Boolean(pickGuideAgent(agents, userId)) || isGuideCoachmarkPending(),
       });
       setProbe({ steps, detections, agents });
     };
@@ -111,7 +111,7 @@ export function WelcomePage() {
     return () => {
       alive = false;
     };
-  }, [mode]);
+  }, [mode, userId]);
 
   useEffect(() => {
     if (enteredFired.current || !probe) return;
@@ -197,7 +197,7 @@ export function WelcomePage() {
 
   // The rail names the guide agent as soon as we know it — "Meet Wren" reads
   // like a promise, "Meet your agent" reads like a placeholder.
-  const guideName = pickGuideAgent(probe.agents)?.name?.trim() || t('pages.welcome.agent.fallbackName');
+  const guideName = pickGuideAgent(probe.agents, userId)?.name?.trim() || t('pages.welcome.agent.fallbackName');
   const railSteps: WelcomeRailStep[] = steps.map((id) => ({
     id,
     title: t(`pages.welcome.rail.${id}.title`, { name: guideName }),

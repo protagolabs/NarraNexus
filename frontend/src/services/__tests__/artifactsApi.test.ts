@@ -23,8 +23,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const getApiBaseUrlSpy = vi.fn(() => '');
 vi.mock('@/stores/runtimeStore', () => ({
   getApiBaseUrl: () => getApiBaseUrlSpy(),
-  // guardedFetch reads the app mode to decide whether the edge-only total read
-  // budget applies.
+  // guardedFetch reads the app mode to decide whether the edge-only page-wide
+  // failure limits apply.
   useRuntimeStore: { getState: () => ({ mode: null }) },
 }));
 

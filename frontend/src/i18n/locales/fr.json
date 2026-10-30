@@ -2520,7 +2520,8 @@
     "savedTo": "Enregistré dans {{path}}",
     "downloadFailed": "Échec du téléchargement : {{error}}",
     "doneTitle": "Terminé",
-    "requestBlocked": "Trop de requêtes. Réessayez dans un instant."
+    "requestBlocked": "Trop de requêtes. Réessayez dans un instant.",
+    "requestSlow": "Le serveur répond lentement. Réessayez dans un instant."
   },
   "toast": {
     "view": "Voir",

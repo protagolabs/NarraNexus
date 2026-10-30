@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/pages/LoginPage.tsx
-last_verified: 2026-08-12
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 登录后默认选中改用 `pickDefaultAgent`
+
+两条登录路径（NetMind / 本地用户名）都不再取 `agents[0]`：列表含全平台公开 agent，
+第一个常是陌生人的。改为 [[defaultAgent.ts]]：自己最新的 agent，没有则不选。
 
 ## 2026-08-12 — Mark 前端批：删迁移 banner + Power 表单 Enter 提交
 
