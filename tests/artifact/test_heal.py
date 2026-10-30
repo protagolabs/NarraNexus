@@ -330,6 +330,29 @@ async def test_heal_refuses_a_workspace_swapped_for_a_link(env):
 
 
 @pytest.mark.asyncio
+async def test_heal_symlinked_root_emits_one_boundary_line(env):
+    """The refusal above is the one heal branch an honest tenant cannot reach,
+    so it is the one that feeds the boundary alert (owner = the tenant)."""
+    import shutil
+    from loguru import logger
+
+    victim = _victim_workspace(env)
+    shutil.rmtree(env["workspace"])
+    os.symlink(victim, env["workspace"])
+    lines: list[str] = []
+    sink_id = logger.add(lines.append, level="WARNING", format="{message}")
+    try:
+        await env["service"].heal(
+            agent_id="agent_x", user_id="user_y", artifact_id=env["artifact_id"],
+        )
+    finally:
+        logger.remove(sink_id)
+    hits = [line for line in lines if "[security.boundary]" in line]
+    assert len(hits) == 1
+    assert "surface=artifact.heal_symlink" in hits[0] and "owner=user_y" in hits[0]
+
+
+@pytest.mark.asyncio
 async def test_heal_skips_a_file_link_that_points_outside_the_workspace(env):
     """A link inside the workspace whose target is the victim's file (same bytes
     as our lost entry, so the hash tier would match) is not a candidate: it is

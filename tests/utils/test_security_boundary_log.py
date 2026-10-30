@@ -32,8 +32,13 @@ def test_line_shape_is_stable(lines):
 
 
 def test_missing_ids_render_as_dash(lines):
-    log_boundary_violation("artifact.confine", owner="u2", detail="p")
+    log_boundary_violation("artifact.heal_symlink", owner="u2", detail="p")
     assert " actor=- owner=u2 " in lines[0]
+
+
+def test_an_id_with_whitespace_stays_one_token(lines):
+    log_boundary_violation("s", actor="legacy user", detail="d")
+    assert " actor=legacy%20user owner=- " in lines[0]
 
 
 def test_detail_cannot_forge_a_second_line(lines):

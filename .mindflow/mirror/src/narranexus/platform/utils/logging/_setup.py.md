@@ -1,8 +1,13 @@
 ---
 code_file: src/narranexus/platform/utils/logging/_setup.py
-last_verified: 2026-08-11
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `_TEXT_FORMAT` 成为与部署侧哨兵的契约
+
+部署仓哨兵的 `abuse.boundary_violation` 从行首匹配 `[security.boundary]` 行，依赖这里的
+行头格式（见 `_security.py.md`）。改格式要同步部署仓。
 
 ## 2026-08-10 — 末位注册网络 ship sink(观测性 push)
 

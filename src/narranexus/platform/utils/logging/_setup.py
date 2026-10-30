@@ -38,6 +38,9 @@ _DEFAULT_LOG_ROOT = Path.home() / ".narranexus" / "logs"
 # Format with two trace fields baked in. Missing keys are filled with
 # default placeholders by ``logger.configure(extra=...)`` below so
 # missing fields show as dashes instead of raising KeyError.
+# Contract: the deploy repo's sentinel (abuse.boundary_violation) matches the
+# `[security.boundary]` line (see _security.py) from its first character
+# using this exact head; change it in step with the sentinel's signatures.py.
 _TEXT_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
     "{extra[run_id]:>8} {extra[event_id]:>14} | "

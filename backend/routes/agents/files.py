@@ -29,7 +29,6 @@ from fastapi.responses import FileResponse
 from loguru import logger
 
 from backend.config import settings as backend_settings
-from narranexus.platform.utils.logging import log_boundary_violation
 from backend.routes._ownership import require_owned_workspace_agent
 from narranexus.platform.schema import (
     FileInfo,
@@ -37,6 +36,7 @@ from narranexus.platform.schema import (
     FileUploadResponse,
     FileDeleteResponse,
 )
+from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.utils.file_safety import (
     enforce_max_bytes,
     ensure_within_directory,

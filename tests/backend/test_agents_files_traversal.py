@@ -406,3 +406,31 @@ def test_dotfile_and_foreign_agent_are_refused_quietly(setup, boundary_lines):
 def test_owner_use_logs_nothing(setup, boundary_lines):
     test_owner_can_list_read_upload_delete(setup)
     assert boundary_lines() == []
+
+
+def test_nul_and_absolute_and_linked_paths_are_logged(setup, boundary_lines):
+    """Every escape branch of _resolve_within_workspace logs exactly once."""
+    client = setup["client"]
+    own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
+    (own_ws / "link.json").symlink_to(setup["secret"])
+    for bad in ("nul\x00byte", "/etc/passwd", "link.json"):
+        before = len(boundary_lines())
+        r = client.get(
+            f"/api/agents/{OWNED_AGENT}/files/raw", params={"path": bad}, headers=AS_OWNER
+        )
+        assert r.status_code == 400, (bad, r.text)
+        assert "victim-secret" not in r.text
+        hits = boundary_lines()[before:]
+        assert len(hits) == 1 and "surface=agent_files.path" in hits[0], bad
+
+
+def test_workspace_swapped_for_a_link_is_logged(setup, boundary_lines):
+    own_ws = setup["base"] / agent_workspace_relpath(OWNED_AGENT, OWNER)
+    import shutil
+    shutil.rmtree(own_ws)
+    own_ws.symlink_to(setup["victim_ws"])
+    r = setup["client"].get(f"/api/agents/{OWNED_AGENT}/files", headers=AS_OWNER)
+    assert r.status_code == 404
+    hits = boundary_lines()
+    assert len(hits) == 1 and "surface=agent_files.workspace_symlink" in hits[0]
+    assert f"actor={OWNER}" in hits[0]

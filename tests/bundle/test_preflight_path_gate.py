@@ -156,3 +156,29 @@ async def test_unreadable_artifacts_json_is_left_to_confirm(isolated_db, tmp_hom
         zf.writestr(f"agents/{AID}/artifacts.json", "{not json")
     pf = await preflight(path, "u_ok")
     assert pf["preflight_token"]
+
+
+@pytest.mark.parametrize("bad_dir", ["../../x", "a/b", "..", "nul\x00"])
+async def test_escaping_skill_dir_rejects_at_preflight(
+    isolated_db, tmp_home, tmp_path, boundary_lines, bad_dir
+):
+    bundle = _bundle(tmp_path, skills=[{
+        "name": "s1", "install_method": "github", "agent_id": AID, "skill_dir": bad_dir,
+        "source_url": "https://github.com/x/y",
+    }])
+    with pytest.raises(ValueError, match="skill_dir"):
+        await preflight(bundle, "u_attacker")
+    assert list(_sessions_root(tmp_home).glob("nx-import-*")) == []
+    assert len(boundary_lines()) == 1
+
+
+async def test_malformed_bundle_is_refused_without_a_boundary_line(
+    isolated_db, tmp_home, tmp_path, boundary_lines
+):
+    """A broken artifacts.json shape is a bad file, not an escape: refused,
+    cleaned up, but never reported to the boundary alert."""
+    bundle = _bundle(tmp_path, artifacts={"not": "a list"})
+    with pytest.raises(ValueError, match="list of objects"):
+        await preflight(bundle, "u_ok")
+    assert list(_sessions_root(tmp_home).glob("nx-import-*")) == []
+    assert boundary_lines() == []

@@ -307,16 +307,20 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         encoding="utf-8",
     )
 
-    # Every other path-shaped string the bundle carries is checked HERE, on the
-    # migrated tree confirm() will read, before a token exists — see
-    # `_reject_escaping_bundle_paths`. The agent-id gate above runs earlier
-    # because nothing, migrations included, may join those ids into a path
-    # before they are vetted.
+    # The bundle's other path strings (artifact file_path, skill archive_ref
+    # and skill_dir — see `_reject_escaping_bundle_paths` for exactly which)
+    # are checked HERE, on the migrated tree confirm() will read, before a
+    # token exists. The agent-id gate above runs earlier because nothing,
+    # migrations included, may join those ids into a path before they are
+    # vetted.
     try:
         _reject_escaping_bundle_paths(work_dir, manifest)
-    except ValueError as e:
+    except BundlePathEscape as e:
         shutil.rmtree(work_dir, ignore_errors=True)
         log_boundary_violation("bundle_import.preflight", actor=user_id, detail=str(e))
+        raise
+    except ValueError:
+        shutil.rmtree(work_dir, ignore_errors=True)
         raise
 
     # Name clashes
@@ -445,6 +449,14 @@ def _bundle_member_path_or_raise(work_dir: Path, archive_ref: str) -> Path:
 _ARCHIVE_INSTALL_METHODS = ("zip", "full_copy")
 
 
+class BundlePathEscape(ValueError):
+    """A bundle string that becomes a path leaves its container.
+
+    Distinct from a plain ValueError (a malformed bundle) so preflight logs a
+    boundary violation only for an actual escape, not for a broken file.
+    """
+
+
 def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> None:
     """Refuse the bundle if any path-shaped string in it leaves its container.
 
@@ -467,8 +479,15 @@ def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> N
     act on. One that parses into the wrong SHAPE is refused, because confirm
     would iterate it and fail mid-import.
 
+    A skill's `skill_dir` (the directory name confirm installs into) gets the
+    same single-segment rule confirm applies (`sanitize_filename`). The skill
+    `name` is not checked here: it comes from SKILL.md, honest bundles carry
+    odd names, and confirm sanitises it per skill.
+
     Raises:
-        ValueError: naming the offending agent/artifact or skill.
+        BundlePathEscape: a path string leaves its container (logged by the
+            caller as a boundary violation).
+        ValueError: the bundle is malformed (wrong JSON shape / types).
     """
     for aid in manifest.get("agents", []) or []:
         art_path = work_dir / "agents" / str(aid) / "artifacts.json"
@@ -489,13 +508,23 @@ def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> N
             try:
                 artifact_relpath_or_raise(fp)
             except ValueError as e:
-                raise ValueError(
+                raise BundlePathEscape(
                     f"agent {aid}: artifact {row.get('artifact_id')!r} file_path leaves "
                     f"the agent workspace ({e})"
                 ) from e
 
     for s in manifest.get("skills", []) or []:
-        if not isinstance(s, dict) or s.get("install_method") not in _ARCHIVE_INSTALL_METHODS:
+        if not isinstance(s, dict):
+            continue
+        skill_dir = s.get("skill_dir")
+        if skill_dir:
+            if not isinstance(skill_dir, str):
+                raise ValueError(f"skill {s.get('name')!r}: skill_dir is not a string")
+            try:
+                sanitize_filename(skill_dir, label="skill_dir")
+            except ValueError as e:
+                raise BundlePathEscape(f"skill {s.get('name')!r}: skill_dir is not one directory name ({e})") from e
+        if s.get("install_method") not in _ARCHIVE_INSTALL_METHODS:
             continue
         ref = s.get("archive_ref")
         if not ref:
@@ -505,7 +534,7 @@ def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> N
         try:
             _bundle_member_path_or_raise(work_dir, ref)
         except ValueError as e:
-            raise ValueError(
+            raise BundlePathEscape(
                 f"skill {s.get('name')!r}: archive_ref leaves the bundle ({e})"
             ) from e
 

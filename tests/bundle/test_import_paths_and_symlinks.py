@@ -28,11 +28,22 @@ def test_artifact_relpath_rejects_escapes(bad):
 
 
 def test_rewrite_artifact_row_rejects_a_climbing_pointer():
-    with pytest.raises(ValueError):
-        importer.rewrite_artifact_row(
-            {"artifact_id": "art_1", "file_path": "../../user_victim/agent_v/x.html"},
-            "agent_0123456789ab", "user_x", team_id=None,
-        )
+    from loguru import logger
+
+    lines: list[str] = []
+    sink_id = logger.add(lines.append, level="WARNING", format="{message}")
+    try:
+        with pytest.raises(ValueError):
+            importer.rewrite_artifact_row(
+                {"artifact_id": "art_1", "file_path": "../../user_victim/agent_v/x.html"},
+                "agent_0123456789ab", "user_x", team_id=None,
+            )
+    finally:
+        logger.remove(sink_id)
+    # confirm's second line still reports the attempt to the boundary alert
+    hits = [line for line in lines if "[security.boundary]" in line]
+    assert len(hits) == 1
+    assert "surface=bundle_import.confirm" in hits[0] and "actor=user_x" in hits[0]
 
 
 def test_rewrite_artifact_row_prefixes_the_new_workspace_and_resets_session_state():

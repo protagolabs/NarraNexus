@@ -7,8 +7,11 @@ stub: false
 ## 2026-10-30 — 路径校验前移到 preflight；产物行归属钉死
 
 - `_reject_escaping_bundle_paths`：preflight 在迁移之后、发 token 之前，校验每个
-  `artifacts.json` 行的 `file_path`（复用 `artifact_relpath_or_raise`）和 zip/full_copy
-  技能的 `archive_ref`（`_bundle_member_path_or_raise`）。任一不合格即拒整份包、删解压目录。
+  `artifacts.json` 行的 `file_path`（复用 `artifact_relpath_or_raise`）、zip/full_copy
+  技能的 `archive_ref`（`_bundle_member_path_or_raise`）、技能的 `skill_dir`（与 confirm 同一
+  条单段规则 `sanitize_filename`）。任一不合格即拒整份包、删解压目录。技能 `name` 不在这里查
+  （来自 SKILL.md，诚实包里也有怪名字，confirm 会逐个 sanitize）。越界抛 `BundlePathEscape`
+  并记边界日志；结构错误抛普通 ValueError，只拒不记。
   confirm 里的两处校验保留为第二道。解析不了的 `artifacts.json` 不拦（confirm 本来就只记
   warning、不写行）；能解析但形状不对（非 list / 行非 dict / 字段非 str）则拒。
 - `rewrite_artifact_row` 新增必填关键字 `team_id`：行的 `agent_id` 一律改为本次新建的
