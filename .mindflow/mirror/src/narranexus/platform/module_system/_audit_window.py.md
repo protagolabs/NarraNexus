@@ -30,7 +30,8 @@ stub: false
   把 entries 交给调用方的同步回调 `before_write`，**保证在写库之前**调用，所以人读的日志行既不会被
   慢写库拖延，也不会随写库失败或被取消一起消失；回调抛出、写库失败都只记 debug，丢的是这一窗口
   的日志行或计数，不影响被测调用。首次 flush 立即执行，所以"有没有发生过"永远答得出。返回值
-  （entries）只是便利，打日志的通路是 `before_write`。
+  （entries）只是便利，打日志的通路是 `before_write`。排序时溢出条目固定排最后、不与普通 key
+  比较，所以首字段不是 str 也不会在受保护的写库之外抛 TypeError。
 - `note` 与 `flush` 分开：tokenless 在 ASGI 中间件里计数后立刻 flush（那里没有"下一次 async
   工具调用"兜底），override 在同步 resolver 里计数、由 async 包装层 flush。两种节奏都要支持。
 

@@ -17,7 +17,8 @@ describe their fields and choose parameters, nothing else.
 Invariants (the helper's, not its callers'):
 - each key dimension is described ONCE by an ``AuditField``: its name, its
   length cap (str values only; None = not truncated, for server-side values
-  like a port) and its overflow blank;
+  like a port) and its overflow blank (the first field always renders
+  "<overflow>", so only the others' blanks are used);
 - past ``keys_max`` distinct keys everything folds into ONE constant key
   (``OVERFLOW_KEY``), whatever dimension varies — the dict is bounded at
   ``keys_max + 1`` entries. Callers only decide how that entry RENDERS (each
@@ -44,7 +45,8 @@ OVERFLOW_KEY: tuple[str, ...] = ("<overflow>",)
 
 class AuditField(NamedTuple):
     """One key dimension: name, str length cap (None = keep whole), and the
-    value the overflow entry shows for it (match the field's normal type)."""
+    value the overflow entry shows for it (match the field's normal type).
+    The FIRST field always shows "<overflow>", so its blank is unused."""
 
     name: str
     cap: Optional[int] = None
@@ -101,9 +103,13 @@ class WindowedAuditCounter:
         self._deadline = now + self._window_s
         counts = dict(self._counts)
         self._counts.clear()
-        # Plain tuple ordering: same-position fields share a type, and the
-        # overflow key compares on its first (str) element.
-        entries = [self._entry(k, n) for k, n in sorted(counts.items())]
+        # Normal keys in plain tuple order (same-position fields share a type);
+        # the overflow key is placed last and never compared with them, so no
+        # field type can make this sort raise outside the guarded write.
+        entries = [
+            self._entry(k, n)
+            for k, n in sorted(counts.items(), key=lambda kv: (kv[0] == OVERFLOW_KEY, kv[0]))
+        ]
         if before_write is not None:
             try:
                 before_write(entries)

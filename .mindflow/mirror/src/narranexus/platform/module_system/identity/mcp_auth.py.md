@@ -39,8 +39,8 @@ wrapper calls.
   string → "anonymous", reusing `_mcp_identity` 的读取器与占位符语义)。
   **调用方可控 + audit 不拒 = 每个可控维度都硬上限**（round-4/5 #1）:自述值
   64 截断、path 128 截断(中间件在路由**之前**计数,POST 任意瞎编 path 也会
-  先被记一笔再 404)、窗口基数 256 封顶——溢出折进**唯一常量桶**
-  `_OVERFLOW_KEY`(所有维度塌缩;带 path/port 的溢出 key 自己就是新 key,
+  先被记一笔再 404)、窗口基数 256 封顶——溢出折进 [[_audit_window]] 的**唯一常量桶**
+  `OVERFLOW_KEY`(所有维度塌缩;带 path/port 的溢出 key 自己就是新 key,
   上限只对 caller 维生效,这正是 round-5 抓的旁路)。字典真正封死在 257 条,
   总数与二值信号不丢,只有逐 key 归因饱和。method 无需上限(谓词钉死 POST),
   port 是服务端事实。flush 日志行只点名 top-20(人看信号),完整 entries 落

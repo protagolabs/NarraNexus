@@ -125,7 +125,7 @@ def verified_caller_for_tool_call() -> Optional[VerifiedIdentity]:
 # (which callers must be onboarded before enforce can flip). Logging each one
 # would flood; logging none reads as "everyone has a token" even when NOBODY
 # does (incident lesson #4: no signal is not a signal). So: aggregate per
-# (declared caller, method, path) — tokenless is not identity-less, the old
+# (declared caller, method, path, port) — tokenless is not identity-less, the old
 # bearer channel still carries the SELF-DECLARED user_id, which is exactly
 # who to go onboard — and flush one WARNING line + one sampled
 # instance_executor_audit row per window, so the flip decision reads SQL,

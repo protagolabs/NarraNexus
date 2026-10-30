@@ -88,7 +88,7 @@ async def test_flush_failure_is_swallowed_and_counts_are_gone(monkeypatch):
     c = _counter()
     c.note(("u", "p"))
     entries = await c.flush()
-    assert entries == [{"a": "u", "b": "p", "n": 1}]   # still returned for the caller's log line
+    assert entries == [{"a": "u", "b": "p", "n": 1}]   # returned anyway (a convenience)
     assert c.pending() == {}
 
 
@@ -165,3 +165,13 @@ async def test_a_failing_before_write_never_breaks_the_flush(rows):
     entries = await c.flush(before_write=boom)
     assert entries == [{"a": "u", "b": "p", "n": 1}]
     assert len(rows) == 1
+
+
+async def test_overflow_sorts_last_whatever_the_first_field_type(rows):
+    """A non-str first field must not make the sort compare it with the
+    overflow key's str (that would raise outside the guarded write)."""
+    c = WindowedAuditCounter(event_type="ev", fields=(AuditField("port"), AuditField("b")), keys_max=1)
+    c.note((7801, "x"))
+    c.note((7802, "y"))
+    entries = await c.flush()
+    assert entries[-1]["port"] == "<overflow>"
