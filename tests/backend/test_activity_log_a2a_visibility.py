@@ -134,6 +134,13 @@ async def client(monkeypatch):
 
     monkeypatch.setattr(ch, "get_db_client", _db)
 
+    # The router resolves current_user_id through the plugin kernel's
+    # `host.web`, normally installed as a side effect of importing backend.main;
+    # without this the file only passed when an earlier test had installed it.
+    from backend.plugin_sdk_host import install_web_host
+
+    install_web_host()
+
     app = FastAPI()
 
     @app.middleware("http")

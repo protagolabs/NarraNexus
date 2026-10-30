@@ -4,6 +4,11 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — `getChatLatest(agentIds)`
+
+`GET /api/agents/chat-latest`（每个 id 一个 `agent_ids` 查询参数）：一次拿一批 agent（≤200）对话 tab 最新一行的时间戳，供
+[[useAutoRefresh]] 的后台新回复检测，替代逐 agent 的 `getSimpleChatHistory`。mock 层同步加了桩。
+
 ## 2026-10-30 — mock 实现不再静态 import
 
 `MOCK_ENABLED` 改从 `./mock/flag` 读；mock 模式下仍建 Proxy，但实现由

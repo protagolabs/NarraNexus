@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/hooks/useAutoRefresh.ts
-last_verified: 2026-08-21
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 后台「有新回复」改为每 200 个 agent 一次 `/chat-latest`
+
+`tickBgMessages` 原来每 15s 对**每个** agent 调一次 `getSimpleChatHistory(aid, 5, 0, 'chat')`，
+请求数随 agent 数线性增长。现在把列表（跳过正在流式的 agent）按 200 个一块调
+`api.getChatLatest(ids)`（块大小与服务端 `CHAT_LATEST_MAX_AGENTS` 必须一起改），拿回每个 agent 对话 tab 最新一行的时间戳。信号**同源**：
+服务端用 simple-chat-history 同一个投影函数（[[_chat_projection]] `project_message`）算，不是近似（之前一版用
+`events` 表近似过，被预审否掉——IM/job 不通知 owner 的 turn 会误报，只经工具回复的 turn 会漏报）。
+toast / 徽标规则不变：首次只记录、非当前 agent 时间戳前进才提醒、同一时间戳不重复；单次调用失败
+下个 tick 重试，并 `console.warn` 一行（一块最多 200 个 agent 这次没提醒，持续失败不能是静默的）。`refreshAgents` 仍在 30s 的 mid tick，节奏未变。
 
 ## 2026-08-21 — tickBgMessages「有新回复」信号只订阅 chat 流
 
@@ -80,7 +90,7 @@ Returns `refreshAll()`, which `ChatPanel.tsx` calls via `onComplete` after an ag
 
 ## Design decisions
 
-**Three separate tiers.** High-freq (10s, `tickHigh`): inbox only — messages are time-sensitive. Mid-freq (30s, `tickMid`): teams, jobs, RAG files, awareness, social network, agent list — changes here matter but are slower-moving. Background message detection (15s, `tickBgMessages`): polls `getSimpleChatHistory` across ALL agents looking for new turns from server-initiated jobs or Matrix messages.
+**Three separate tiers.** High-freq (10s, `tickHigh`): inbox only — messages are time-sensitive. Mid-freq (30s, `tickMid`): teams, jobs, RAG files, awareness, social network, agent list — changes here matter but are slower-moving. Background message detection (15s, `tickBgMessages`): one `getChatLatest` call per 200 agents returns each agent's newest conversation-tab row; a timestamp that moved on a non-active agent raises the toast + badge.
 
 **Visibility API.** All tick functions return early if `document.hidden`. On tab re-focus, `handleVisibilityChange` fires both `tickHigh` and `tickMid` immediately so the user sees fresh data without waiting for the next interval.
 
@@ -96,7 +106,7 @@ Returns `refreshAll()`, which `ChatPanel.tsx` calls via `onComplete` after an ag
 
 **`refreshAll` calls all domains without `silent=true`.** This means each domain shows loading state and re-renders its panel. Calling `refreshAll` from user interactions (e.g., manual refresh button) is fine; calling it on a fast timer would cause UI flicker. It is intentionally only called once from `onComplete` after streaming ends.
 
-**`tickBgMessages` makes N HTTP calls per tick** (one per agent). For users with many agents this could be significant. The `getSimpleChatHistory` endpoint returns only 5 messages (`limit=5`) to minimize payload, but the number of requests scales with agent count.
+**`tickBgMessages` makes ⌈N/200⌉ HTTP calls per tick** (it used to make one per agent). The server reads only changed chat-memory rows (cached by `updated_at` where the stamp has sub-second precision), so the cost per call follows activity, not the agent count.
 
 **The hook does not restart timers on agent switch.** The `useEffect` dependency array includes `agentId` and `userId`, so the timers are torn down and recreated when the active agent changes. This resets the interval clocks — the user may wait up to 30 seconds for the first mid-freq tick after switching agents, rather than seeing data immediately. `preloadAll` in `MainLayout` handles the initial data fetch on switch; `useAutoRefresh` only needs to handle subsequent background refresh.
 

@@ -4,6 +4,10 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30 — 补 `getChatLatest` 桩
+
+按「方法集与 api.ts 同步」契约补齐，返回空 `latest`（mock 模式不弹后台新回复）。
+
 ## 2026-10-30 — 开关拆到 `flag.ts`，本文件改为按需加载
 
 `MOCK_ENABLED` / `setMockEnabled` 移到 [[flag]]；本文件只剩 `mockApi` 与 fixtures，

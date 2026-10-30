@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/repository/instance_repository.py
-last_verified: 2026-09-10
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `list_ids_by_agents_and_user`
+
+一个用户、一个 module class、跨多个 agent 的**轻量**列表（只投影 instance_id / agent_id / status，
+不拉 config/state 等 MEDIUMTEXT），一条 `agent_id IN (...) AND user_id = %s AND module_class = %s`，
+走 `idx_module_instances_agent_user`。是 `get_by_agent_and_user(include_public=False)` 的批量版，
+给 chat 插件的 `/chat-latest`（侧栏后台新回复轮询）用。module_instances 没有以 user_id 开头的索引，
+所以必须带 agent 列表，不能只按 user_id 查。MySQL 孪生测试：tests/backend/test_chat_latest_mysql.py。
 
 ## 2026-09-10（review r3 C1/I2/M3）— 「无 narrative link」只定义一次 + 两个新候选查询
 
