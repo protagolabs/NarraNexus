@@ -10,7 +10,7 @@
  * plugin's own `activate(host)`) — no change required here.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Link as LinkIcon } from 'lucide-react';
 
@@ -25,13 +25,12 @@ export function IMChannelsSection() {
   // Rows come from the ui.channels registry: builtins register in
   // registerBuiltinChannels.ts (owner = the channel plugin), channel plugins
   // add theirs; a disabled builtin's row is gone with the plugin.
-  // `sortedChannels` copies before sorting, so it returns a new array on every
-  // call. Memoize on the registry snapshot (stable until the registry changes):
-  // `channels` feeds `refreshConnected`'s deps, and an unstable array there made
-  // the mount effect refire after every `setStatusMap` — an unbounded
-  // credential-probe loop that tripped the edge flood ban (2026-10-30).
-  const entries = useRegistryEntries(CHANNELS);
-  const channels = useMemo(() => sortedChannels(entries), [entries]);
+  // `channels` feeds `refreshConnected`'s deps, so it must be referentially
+  // stable: the registry snapshot is cached until the registry changes, and
+  // `sortedChannels` returns the same array for the same snapshot. An unstable
+  // array here refired the mount effect after every `setStatusMap` — an
+  // unbounded credential-probe loop that tripped the edge flood ban (2026-10-30).
+  const channels = sortedChannels(useRegistryEntries(CHANNELS));
   const { t } = useTranslation();
   const { agentId } = useConfigStore();
   // Expanded by default: opening Channels should show the channel list, not a
@@ -40,12 +39,18 @@ export function IMChannelsSection() {
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
   const [statusMap, setStatusMap] = useState<Record<string, ChannelStatus>>({});
 
+  // Rounds can overlap (agent switch, re-open, Refresh, a child's bind change);
+  // only the latest one may write, or a slow round for the previous agent would
+  // paint its badges over the current agent's.
+  const roundRef = useRef(0);
   const refreshConnected = useCallback(async () => {
     if (!agentId) return;
-    const entries = await Promise.all(
+    const round = ++roundRef.current;
+    const results = await Promise.all(
       channels.map(async (ch) => [ch.id, await ch.value.fetchStatus(agentId)] as const),
     );
-    setStatusMap(Object.fromEntries(entries));
+    if (round !== roundRef.current) return;
+    setStatusMap(Object.fromEntries(results));
   }, [agentId, channels]);
 
   // Pre-fetch on mount and whenever the active agent changes, so the
@@ -77,20 +82,14 @@ export function IMChannelsSection() {
   }
 
   const handleToggleSection = useCallback(() => {
-    setSectionOpen((open) => {
-      const nextOpen = !open;
-      // Refresh again on each open so a stale state from earlier in
-      // the session (binding changed in another tab, MCP-triggered
-      // bind/unbind from the agent chat) gets corrected as soon as
-      // the user reveals the panel. The initial mount fetch lives in
-      // the useEffect above — this is the "user is actively looking
-      // at it again" refresh.
-      if (nextOpen) {
-        void refreshConnected();
-      }
-      return nextOpen;
-    });
-  }, [refreshConnected]);
+    const nextOpen = !sectionOpen;
+    setSectionOpen(nextOpen);
+    // Refresh again on each open so a stale state from earlier in the session
+    // (binding changed in another tab, MCP-triggered bind/unbind from the agent
+    // chat) gets corrected as soon as the user reveals the panel. Kept out of
+    // the state updater: updaters must be pure (StrictMode runs them twice).
+    if (nextOpen) void refreshConnected();
+  }, [sectionOpen, refreshConnected]);
 
   const connectedCount = channels.filter((c) => statusMap[c.id] === 'active').length;
   const totalCount = channels.length;

@@ -20,7 +20,7 @@ It is not a registry of channels — that's `ui.channels` (`@/platform/registrie
 populated by `registerBuiltinChannels.ts` for the six builtins and by
 individual channel plugins for third-party ones. This file only reads
 the registry snapshot (`useRegistryEntries(CHANNELS)`), sorts it with
-`sortedChannels` inside a `useMemo`, and renders whatever rows are currently
+`sortedChannels` (stable per snapshot), and renders whatever rows are currently
 registered.
 
 It also does not define `ChannelConfigProps` — that type lives in
@@ -49,9 +49,9 @@ app component), and a future refactor of this file could silently change
 the type five other files depend on. The re-export is gone; every consumer
 now imports `ChannelConfigProps` straight from `@/platform/registries`.
 
-## 2026-10-30 — memoized the sorted row array (credential-probe loop)
+## 2026-10-30 — stable row array + latest-round-wins (credential-probe loop)
 
-`sortedChannels` copies before sorting, so calling it directly in render
+`sortedChannels` used to copy-and-sort on every call, so calling it in render
 produced a new array every render. That array is a dependency of
 `refreshConnected`, which the mount effect depends on — so every
 `setStatusMap` re-render rebuilt the callback, refired the effect and probed
@@ -60,12 +60,22 @@ for as long as the section was mounted (about 30 requests/s per open panel at
 a 200 ms round-trip). On prod that tripped the edge flood auto-ban (IP ban +
 linked account suspension) for any user who opened the Channels section.
 
-The rows are now `useMemo(() => sortedChannels(entries), [entries])` over the
-registry snapshot, which is referentially stable until the registry changes.
-Probe budget: one round per mount, per agent switch, per section re-open and
-per explicit refresh / child bind-state change, plus one round when the
-backend catalog lands after mount. Locked by
-`__tests__/imChannelsProbeBudget.test.tsx` and
-`__tests__/imChannelsLateCatalog.test.tsx` (both fail if the memo is removed).
-`refreshConnected` is also passed to each channel card as
-`onBindStateChange`, so its identity is now stable for children too.
+Now `sortedChannels` caches its result per input array (see
+`platform/registries/channels.ts`), and the input is the registry snapshot,
+referentially stable until the registry changes — so `channels`,
+`refreshConnected` and the mount effect only change when the agent or the
+registry does.
+
+Probe budget: one round per mount, per agent switch, per section re-open, per
+explicit refresh / child bind-state change, plus one round when the backend
+catalog lands after mount. Rounds may overlap; a round counter
+(`roundRef`) lets only the latest round write `statusMap`, so a slow round for
+the previous agent cannot paint its badges over the current one. The re-open
+refresh runs outside the `setSectionOpen` updater (updaters must be pure;
+StrictMode runs them twice).
+
+Locked by `__tests__/imChannelsProbeBudget.test.tsx` (mount, re-render, agent
+switch, Refresh, collapse → re-open, out-of-order rounds) and
+`__tests__/imChannelsLateCatalog.test.tsx`; removing the helper cache or the
+round guard turns them red. `refreshConnected` is also each card's
+`onBindStateChange`, so its identity is stable for children too.

@@ -36,6 +36,19 @@ export interface ChannelDef {
 
 export const CHANNELS = new Registry<ChannelDef>('ui.channels');
 
-export function sortedChannels(entries: RegistryEntry<ChannelDef>[] = CHANNELS.list()): RegistryEntry<ChannelDef>[] {
-  return [...entries].sort((a, b) => (a.value.order ?? 100) - (b.value.order ?? 100));
+const sortedCache = new WeakMap<RegistryEntry<ChannelDef>[], RegistryEntry<ChannelDef>[]>();
+
+/**
+ * The rows in display order. Referentially stable per input array: the same
+ * `entries` (e.g. the registry's cached `snapshot()`) always yields the same
+ * sorted array, so callers can put the result straight into hook dependency
+ * lists. A fresh array per call is what fed the 2026-10-30 credential-probe loop.
+ */
+export function sortedChannels(entries: RegistryEntry<ChannelDef>[] = CHANNELS.snapshot()): RegistryEntry<ChannelDef>[] {
+  let sorted = sortedCache.get(entries);
+  if (!sorted) {
+    sorted = [...entries].sort((a, b) => (a.value.order ?? 100) - (b.value.order ?? 100));
+    sortedCache.set(entries, sorted);
+  }
+  return sorted;
 }

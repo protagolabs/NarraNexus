@@ -36,7 +36,8 @@ const settle = () => act(() => new Promise((r) => setTimeout(r, 200)));
 
 describe('channels status probe budget', () => {
   beforeEach(() => {
-    credential.mockClear();
+    credential.mockReset();
+    credential.mockImplementation(async () => ({ success: true, data: null }));
     store.agentId = 'agent_a';
   });
 
@@ -75,5 +76,42 @@ describe('channels status probe budget', () => {
     fireEvent.click(screen.getByRole('button', { name: /refresh status/i }));
     await settle();
     expect(credential).toHaveBeenCalledTimes(CHANNEL_COUNT * 2);
+  });
+  it('collapsing and re-opening the section probes exactly one more round', async () => {
+    await builtinChannelsReady;
+    render(<IMChannelsSection />);
+    await waitFor(() => expect(credential.mock.calls.length).toBeGreaterThanOrEqual(CHANNEL_COUNT));
+    const header = screen.getByRole('button', { name: /IM Channels/i });
+    fireEvent.click(header); // collapse: no probe
+    await settle();
+    expect(credential).toHaveBeenCalledTimes(CHANNEL_COUNT);
+    fireEvent.click(header); // re-open: one round
+    await settle();
+    expect(credential).toHaveBeenCalledTimes(CHANNEL_COUNT * 2);
+  });
+
+  it("a slow round for the previous agent never overwrites the current agent's badges", async () => {
+    await builtinChannelsReady;
+    // agent_a: every channel bound + active, but its round is held back;
+    // agent_b: nothing bound, answers immediately.
+    let releaseA: () => void = () => {};
+    const aGate = new Promise<void>((r) => { releaseA = r; });
+    credential.mockImplementation(async (...args: unknown[]) => {
+      const [channel, agent] = args as [string, string];
+      if (agent === 'agent_a') {
+        await aGate;
+        return { success: true, data: { channel, agent_id: agent, enabled: true } };
+      }
+      return { success: true, data: null };
+    });
+    const { rerender } = render(<IMChannelsSection />);
+    await waitFor(() => expect(credential.mock.calls.length).toBeGreaterThanOrEqual(CHANNEL_COUNT));
+    store.agentId = 'agent_b';
+    rerender(<IMChannelsSection />);
+    await waitFor(() => expect(screen.getByText(`0/${CHANNEL_COUNT} connected`)).toBeInTheDocument());
+    releaseA();
+    await settle();
+    expect(screen.getByText(`0/${CHANNEL_COUNT} connected`)).toBeInTheDocument();
+    expect(screen.queryByText('✓ connected')).toBeNull();
   });
 });
