@@ -29,7 +29,7 @@ Invariants (the helper's, not its callers'):
 from __future__ import annotations
 
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from loguru import logger
 
@@ -44,15 +44,29 @@ class WindowedAuditCounter:
         *,
         event_type: str,
         fields: tuple[str, ...],
-        caps: tuple[int, ...],
+        caps: tuple[Optional[int], ...],
+        blanks: Optional[tuple[Any, ...]] = None,
         keys_max: int = 256,
         window_s: float = 60.0,
     ) -> None:
+        """
+        Args:
+            caps: per-field length cap for str values; None = not truncated
+                (a server-side value such as a port).
+            blanks: how the overflow entry renders the fields after the first
+                (default all ""); only the presentation — the overflow KEY is
+                always the one constant ``OVERFLOW_KEY``.
+        """
         if len(fields) != len(caps):
             raise ValueError("one cap per field")
+        if blanks is None:
+            blanks = ("",) * len(fields)
+        if len(blanks) != len(fields):
+            raise ValueError("one blank per field")
         self._event_type = event_type
         self._fields = fields
         self._caps = caps
+        self._blanks = blanks
         self._keys_max = keys_max
         self._window_s = window_s
         self._counts: dict[tuple, int] = {}
@@ -60,18 +74,25 @@ class WindowedAuditCounter:
 
     def note(self, key: tuple) -> None:
         """Count one event. Sync, no I/O."""
+        if len(key) != len(self._fields):
+            raise ValueError(f"key has {len(key)} parts, expected {len(self._fields)}")
         bounded = tuple(
-            v[:cap] if isinstance(v, str) else v for v, cap in zip(key, self._caps)
+            v[:cap] if isinstance(v, str) and cap is not None else v
+            for v, cap in zip(key, self._caps)
         )
         if bounded not in self._counts and len(self._counts) >= self._keys_max:
             bounded = OVERFLOW_KEY
         self._counts[bounded] = self._counts.get(bounded, 0) + 1
 
-    async def flush(self) -> Optional[list[dict[str, Any]]]:
+    async def flush(
+        self, before_write: Optional[Callable[[list[dict[str, Any]]], None]] = None
+    ) -> Optional[list[dict[str, Any]]]:
         """Write pending counts as one row if the window has elapsed.
 
-        Returns the written entries (for a caller's own log line), or None
-        when nothing was due. A dict check when nothing is pending.
+        ``before_write`` (sync) receives the entries before the DB write, so a
+        caller's human-facing log line is not delayed by, or lost with, a slow
+        or cancelled write. Returns the entries, or None when nothing was due.
+        A dict check when nothing is pending.
         """
         if not self._counts:
             return None
@@ -81,7 +102,11 @@ class WindowedAuditCounter:
         self._deadline = now + self._window_s
         counts = dict(self._counts)
         self._counts.clear()
-        entries = [self._entry(k, n) for k, n in sorted(counts.items(), key=lambda kv: tuple(map(str, kv[0])))]
+        # Plain tuple ordering: same-position fields share a type, and the
+        # overflow key compares on its first (str) element.
+        entries = [self._entry(k, n) for k, n in sorted(counts.items())]
+        if before_write is not None:
+            before_write(entries)
         try:
             from narranexus.platform.repository.executor_audit_repository import (
                 ExecutorAuditRepository,
@@ -99,7 +124,9 @@ class WindowedAuditCounter:
 
     def _entry(self, key: tuple, n: int) -> dict[str, Any]:
         if key == OVERFLOW_KEY:
-            entry: dict[str, Any] = {f: ("<overflow>" if i == 0 else "") for i, f in enumerate(self._fields)}
+            entry: dict[str, Any] = {
+                f: ("<overflow>" if i == 0 else self._blanks[i]) for i, f in enumerate(self._fields)
+            }
         else:
             entry = dict(zip(self._fields, key))
         entry["n"] = n

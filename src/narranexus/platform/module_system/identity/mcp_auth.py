@@ -162,12 +162,13 @@ _LOG_TOP_N = 20
 # Counting, bounding (every dimension capped; past the key cap ONE constant
 # overflow bucket — round-5 #1) and the windowed row write live in the shared
 # _audit_window.WindowedAuditCounter (also used by _mcp_identity's user_id
-# override audit). Method needs no cap (pinned to "POST"); port is a
-# server-side int (caps apply to str values only).
+# override audit). Method and port are not truncated (method is pinned to
+# "POST"; port is a server-side int); the overflow entry keeps port an int.
 _TOKENLESS = WindowedAuditCounter(
     event_type=EVENT_MCP_AUTH_TOKENLESS,
     fields=("caller", "method", "path", "port"),
-    caps=(_DECLARED_MAX_LEN, 16, _PATH_MAX_LEN, 0),
+    caps=(_DECLARED_MAX_LEN, None, _PATH_MAX_LEN, None),
+    blanks=("", "", "", 0),
     keys_max=_TOKENLESS_KEYS_MAX,
     window_s=_TOKENLESS_FLUSH_SECONDS,
 )
@@ -204,14 +205,9 @@ def _declared_caller(headers) -> str:
     return "anonymous"
 
 
-async def _note_tokenless(declared_user: str, method: str, path: str, port: int) -> None:
-    _TOKENLESS.note((declared_user, method, path, port))
-    entries = await _TOKENLESS.flush()
-    if not entries:
-        return
-    # Structured entries in the row (the declared value may contain anything,
-    # and the flip decision queries it with SQL); the log line is the human
-    # signal. The port names WHICH module server was called.
+def _log_tokenless(entries: list[dict[str, Any]]) -> None:
+    """The window's human signal, written BEFORE the audit row (the row is the
+    queryable worklist; the line must not wait on, or die with, the write)."""
     total = sum(e["n"] for e in entries)
     top = sorted(entries, key=lambda e: -e["n"])[:_LOG_TOP_N]
     suffix = "" if len(entries) <= _LOG_TOP_N else f" (+{len(entries) - _LOG_TOP_N} more in the audit row)"
@@ -223,6 +219,14 @@ async def _note_tokenless(declared_user: str, method: str, path: str, port: int)
         )
         + suffix
     )
+
+
+async def _note_tokenless(declared_user: str, method: str, path: str, port: int) -> None:
+    # Structured entries in the row (the declared value may contain anything,
+    # and the flip decision queries it with SQL). The port names WHICH module
+    # server was called.
+    _TOKENLESS.note((declared_user, method, path, port))
+    await _TOKENLESS.flush(before_write=_log_tokenless)
 
 
 class IdentityAuthMiddleware:

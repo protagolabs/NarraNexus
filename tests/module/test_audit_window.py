@@ -92,8 +92,62 @@ async def test_flush_failure_is_swallowed_and_counts_are_gone(monkeypatch):
     assert c.pending() == {}
 
 
-def test_reset_clears_counts_and_window():
+async def test_reset_clears_counts_and_reopens_the_window(rows):
     c = _counter()
+    c.note(("u", "p"))
+    await c.flush()                      # closes the window
     c.note(("u", "p"))
     c.reset()
     assert c.pending() == {}
+    c.note(("v", "q"))
+    assert await c.flush() is not None   # window reopened: written immediately
+    assert len(rows) == 2
+
+
+def test_none_cap_means_not_truncated():
+    c = WindowedAuditCounter(event_type="ev", fields=("a", "b"), caps=(2, None))
+    c.note(("abcdef", "0123456789"))
+    assert c.pending() == {("ab", "0123456789"): 1}
+
+
+def test_key_must_have_one_part_per_field():
+    with pytest.raises(ValueError):
+        _counter().note(("only-one",))
+
+
+async def test_overflow_entry_shape_default_and_custom_blanks(rows):
+    c = _counter(keys_max=1)
+    c.note(("a", "x"))
+    c.note(("b", "y"))
+    entries = await c.flush()
+    assert {"a": "<overflow>", "b": "", "n": 1} in entries
+    c2 = WindowedAuditCounter(event_type="ev", fields=("a", "b"), caps=(4, None),
+                              blanks=("", 0), keys_max=1)
+    c2.note(("a", 1))
+    c2.note(("b", 2))
+    assert {"a": "<overflow>", "b": 0, "n": 1} in await c2.flush()
+
+
+async def test_before_write_runs_before_the_db_write(monkeypatch):
+    order: list[str] = []
+
+    async def fake_get_db_client():
+        order.append("db")
+        return object()
+
+    class FakeAuditRepo:
+        def __init__(self, db):
+            pass
+
+        async def record(self, **kw):
+            order.append("write")
+
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", fake_get_db_client)
+    monkeypatch.setattr(
+        "narranexus.platform.repository.executor_audit_repository.ExecutorAuditRepository",
+        FakeAuditRepo,
+    )
+    c = _counter()
+    c.note(("u", "p"))
+    await c.flush(before_write=lambda entries: order.append(f"log:{len(entries)}"))
+    assert order == ["log:1", "db", "write"]

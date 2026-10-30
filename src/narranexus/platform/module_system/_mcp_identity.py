@@ -454,7 +454,7 @@ def caller_event_id_from_request() -> Optional[str]:
 _OVERRIDES = WindowedAuditCounter(
     event_type=EVENT_MCP_IDENTITY_USER_OVERRIDE,
     fields=("tool", "supplied", "owner"),
-    caps=(64, 64, 64),
+    caps=(64, 64, 64),  # overflow entry: tool "<overflow>", others "" (default blanks)
 )
 
 

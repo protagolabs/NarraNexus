@@ -41,6 +41,7 @@ def _clean_module_state():
     between tests is a classic ordering hazard (round-3 review, minor #5)."""
     from narranexus.platform.module_system.identity import mcp_auth
 
+    mcp_auth._TOKENLESS.reset()
     yield
     mcp_auth._owner_cache.clear()
     mcp_auth._TOKENLESS.reset()
@@ -778,3 +779,38 @@ def test_placeholder_declarations_do_not_trip_the_mismatch(tmp_path, monkeypatch
     r = TestClient(_app()).post("/messages/", headers=headers)
     assert r.status_code == 200
     assert r.text == "usr_real"
+
+
+def test_tokenless_overflow_row_keeps_its_shape(monkeypatch):
+    """The overflow entry is the constant bucket rendered as
+    {caller:'<overflow>', method:'', path:'', port:0} — port stays an int, so
+    SQL over the counts sees one type per field (origin/dev parity)."""
+    import asyncio
+
+    from narranexus.platform.module_system.identity import mcp_auth
+
+    rows: list[dict] = []
+
+    async def fake_get_db_client():
+        return object()
+
+    class FakeAuditRepo:
+        def __init__(self, db):
+            pass
+
+        async def record(self, **kw):
+            rows.append(kw)
+
+    monkeypatch.setattr("narranexus.platform.utils.db.db_factory.get_db_client", fake_get_db_client)
+    monkeypatch.setattr(
+        "narranexus.platform.repository.executor_audit_repository.ExecutorAuditRepository",
+        FakeAuditRepo,
+    )
+    monkeypatch.setattr(mcp_auth._TOKENLESS, "_keys_max", 1)
+    monkeypatch.setattr(mcp_auth._TOKENLESS, "_deadline", float("inf"))
+    asyncio.run(mcp_auth._note_tokenless("usr_a", "POST", "/a", 7801))
+    asyncio.run(mcp_auth._note_tokenless("usr_b", "POST", "/b", 7801))
+    mcp_auth._TOKENLESS._deadline = 0.0
+    asyncio.run(mcp_auth._note_tokenless("usr_c", "POST", "/c", 7801))
+    counts = rows[0]["detail"]["counts"]
+    assert {"caller": "<overflow>", "method": "", "path": "", "port": 0, "n": 2} in counts
