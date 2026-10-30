@@ -1,8 +1,18 @@
 ---
 code_file: src/narranexus/platform/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-10-29
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（复审 2）— `ensure_agent_workspace_dir`：失败关闭，且报错可操作
+
+工作目录创建抽成 `ensure_agent_workspace_dir(agent_working_path, base)`（`confined_io.make_dirs`，逐级 `O_NOFOLLOW`）。**fail-closed 的后果**：桌面端用户如果**自己**把
+`{base}/{user_id}` 或 agent 目录做成了符号链接（例如把 workspace 放到别的磁盘），这个 turn 会被拒绝——抛 `RuntimeError`，消息明确说"路径上有符号链接 / 在 workspace base 之外，
+请把链接换成真实目录，或把 workspace base 指向链接的目标"，而不是悄悄沿着链接工作（那正是跨租户写的入口）。测试：`tests/utils/test_provisioning_confined.py`。
+
+## 2026-10-30 — agent 工作目录创建走 `make_dirs`
+
+`os.makedirs` 按路径会顺着被换成链接的目录创建；现在经 `confined_io.make_dirs`（幂等）。
 
 ### 2026-10-29（管线审查 M-3）
 

@@ -22,7 +22,9 @@ MCP Tools:
 
 import os
 import re
+import secrets
 import shutil
+import stat as stat_mod
 import tempfile
 import subprocess
 import zipfile
@@ -35,6 +37,7 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
+from narranexus.platform.utils.fs import confined_io
 from narranexus.platform.utils.workspace_paths import safe_id_segment
 
 from narranexus.platform.module_system.base import XYZBaseModule, mcp_server_url
@@ -544,35 +547,77 @@ class SkillModule(XYZBaseModule):
                 continue
             name = src.name
             dest = self.skills_dir / name
-            if dest.exists() or (disabled_dir / name).exists():
+            if self._confined_exists(dest) or self._confined_exists(disabled_dir / name):
                 # Already materialized, or intentionally disabled by the user.
                 continue
             try:
-                self.skills_dir.mkdir(parents=True, exist_ok=True)
+                root, skills_rel = self._confined(self.skills_dir)
+                confined_io.make_dirs(root, skills_rel)
                 # Stage into a unique temp dir, then atomically rename into
                 # place. Two concurrent runs (threads sharing this workspace, or
-                # separate processes) could both pass the exists() check above;
-                # a direct copytree to `dest` would then race and the loser would
+                # separate processes) could both pass the exists check above;
+                # a direct copy to `dest` would then race and the loser would
                 # raise FileExistsError — swallowed as a warning, masking the
-                # race. mkdtemp gives each racer a private staging dir, and
-                # os.rename onto an already-placed `dest` fails cleanly so the
-                # loser simply discards its copy. Result is materialize-once with
-                # no spurious warning.
-                staging = Path(tempfile.mkdtemp(prefix=f".materialize.{name}.", dir=self.skills_dir))
-                shutil.copytree(src, staging, dirs_exist_ok=True)
-                self._write_builtin_meta(staging)
+                # race. A private staging dir per racer, and a rename onto an
+                # already-placed `dest` that fails cleanly so the loser simply
+                # discards its copy. Result is materialize-once with no spurious
+                # warning. Copy and rename are fd-relative below the base; the
+                # source (vendored built-in dir) is platform-owned.
+                staging_name = f".materialize.{name}.{secrets.token_hex(6)}"
+                src_root, src_rel = confined_io.split_source(str(src), str(self.base_path))
+                confined_io.copy_tree(src_root, src_rel, root, f"{skills_rel}/{staging_name}")
+                self._write_builtin_meta(self.skills_dir / staging_name)
                 try:
-                    os.rename(staging, dest)
+                    confined_io.rename_within(
+                        root, f"{skills_rel}/{staging_name}", f"{skills_rel}/{name}"
+                    )
                 except OSError:
                     # Another run won the race and placed `dest` first.
-                    shutil.rmtree(staging, ignore_errors=True)
+                    try:
+                        confined_io.remove_tree(root, f"{skills_rel}/{staging_name}")
+                    except (OSError, ValueError):
+                        pass
                     continue
                 logger.info(f"Materialized built-in skill '{name}' into {dest}")
             except Exception as e:
                 logger.warning(f"Failed to materialize built-in skill '{name}': {e}")
 
-    @staticmethod
-    def _write_builtin_meta(skill_dir: Path) -> None:
+    def _confined_exists(self, path: Path) -> bool:
+        """True when ``path`` exists under a link-free walk (a link on the way
+        reads as absent — never a probe into another tenant's tree). Paths
+        outside the workspace base are platform-owned (plugin skill dirs,
+        staging): parent trusted, leaf lstat-ed."""
+        try:
+            root, rel = confined_io.split_source(str(path), str(self.base_path))
+            confined_io.lstat(root, rel)
+            return True
+        except (OSError, ValueError):
+            return False
+
+    def _confined_is_dir(self, path: Path) -> bool:
+        """True when ``path`` is a real directory (a link leaf is NOT one)."""
+        try:
+            root, rel = confined_io.split_source(str(path), str(self.base_path))
+            return stat_mod.S_ISDIR(confined_io.lstat(root, rel).st_mode)
+        except (OSError, ValueError):
+            return False
+
+    def _list_confined_dirs(self, directory: Path, *, skip_hidden: bool) -> List[Path]:
+        """Name-sorted real subdirectories of ``directory`` (links are not
+        directories here), listed through the link-free walk. A missing,
+        swapped or unreadable directory lists as empty."""
+        try:
+            root, rel = self._confined(directory)
+            infos = confined_io.list_dir(root, rel)
+        except (OSError, ValueError):
+            return []
+        return [
+            directory / i.name
+            for i in sorted(infos, key=lambda i: i.name)
+            if i.is_dir and not (skip_hidden and i.name.startswith("."))
+        ]
+
+    def _write_builtin_meta(self, skill_dir: Path) -> None:
         """Write .skill_meta.json for a freshly materialized built-in skill."""
         meta_data = {
             "source_type": "builtin",
@@ -581,7 +626,7 @@ class SkillModule(XYZBaseModule):
         }
         meta_file = skill_dir / ".skill_meta.json"
         try:
-            meta_file.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
+            self._write_confined_text(meta_file, json.dumps(meta_data, indent=2))
         except Exception as e:
             logger.warning(f"Failed to write built-in skill metadata: {e}")
 
@@ -627,13 +672,12 @@ class SkillModule(XYZBaseModule):
     def _scan_workspace_skills(self) -> List[SkillInfo]:
         assert self.skills_dir is not None
         skills = []
-        for skill_path in sorted(self.skills_dir.iterdir(), key=lambda p: p.name):
-            if skill_path.is_dir() and not skill_path.name.startswith("."):
-                # A directory without SKILL.md (e.g. auto-created by the
-                # agent) is still listed: _parse_skill_md falls back to the
-                # directory name + whatever .skill_meta.json carries
-                # (description, study state, studied requirements).
-                skills.append(self._parse_skill_md(skill_path / "SKILL.md"))
+        for skill_path in self._list_confined_dirs(self.skills_dir, skip_hidden=True):
+            # A directory without SKILL.md (e.g. auto-created by the
+            # agent) is still listed: _parse_skill_md falls back to the
+            # directory name + whatever .skill_meta.json carries
+            # (description, study state, studied requirements).
+            skills.append(self._parse_skill_md(skill_path / "SKILL.md"))
 
         return skills
 
@@ -718,7 +762,7 @@ class SkillModule(XYZBaseModule):
             # A directory without SKILL.md (agent-created, or meta written
             # before the manifest landed) is the meta-only fallback below,
             # not a parse failure worth a warning.
-            content = skill_md.read_text(encoding="utf-8") if skill_md.exists() else ""
+            content = self._read_confined_text(skill_md) or ""
             if content.startswith("---"):
                 parts = content.split("---", 2)
                 if len(parts) >= 3:
@@ -794,7 +838,7 @@ class SkillModule(XYZBaseModule):
         # A SKILL.md that exists but has no parseable frontmatter keeps the
         # long-standing empty description; only a directory WITHOUT a
         # SKILL.md borrows the meta description (or the placeholder).
-        description = "" if skill_md.exists() else (meta_data.get("description") or "(No SKILL.md found)")
+        description = "" if self._confined_exists(skill_md) else (meta_data.get("description") or "(No SKILL.md found)")
         return SkillInfo(
             name=skill_dir.name,
             description=description,
@@ -821,9 +865,10 @@ class SkillModule(XYZBaseModule):
         """
         meta_file = skill_dir / ".skill_meta.json"
         meta_data: dict = {}
-        if meta_file.exists():
+        existing = self._read_confined_text(meta_file)
+        if existing is not None:
             try:
-                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                meta_data = json.loads(existing)
                 if not isinstance(meta_data, dict):
                     meta_data = {}
             except Exception:
@@ -836,7 +881,7 @@ class SkillModule(XYZBaseModule):
             }
         )
         try:
-            meta_file.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            self._write_confined_text(meta_file, json.dumps(meta_data, indent=2, ensure_ascii=False))
             logger.debug(f"Saved skill metadata to {meta_file}")
         except Exception as e:
             logger.warning(f"Failed to save skill metadata: {e}")
@@ -854,9 +899,10 @@ class SkillModule(XYZBaseModule):
         if not skill_dir:
             return {"study_status": "idle"}
         meta_file = skill_dir / ".skill_meta.json"
-        if meta_file.exists():
+        text = self._read_confined_text(meta_file)
+        if text is not None:
             try:
-                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                meta_data = json.loads(text)
                 return {
                     "study_status": meta_data.get("study_status", "idle"),
                     "study_result": meta_data.get("study_result"),
@@ -887,9 +933,10 @@ class SkillModule(XYZBaseModule):
 
         # Read existing metadata
         meta_data = {}
-        if meta_file.exists():
+        text = self._read_confined_text(meta_file)
+        if text is not None:
             try:
-                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                meta_data = json.loads(text)
             except Exception:
                 pass
 
@@ -903,7 +950,7 @@ class SkillModule(XYZBaseModule):
             meta_data["studied_at"] = datetime.now().isoformat()
 
         try:
-            meta_file.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            self._write_confined_text(meta_file, json.dumps(meta_data, indent=2, ensure_ascii=False))
             logger.debug(f"Updated study status for '{skill_name}': {status}")
         except Exception as e:
             logger.warning(f"Failed to update study status: {e}")
@@ -937,31 +984,28 @@ class SkillModule(XYZBaseModule):
             direct = None
         else:
             direct = self.skills_dir / skill_name
-        if direct is not None and direct.exists() and direct.is_dir():
+        if direct is not None and self._confined_is_dir(direct):
             return direct
         # Scan and match by parsed name from SKILL.md. Name-sorted (R4d) so
         # that when two directories declare the same frontmatter name the
         # winner is deterministic instead of readdir-order dependent — the
         # resolved dir decides which .skill_meta.json (env config, study
         # status) is read and written.
-        for skill_path in sorted(self.skills_dir.iterdir(), key=lambda p: p.name):
-            if skill_path.is_dir() and not skill_path.name.startswith("."):
-                skill_md = skill_path / "SKILL.md"
-                if skill_md.exists():
-                    try:
-                        content = skill_md.read_text(encoding="utf-8")
-                        if content.startswith("---"):
-                            parts = content.split("---", 2)
-                            if len(parts) >= 3:
-                                meta = yaml.safe_load(parts[1])
-                                if meta and meta.get("name") == skill_name:
-                                    return skill_path
-                    except Exception:
-                        pass
+        for skill_path in self._list_confined_dirs(self.skills_dir, skip_hidden=True):
+            content = self._read_confined_text(skill_path / "SKILL.md")
+            if content is not None:
+                try:
+                    if content.startswith("---"):
+                        parts = content.split("---", 2)
+                        if len(parts) >= 3:
+                            meta = yaml.safe_load(parts[1])
+                            if meta and meta.get("name") == skill_name:
+                                return skill_path
+                except Exception:
+                    pass
         return None
 
-    @staticmethod
-    def _load_meta_dict(meta_file: Path) -> dict:
+    def _load_meta_dict(self, meta_file: Path) -> dict:
         """Read a .skill_meta.json into a dict, coercing away malformed shapes.
 
         The file is agent-writable, so it may be absent, non-JSON, or valid JSON
@@ -972,10 +1016,11 @@ class SkillModule(XYZBaseModule):
         non-object case is logged (with the path) rather than swallowed, so a
         corrupt file leaves a breadcrumb instead of silently reading as empty.
         """
-        if not meta_file.exists():
+        text = self._read_confined_text(meta_file)
+        if text is None:
             return {}
         try:
-            data = json.loads(meta_file.read_text(encoding="utf-8"))
+            data = json.loads(text)
         except Exception as e:  # noqa: BLE001 — corrupt/non-JSON agent-written file
             logger.warning(f"Failed to read {meta_file}: {e}")
             return {}
@@ -999,7 +1044,7 @@ class SkillModule(XYZBaseModule):
             return
         meta_file = skill_dir / ".skill_meta.json"
         try:
-            meta_file.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            self._write_confined_text(meta_file, json.dumps(meta_data, indent=2, ensure_ascii=False))
         except Exception as e:
             logger.warning(f"Failed to write .skill_meta.json for '{skill_name}': {e}")
 
@@ -1186,16 +1231,14 @@ class SkillModule(XYZBaseModule):
 
         if include_disabled and self.skills_dir:
             disabled_dir = self.skills_dir / ".disabled"
-            if disabled_dir.exists():
-                # Name-sorted (R4d): this list is API/UI-facing, and the
-                # enabled half above is already deterministic.
-                for skill_path in sorted(disabled_dir.iterdir(), key=lambda p: p.name):
-                    if skill_path.is_dir():
-                        skill_md = skill_path / "SKILL.md"
-                        if skill_md.exists():
-                            info = self._parse_skill_md(skill_md)
-                            info.disabled = True
-                            skills.append(info)
+            # Name-sorted (R4d): this list is API/UI-facing, and the
+            # enabled half above is already deterministic.
+            for skill_path in self._list_confined_dirs(disabled_dir, skip_hidden=False):
+                skill_md = skill_path / "SKILL.md"
+                if self._confined_exists(skill_md):
+                    info = self._parse_skill_md(skill_md)
+                    info.disabled = True
+                    skills.append(info)
 
         return skills
 
@@ -1255,7 +1298,11 @@ class SkillModule(XYZBaseModule):
         if not self.skills_dir:
             raise ValueError("skills_dir is not configured (user_id is required)")
 
-        self.skills_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            skills_root, skills_rel = self._confined(self.skills_dir)
+            confined_io.make_dirs(skills_root, skills_rel)
+        except ValueError as e:  # ConfinedPathError: a link on the way
+            raise ValueError(f"refusing to install into the skills directory: {e}") from e
 
         skill_md = skill_root / "SKILL.md"
         if not skill_md.exists():
@@ -1265,11 +1312,38 @@ class SkillModule(XYZBaseModule):
         # An explicit target_dir_name (e.g. the bundle's known skill_dir)
         # wins over the SKILL.md-derived name.
         safe_skill_name = sanitize_filename(target_dir_name or info.name, label="skill name")
-        target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
+        # Validates the name only. Its RETURN value is a resolve()d path — with a
+        # swapped `skills` link at that instant it would be the VICTIM's real
+        # skill dir — so everything below uses the LEXICAL path instead.
+        ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
+        target_dir = self.skills_dir / safe_skill_name
+        # The deletion target is the LEXICAL path (``ensure_within_directory``
+        # resolves its result, which would turn a swapped ``skills`` link into
+        # the victim's real path and make the confined walk accept it).
+        self._remove_skill_dir(self.skills_dir / safe_skill_name)
 
-        shutil.move(str(skill_root), str(target_dir))
+        # Copy the staged skill (platform-owned clone / unzip dir) into a
+        # private sibling, then rename it into place — both fd-relative below
+        # the base, links in the staging copied as links, nothing written
+        # through a swapped directory. `shutil.move` / `mkdir` by path followed
+        # a swapped `skills` link into another tenant's tree. The staging dir is
+        # removed by the caller's own cleanup, as before.
+        tmp_name = f".installing.{safe_skill_name}.{secrets.token_hex(6)}"
+        try:
+            src_root, src_rel = confined_io.split_source(str(skill_root), str(self.base_path))
+            confined_io.copy_tree(src_root, src_rel, skills_root, f"{skills_rel}/{tmp_name}")
+            try:
+                confined_io.rename_within(
+                    skills_root, f"{skills_rel}/{tmp_name}", f"{skills_rel}/{safe_skill_name}"
+                )
+            except BaseException:
+                try:
+                    confined_io.remove_tree(skills_root, f"{skills_rel}/{tmp_name}")
+                except (OSError, ValueError):
+                    pass
+                raise
+        except confined_io.ConfinedPathError as e:
+            raise ValueError(f"refusing to install skill '{safe_skill_name}': {e}") from e
 
         self._save_skill_meta(target_dir, source_url=source_url, source_type=source_type)
 
@@ -1500,6 +1574,63 @@ class SkillModule(XYZBaseModule):
 
         return dir_is_builtin(skill_dir)
 
+    # ── confined file helpers ────────────────────────────────────────────────
+    #
+    # Everything below a skill dir lives inside the owner's own mount, so any
+    # directory on the path (``skills``, ``.disabled``, the skill dir itself)
+    # can be swapped for a link into another tenant's tree. All writes, renames,
+    # copies and metadata reads therefore go through ``utils/fs/confined_io``
+    # (every component below the workspace base O_NOFOLLOW, operations relative
+    # to dir fds). Paths passed in are LEXICAL (``self.skills_dir / name``) —
+    # never the result of ``ensure_within_directory`` (it resolve()s).
+
+    def _confined(self, path: Path) -> Tuple[str, str]:
+        """(base root, base-relative POSIX path) for a lexical path under the
+        workspace base. ValueError (ConfinedPathError) when outside it."""
+        return confined_io.split_under_base(str(path), str(self.base_path))
+
+    def _read_confined_text(self, path: Path) -> Optional[str]:
+        """Text of a regular file reached through the link-free walk, or None
+        when it is missing, not a regular file, undecodable, or refused.
+
+        Below the workspace base the walk starts at the base; a path outside it
+        is platform-owned staging (a fresh clone / unzip dir being parsed), whose
+        parent is trusted and whose leaf is still opened O_NOFOLLOW."""
+        try:
+            root, rel = confined_io.split_source(str(path), str(self.base_path))
+            with confined_io.open_read(root, rel) as f:
+                return f.read().decode("utf-8")
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as e:  # ConfinedPathError is a ValueError
+            logger.warning(f"Skill file not read ({path.name}): {e}")
+            return None
+
+    def _write_confined_text(self, path: Path, text: str) -> None:
+        """Atomically write ``text`` through the link-free walk (raises
+        ConfinedPathError / OSError; callers keep their own except)."""
+        root, rel = self._confined(path)
+        confined_io.write_atomic(root, rel, text.encode("utf-8"))
+
+    def _remove_skill_dir(self, path: Path) -> bool:
+        """Delete one skill directory fd-relative below the workspace base.
+
+        ``skills`` (and ``.disabled``) sit inside the owner's own mount, so the
+        owner can replace them with a symlink to another tenant's tree; a
+        by-path ``rmtree`` would then delete the victim's skill. This walks the
+        path with O_NOFOLLOW (``confined_io.remove_tree``), never follows a link
+        (a link inside the skill is unlinked itself) and refuses a link on the
+        way. Returns False when nothing was there; raises ValueError on refusal.
+        """
+        try:
+            root, rel = confined_io.split_under_base(str(path), str(self.base_path))
+            confined_io.remove_tree(root, rel)
+            return True
+        except FileNotFoundError:
+            return False
+        except confined_io.ConfinedPathError as e:
+            raise ValueError(f"refusing to remove skill directory {path.name!r}: {e}") from e
+
     def remove_skill(self, skill_name: str) -> bool:
         """Remove a Skill.
 
@@ -1517,14 +1648,12 @@ class SkillModule(XYZBaseModule):
         if self._dir_is_builtin(skill_path) or self._dir_is_builtin(disabled_path):
             raise ValueError(f"Skill '{skill_name}' is built-in and can't be removed. Disable it instead.")
 
-        if skill_path.exists():
-            shutil.rmtree(skill_path)
+        if self._remove_skill_dir(skill_path):
             logger.info(f"Removed skill '{skill_name}' from {skill_path}")
             return True
 
         # Also check disabled directory
-        if disabled_path.exists():
-            shutil.rmtree(disabled_path)
+        if self._remove_skill_dir(disabled_path):
             logger.info(f"Removed disabled skill '{skill_name}' from {disabled_path}")
             return True
 
@@ -1536,16 +1665,26 @@ class SkillModule(XYZBaseModule):
         if not self.skills_dir:
             return False
 
-        skill_path = self.skills_dir / skill_name
-        disabled_dir = self.skills_dir / ".disabled"
-
-        if skill_path.exists():
-            disabled_dir.mkdir(exist_ok=True)
-            shutil.move(str(skill_path), str(disabled_dir / skill_name))
-            logger.info(f"Disabled skill '{skill_name}'")
-            return True
-
-        return False
+        # fd-relative below the base (see _remove_skill_dir): `skills` and
+        # `.disabled` are swappable, and a by-path move would take the victim's
+        # skill out of its tree, or drop ours into it.
+        try:
+            root, skills_rel = self._confined(self.skills_dir)
+            confined_io.make_dirs(root, f"{skills_rel}/.disabled")
+            confined_io.rename_within(
+                root, f"{skills_rel}/{skill_name}", f"{skills_rel}/.disabled/{skill_name}"
+            )
+        except FileNotFoundError:
+            return False
+        except FileExistsError:
+            raise ValueError(
+                f"cannot disable skill '{skill_name}': a disabled copy with that name already "
+                "exists — remove it first"
+            ) from None
+        except confined_io.ConfinedPathError as e:
+            raise ValueError(f"refusing to disable skill '{skill_name}': {e}") from e
+        logger.info(f"Disabled skill '{skill_name}'")
+        return True
 
     def enable_skill(self, skill_name: str) -> bool:
         """Enable a Skill"""
@@ -1553,14 +1692,23 @@ class SkillModule(XYZBaseModule):
         if not self.skills_dir:
             return False
 
-        disabled_path = self.skills_dir / ".disabled" / skill_name
-
-        if disabled_path.exists():
-            shutil.move(str(disabled_path), str(self.skills_dir / skill_name))
-            logger.info(f"Enabled skill '{skill_name}'")
-            return True
-
-        return False
+        try:
+            root, skills_rel = self._confined(self.skills_dir)
+            confined_io.rename_within(
+                root, f"{skills_rel}/.disabled/{skill_name}", f"{skills_rel}/{skill_name}"
+            )
+        except FileNotFoundError:
+            return False
+        except FileExistsError:
+            raise ValueError(
+                f"cannot enable skill '{skill_name}': a skill with that name is already "
+                "installed (it was probably reinstalled while this copy was disabled) — "
+                "remove or disable the installed one first"
+            ) from None
+        except confined_io.ConfinedPathError as e:
+            raise ValueError(f"refusing to enable skill '{skill_name}': {e}") from e
+        logger.info(f"Enabled skill '{skill_name}'")
+        return True
 
     def get_skill(self, skill_name: str) -> Optional[SkillInfo]:
         """Get a Skill by name"""

@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/bootstrap/lifecycle.py
-last_verified: 2026-09-04
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（续）— context_runtime 的 auto-delete 也走受限删除
+
+调用方 `context_runtime._settle_bootstrap` 删除 `Bootstrap.md` 不再 `os.remove(status.bootstrap_path)`，改为
+`split_under_base` + `confined_io.unlink`（词法路径，绝不 resolve）：存在性检查之后、删除之前，租户能把
+自己的 agent 目录换成指向别人的链接。下方条目里"`os.remove(status.bootstrap_path)`"以本条为准。
+
+## 2026-10-30（复审 2）— `bootstrap_file_present`：Bootstrap.md 的存在性只在受限路径上判断
+
+`os.path.isfile(Bootstrap.md)` 按路径，会顺着租户在自己挂载里放的链接（或被换成链接的目录）去探别的租户的 workspace。现在 `bootstrap_file_present` 经 `split_under_base` + `lstat`，
+链接读作"没有"。运行期门（`is_bootstrap_active`）与面向前端的 agent 列表 / 更新路由（`backend/routes/auth.py` 的两处）共用这一个判断。
 
 ## 2026-08-20 — bootstrap_active 的单一判定源
 
@@ -13,7 +24,7 @@ threshold, bootstrap_path)`；判定 = Bootstrap.md 存在（读侧 `resolve_exi
 legacy flat 布局）**且**（threshold 为 None 的语义型 profile，或 `event_count < threshold`）。
 
 **不是全仓唯一**:`backend/routes/auth.py` 另算一个**前端信任**的 `AgentInfo.bootstrap_active`——
-只 `os.path.isfile(Bootstrap.md)`、**无阈值**（list 接口担不起每 agent 一次 COUNT），它 gate 前端那颗
+只看 Bootstrap.md 是否存在（2026-10-30 起经 `bootstrap_file_present` 受限判断，不再 `os.path.isfile`）、**无阈值**（list 接口担不起每 agent 一次 COUNT），它 gate 前端那颗
 静态问候气泡。两者只在「越阈值但 Bootstrap.md 还没被 auto-delete」的窄窗口分叉（前端显示气泡、
 但两个写入方因 `status.active=False` 拒绝落库）。要统一得先解 list 接口的 N+1（记 `reference/
 self_notebook/todo/`）；在那之前,改一处记得连带看 `auth.py` 两处（已加注释指回本文件,可 grep 到）。

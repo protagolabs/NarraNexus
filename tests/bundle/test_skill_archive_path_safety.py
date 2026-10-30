@@ -794,6 +794,9 @@ async def test_archive_local_zip_enforces_the_shared_gate(
     ws = agent_workspace_path(aid, uid, base=str(tmp_path / "ws"))
     ws.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(skill_backup, "_agent_workspace_root", lambda a, u: ws)
+    # the zip is read through the link-free walk below base_working_path
+    from narranexus.platform.settings import settings as core_settings
+    monkeypatch.setattr(core_settings, "base_working_path", str(tmp_path / "ws"), raising=False)
 
     src = ws / "candidate.zip"
     if make_archive == "garbage":

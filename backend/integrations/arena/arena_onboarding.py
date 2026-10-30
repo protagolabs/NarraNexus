@@ -430,7 +430,20 @@ class ArenaOnboarder:
         """
         skills_dir = Path(skills_dir)
         skill_dir = skills_dir / skill_name
-        skill_dir.mkdir(parents=True, exist_ok=True)
+        # The skill dir sits in the agent's own (tenant-writable) workspace: it is
+        # created and written THROUGH the link-free walk below the workspace base
+        # (every component O_NOFOLLOW, temp + rename via dir fds). By-path
+        # mkdir/write_text would follow a `skills` directory swapped for a link
+        # into another tenant's tree — and this skill carries the agent's
+        # credentials. ConfinedPathError (a ValueError) = refused.
+        from narranexus.platform.settings import settings as core_settings
+        from narranexus.platform.utils.fs import confined_io
+
+        root, rel = confined_io.split_under_base(str(skill_dir), core_settings.base_working_path)
+        confined_io.make_dirs(root, rel)
+
+        def _put(name: str, text: str, mode: Optional[int] = None) -> None:
+            confined_io.write_atomic(root, f"{rel}/{name}", text.encode("utf-8"), mode=mode)
 
         if skill_md is None:
             skill_md = self.fetch_skill_md()
@@ -478,21 +491,14 @@ class ArenaOnboarder:
         # Always-latest Arena content (fetched fresh above) + our regenerated
         # override header from the single-source directive (keyed to this agent).
         header = skill_md_override_header(credentials.agent_name or "this agent")
-        (skill_dir / "SKILL.md").write_text(header + skill_md, encoding="utf-8")
+        _put("SKILL.md", header + skill_md)
         files.append("SKILL.md")
-        (skill_dir / ".skill_meta.json").write_text(
-            json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        _put(".skill_meta.json", json.dumps(meta, indent=2, ensure_ascii=False))
         files.append(".skill_meta.json")
-        cred_file = skill_dir / "credentials.json"
-        cred_file.write_text(
-            json.dumps(credentials.as_credentials_json(), indent=2), encoding="utf-8"
-        )
-        cred_file.chmod(0o600)  # secret: api_key + claim_token
+        # secret: api_key + claim_token — created 0600 (never briefly wider)
+        _put("credentials.json", json.dumps(credentials.as_credentials_json(), indent=2), mode=0o600)
         files.append("credentials.json")
-        (skill_dir / "arena_profile.json").write_text(
-            json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        _put("arena_profile.json", json.dumps(profile, indent=2, ensure_ascii=False))
         files.append("arena_profile.json")
 
         return ArenaOnboardResult(

@@ -21,16 +21,18 @@ import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, File, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel
 
 from backend.config import settings as backend_settings
+from backend.routes._confined_response import ConfinedFileResponse, open_tenant_file
 from backend.routes._ownership import require_owned_workspace_agent
 from narranexus.platform.schema.attachment_schema import (
     derive_category_from_mime,
 )
 from narranexus.platform.utils.attachment_storage import (
+    get_workspace_path,
     resolve_attachment_path,
     store_uploaded_attachment,
 )
@@ -200,7 +202,17 @@ async def get_attachment_raw(
     """
     user_id = await require_owned_workspace_agent(request, agent_id)
     path = resolve_attachment_path(agent_id, user_id, file_id)
-    if path is None:
+    # Serve from a file object opened through the link-free walk; the resolver
+    # above is only a check (FileResponse(path=...) re-opened the string).
+    # `within`: resolve_attachment_path returns a REALPATH, so a pre-planted link
+    # inside the workspace would hand back a victim path that has no link left
+    # in it; only the prefix check against the caller's own workspace sees it.
+    served = (
+        open_tenant_file(path, within=[get_workspace_path(agent_id, user_id)])
+        if path is not None
+        else None
+    )
+    if served is None:
         return JSONResponse(
             status_code=404,
             content={"success": False, "error": "Attachment not found"},
@@ -209,8 +221,8 @@ async def get_attachment_raw(
     # Best-effort MIME — same logic as the index, but we re-derive at serve
     # time so a missing/old index doesn't block the stream.
     mime, _ = mimetypes.guess_type(str(path))
-    return FileResponse(
-        path=str(path),
+    return ConfinedFileResponse(
+        served,
         media_type=mime or "application/octet-stream",
         filename=Path(path).name,
     )

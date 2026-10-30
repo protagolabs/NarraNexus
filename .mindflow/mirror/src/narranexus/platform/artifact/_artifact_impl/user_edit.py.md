@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/user_edit.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 读 hash 与原子写都走受限 fd
+
+`confine_entry` 之后的 `isfile` / `compute_entry_hash` / `mkstemp(dir=...)` + `os.replace(path)` 全是按字符串重开，
+窗口内把目录换成链接，写就会落进受害者的文件。现在 hash 用 `sha256_of_confined`，写用 `write_confined_atomic`
+（临时文件经父目录 fd `O_CREAT|O_EXCL|O_NOFOLLOW` 创建，再用 src/dst dir_fd 改名覆盖；失败清理临时文件）。
+链接 → `ArtifactNotFound`（与确权失败同口径），缺失/非常规 → `ArtifactContentGone`；`commit_office_user_edit` 同理。
+文件权限位沿用原文件（以前 mkstemp 把它变成 0600）。乐观锁语义不变。
 
 ## 2026-10-28 — 写入前先过属主限定
 

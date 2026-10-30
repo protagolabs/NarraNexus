@@ -31,6 +31,7 @@ def key(monkeypatch):
 @pytest.fixture
 def module(tmp_path):
     m = SkillModule(agent_id="agent_test", user_id="test_user")
+    m.base_path = tmp_path  # skill I/O is confined below the workspace base
     m.skills_dir = tmp_path / "skills"
     m.skills_dir.mkdir(parents=True, exist_ok=True)
     return m

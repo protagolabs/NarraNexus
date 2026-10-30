@@ -28,6 +28,7 @@ the log (started/healed/error per pass — incident lesson #4/#5).
 
 import asyncio
 import os
+import stat
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -58,19 +59,10 @@ class SkillSyncService:
         if skills_dir is None:
             return stats
 
-        disk_state: Dict[str, str] = {}  # name -> target status
-        disk_meta: Dict[str, dict] = {}
-
-        if skills_dir.exists():
-            for path in skills_dir.iterdir():
-                if path.is_dir() and not path.name.startswith("."):
-                    disk_state[path.name] = self._live_status(module, path)
-                    disk_meta[path.name] = module.read_skill_meta(path.name)
-            disabled_dir = skills_dir / ".disabled"
-            if disabled_dir.exists():
-                for path in disabled_dir.iterdir():
-                    if path.is_dir():
-                        disk_state.setdefault(path.name, "disabled")
+        # The whole disk side (listings, meta reads, content hashes) runs off
+        # the event loop: the periodic reconcile covers every tenant, and one
+        # large skills tree must not stall the workers' loop.
+        disk_state, disk_meta = await asyncio.to_thread(self._scan_disk, module, skills_dir)
 
         rows = {r.skill_id: r for r in await self.repo.list_for_workspace(agent_id, user_id)}
 
@@ -119,6 +111,37 @@ class SkillSyncService:
 
         return stats
 
+    @classmethod
+    def _scan_disk(cls, module, skills_dir: Path) -> tuple:
+        """``(name -> target status, name -> meta)`` for one skills dir (sync).
+
+        Listed through the link-free walk below the base: `skills` and
+        `.disabled` sit in the owner's mount, and a link swapped in for either
+        must not make another tenant's skills (names, meta, hash) this agent's.
+        """
+        disk_state: Dict[str, str] = {}
+        disk_meta: Dict[str, dict] = {}
+        for name in cls._confined_subdirs(skills_dir):
+            if not name.startswith("."):
+                disk_state[name] = cls._live_status(module, skills_dir / name)
+                disk_meta[name] = module.read_skill_meta(name)
+        for name in cls._confined_subdirs(skills_dir / ".disabled"):
+            disk_state.setdefault(name, "disabled")
+        return disk_state, disk_meta
+
+    @staticmethod
+    def _confined_subdirs(directory: Path) -> list:
+        """Names of the REAL subdirectories of ``directory`` (links are not
+        directories here); empty when it is missing, a link, or unreadable."""
+        from narranexus.platform.settings import settings
+        from narranexus.platform.utils.fs import confined_io
+
+        try:
+            root, rel = confined_io.split_under_base(str(directory), settings.base_working_path)
+            return sorted(i.name for i in confined_io.list_dir(root, rel) if i.is_dir)
+        except (OSError, ValueError):
+            return []
+
     @staticmethod
     def _live_status(module, skill_dir: Path) -> str:
         meta = module.read_skill_meta(skill_dir.name)
@@ -127,11 +150,47 @@ class SkillSyncService:
             try:
                 if compute_content_hash(skill_dir) != recorded_hash:
                     return "modified"
-            except OSError as exc:
+            except (OSError, ValueError) as exc:  # ConfinedPathError is a ValueError
                 logger.warning(f"Reconcile: cannot hash {skill_dir}: {exc}")
         return "installed"
 
     # -- whole host ----------------------------------------------------------
+
+    @staticmethod
+    def _skill_workspaces(base_working_path: str) -> list:
+        """``(user, agent)`` pairs under the base that have a real ``skills``
+        dir (sync — every tenant is listed, so the caller runs it in a thread).
+
+        Each level through the link-free walk: an `agent_dir` the tenant
+        replaced with a link to another tenant's workspace is not a workspace
+        here (it would be reconciled — read and recorded — as the attacker's
+        agent).
+        """
+        from narranexus.platform.utils.fs import confined_io
+
+        try:
+            base_root = os.path.realpath(base_working_path)
+            user_names = sorted(i.name for i in confined_io.list_dir(base_root, "") if i.is_dir)
+        except (OSError, ValueError):
+            return []
+        out = []
+        for user_name in user_names:
+            if user_name.startswith("."):
+                continue
+            try:
+                agent_names = sorted(i.name for i in confined_io.list_dir(base_root, user_name) if i.is_dir)
+            except (OSError, ValueError):
+                continue
+            for agent_name in agent_names:
+                if agent_name.startswith("."):
+                    continue
+                try:
+                    st = confined_io.lstat(base_root, f"{user_name}/{agent_name}/skills")
+                except (OSError, ValueError):
+                    continue
+                if stat.S_ISDIR(st.st_mode):
+                    out.append((user_name, agent_name))
+        return out
 
     async def reconcile_all(self) -> Dict[str, int]:
         """Walk every workspace under base_working_path (nested layout
@@ -140,28 +199,17 @@ class SkillSyncService:
 
         totals = {"workspaces": 0, "added": 0, "external_removed": 0,
                   "modified": 0, "disabled": 0, "restored": 0}
-        base = Path(settings.base_working_path)
-        if not base.exists():
-            return totals
-
-        for user_dir in base.iterdir():
-            if not user_dir.is_dir() or user_dir.name.startswith("."):
+        for user_name, agent_name in await asyncio.to_thread(self._skill_workspaces, settings.base_working_path):
+            try:
+                stats = await self.reconcile_workspace(agent_name, user_name)
+            except Exception as exc:
+                logger.error(
+                    f"Reconcile failed for workspace {user_name}/{agent_name}: {exc}"
+                )
                 continue
-            for agent_dir in user_dir.iterdir():
-                if not agent_dir.is_dir() or agent_dir.name.startswith("."):
-                    continue
-                if not (agent_dir / "skills").exists():
-                    continue
-                try:
-                    stats = await self.reconcile_workspace(agent_dir.name, user_dir.name)
-                except Exception as exc:
-                    logger.error(
-                        f"Reconcile failed for workspace {user_dir.name}/{agent_dir.name}: {exc}"
-                    )
-                    continue
-                totals["workspaces"] += 1
-                for key in ("added", "external_removed", "modified", "disabled", "restored"):
-                    totals[key] += stats[key]
+            totals["workspaces"] += 1
+            for key in ("added", "external_removed", "modified", "disabled", "restored"):
+                totals[key] += stats[key]
         return totals
 
     async def run_forever(self, interval_seconds: Optional[int] = None) -> None:

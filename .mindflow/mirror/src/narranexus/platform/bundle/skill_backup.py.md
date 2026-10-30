@@ -1,8 +1,18 @@
 ---
 code_file: src/narranexus/platform/bundle/skill_backup.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30（PR #433 review M6）— 临时 fd 的所有权
+
+`archive_local_zip` 里 `mkstemp` 的 fd 只有在 `os.fdopen` **返回之后**才归文件对象所有；`fdopen` 抛错时自己关 fd（并关源文件），
+与 `confined_io.open_new` / `write_atomic` 的 fd 纪律一致。`finally` 里按文件名清理 scratch 的逻辑不变。
+
+## 2026-10-30 — 工作区 zip 的归档与未备份列表走受限路径
+
+`archive_local_zip`：`resolve_inside_workspace` 只是检查；zip 经受限 fd 读进**平台自有的临时文件**，对**这份拷贝**做 `validate_skill_archive_path`，通过后才
+`prepare_archive_target` 并移动（被拒的 zip 不会在归档区留下目录）。`list_unbackedup` 用 `list_dir` 列 `skills/`，`dir_is_builtin` 也走受限读。
 
 # skill_backup.py — skill 归档机制 (subproject 2 §8.12.2-5)
 

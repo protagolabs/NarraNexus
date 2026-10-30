@@ -29,12 +29,18 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
-from narranexus.platform.artifact import ArtifactError, ArtifactService, inject_edit_bridge
+from narranexus.platform.artifact import (
+    ArtifactError,
+    ArtifactPathEscape,
+    ArtifactService,
+    inject_edit_bridge,
+)
 from narranexus.platform.settings import settings
 from narranexus.platform.utils.db.db_factory import get_db_client
 
+from backend.routes._confined_response import ConfinedFileResponse
 from backend.routes.artifacts._token import TokenError, verify
 
 
@@ -220,6 +226,17 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
 
     headers = {**SAFE_HEADERS, "Content-Security-Policy": csp}
 
+    # Open ONCE through the confined walk and serve from that file object: the
+    # resolution above is only a check, and re-opening ``resolved.path`` by
+    # string (what FileResponse(path=...) did) follows a directory swapped for a
+    # link in the meantime into another tenant's tree.
+    try:
+        served = resolved.open()
+    except ArtifactPathEscape:
+        raise HTTPException(status_code=404, detail="not found")
+    except OSError:
+        raise HTTPException(status_code=410, detail="artifact file missing on disk")
+
     # Per-element edit bridge (spec A §3.3): the ENTRY html only, and only
     # when the viewer asked for it. Assets and non-html kinds are never
     # touched — the bridge is a viewer affordance, not part of the artifact.
@@ -229,9 +246,9 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
         and request.query_params.get("edit_bridge") == "1"
     ):
         try:
-            with open(resolved.path, "rb") as f:
-                raw = f.read()
+            raw = served.read()
         except OSError as e:
+            served.close()
             raise HTTPException(status_code=410, detail=f"entry unreadable: {e}")
         try:
             # STRICT decode (review #334 I4): errors="replace" would swap
@@ -240,12 +257,15 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
             # encoding silently destroyed, and the optimistic lock can't see
             # it (it hashes the bytes the frontend fetched). A document we
             # cannot decode losslessly gets NO edit capability: fall through
-            # to the plain FileResponse — viewable, byte-identical, uneditable
-            # (same degrade discipline as the md guard).
+            # to the plain file response over the SAME open file — viewable,
+            # byte-identical, uneditable (same degrade discipline as the md
+            # guard).
             html = raw.decode("utf-8")
         except UnicodeDecodeError:
             html = None
         if html is not None:
+            served.close()
             return HTMLResponse(content=inject_edit_bridge(html), headers=headers)
+        served.seek(0)
 
-    return FileResponse(path=resolved.path, media_type=resolved.media_type, headers=headers)
+    return ConfinedFileResponse(served, media_type=resolved.media_type, headers=headers)

@@ -4,6 +4,27 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（复审 2）— 工作区 tar 先在平台暂存区解开，再受限合并进目标
+
+**跨租户写**：每用户执行器挂载整个 `{base}/{user}`，租户可以在导入前把 `{user}/{new_agent_id}` 预先建成指向别的租户目录的符号链接；原来的
+`target.mkdir` + `extractall(target, filter="data")`（`data` 过滤器用 `realpath(target)` 作目的地）和 `_rewrite_workspace_text_files` 的 `open(path, "w")`
+会把 bundle 里的内容写进别人的树。现在 `_import_workspace_tar`：在 `mkdtemp()`（系统临时目录，不在任何租户挂载内）解包并做文本重写，再用
+`confined_io.merge_tree` 把结果合并进**词法**目标——目标路径上任何链接 → `ConfinedPathError`，什么都不写；目标内同名文件经私有 temp + rename 替换（链接被替换而不是写穿），
+应放目录的位置上是链接则 unlink 链接。`_extract_tar_safely` / `_rewrite_workspace_text_files` 只在暂存区（平台自有）上运行。
+
+## 2026-10-30（续）— `copy_skill_into_agent` 整个流程 fd 相对；`copy_skill_dir` 删除
+
+`mkdir` + `copytree` 也改为 `confined_io.make_dirs` + `copy_tree`（目的端逐项 `mkdir` / `O_CREAT|O_EXCL|O_NOFOLLOW`，经 dir fd）。**源**必须是
+同一租户已安装的技能目录或平台 staging，**绝不能**是别的租户可控的路径；源同样用 `split_source` 逐级 `NOFOLLOW` 遍历，里面的链接按链接复制、
+从不解引用（行为同旧的 `copytree(symlinks=True)`）。源经被换成链接的 `skills` 时拒绝（`ConfinedPathError`），受害者的技能不会被复制过来。
+`copy_skill_dir` 已删除（无调用方；其测试改为直接测 `copy_tree`）。
+
+## 2026-10-30 — `copy_skill_into_agent` 替换已有技能走 `remove_tree`
+
+原来 `target.exists()` + `shutil.rmtree(target)`，`skills` 被换成链接时会删受害者的技能目录。现在对**词法**路径
+（`skills_base / safe_name`，不是 `ensure_within_directory` 的 resolve 结果）做 `confined_io.remove_tree`；链接 →
+`ConfinedPathError`（ValueError），导入 fail closed。（原写的『其后的 `mkdir` / `copy_skill_dir` 仍按路径写』已过时：它们已转为 `make_dirs` + `copy_tree`，`copy_skill_dir` 函数已删除，见本文件更靠前的『整个流程 fd 相对』条目。）
+
 ## 2026-10-30 — 路径校验前移到 preflight；产物行归属钉死
 
 - preflight 整段包在一个清理守卫里（`_preflight_in_dir`）：只有 token 行写入成功后解压目录才

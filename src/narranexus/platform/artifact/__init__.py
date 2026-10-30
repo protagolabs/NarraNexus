@@ -24,6 +24,7 @@ from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactPathEscape,
     ArtifactTooLarge,
 )
+from narranexus.platform.artifact._artifact_impl.confinement import confined_stat
 from narranexus.platform.artifact._artifact_impl.edit_bridge import inject_edit_bridge
 from narranexus.platform.artifact._artifact_impl.freshness import office_lock_present
 from narranexus.platform.artifact._artifact_impl.raw_access import ResolvedRawFile
@@ -47,4 +48,5 @@ __all__ = [
     "MAX_ARTIFACT_BYTES",
     "inject_edit_bridge",
     "office_lock_present",
+    "confined_stat",
 ]

@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/bootstrap/provision.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30（复审 2）— `bootstrap_active` 用 `bootstrap_file_present`
+
+`os.path.isfile(Bootstrap.md)` 按路径探 workspace，改为 [[lifecycle]] 的受限判断（链接 / 被换成链接的目录读作"没有"）。
 
 ## 2026-08-10 (PR-6) — `_SAFE_AGENT_ID` 兜底：agent_id 路径穿越防护
 
