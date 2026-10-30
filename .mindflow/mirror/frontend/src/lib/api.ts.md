@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-10-16
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — network calls go through guardedFetch
+
+Every `fetch` in this file is now `guardedFetch` (`guardedFetch.ts`): reads pass
+the per-page request-loop guard (a URL repeated faster than any poll is blocked;
+loop-shaped traffic is capped by page budgets shared across tabs), writes pass
+straight through. A refused read waits 1s and throws `RequestLoopBlockedError`.
+`ApiError` and `RequestLoopBlockedError` moved to `apiError.ts` (to break the
+import cycle with `guardedFetch.ts`) and are re-exported here, so callers keep
+importing them from `@/lib/api`. Backstop for render-loop floods (2026-10-30
+Channels-section incident).
 
 ## 2026-10-16 — getProviderCatalog
 

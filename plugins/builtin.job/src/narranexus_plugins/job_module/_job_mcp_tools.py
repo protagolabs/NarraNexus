@@ -265,7 +265,10 @@ def create_job_mcp_server() -> FastMCP:
         Args:
             agent_id: Your Agent ID (required)
             query: Natural language search query describing what you're looking for
-            user_id: Optional filter by user ID
+            user_id: Optional. When given it is always your owner's account (the
+                platform enforces that): only jobs filed under your owner are
+                returned. Omit it for no user filter. To find jobs about a
+                contact, put their name in query.
             status: Optional filter by status. Valid values:
                 - "pending": Waiting for first trigger
                 - "active": Active (scheduled/ongoing job running normally)
@@ -286,11 +289,10 @@ def create_job_mcp_server() -> FastMCP:
                 query="daily news updates and summaries"
             )
 
-            # Find reminder tasks for a specific user
+            # Find active reminder tasks
             job_retrieval_semantic(
                 agent_id="agent_xxx",
                 query="meeting reminders",
-                user_id="user_123",
                 status="active"
             )
         """
@@ -354,7 +356,10 @@ def create_job_mcp_server() -> FastMCP:
         Args:
             agent_id: Your Agent ID (required)
             keywords: List of keywords to search for (matches if ANY keyword found)
-            user_id: Optional filter by user ID
+            user_id: Optional. When given it is always your owner's account (the
+                platform enforces that): only jobs filed under your owner are
+                returned. Omit it for no user filter. To find jobs about a
+                contact, put their name in keywords.
             status: Optional filter by status (pending/active/running/paused/completed/failed/cancelled)
             limit: Maximum number of results (default: 20)
 

@@ -23,6 +23,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const getApiBaseUrlSpy = vi.fn(() => '');
 vi.mock('@/stores/runtimeStore', () => ({
   getApiBaseUrl: () => getApiBaseUrlSpy(),
+  // guardedFetch reads the app mode to decide whether the edge-only total read
+  // budget applies.
+  useRuntimeStore: { getState: () => ({ mode: null }) },
 }));
 
 // Import AFTER the mock so artifactsApi sees the mocked module.

@@ -17,6 +17,33 @@ stub: false
 （`skills_base / safe_name`，不是 `ensure_within_directory` 的 resolve 结果）做 `confined_io.remove_tree`；链接 →
 `ConfinedPathError`（ValueError），导入 fail closed。其后的 `mkdir` / `copy_skill_dir` 仍按路径写（已知未转换）。
 
+## 2026-10-30 — 路径校验前移到 preflight；产物行归属钉死
+
+- preflight 整段包在一个清理守卫里（`_preflight_in_dir`）：只有 token 行写入成功后解压目录才
+  保留，之前任何异常（manifest 非法 JSON、agent.json 缺键、DB 失败、被拒的路径）都在一处删除。
+  原来 6 处分散的 `rmtree` 只覆盖被单独 try 住的分支，其余分支会留下无 DB 行、TTL 清扫永远
+  扫不到的 `nx-import-*`（auto-review #429）。
+- `_bundle_member_path(..., method=)` 是 confirm 把 `archive_ref` 变成路径的唯一入口，
+  传入的安装方式不在 `_ARCHIVE_INSTALL_METHODS` 就抛 RuntimeError：新增一种读 `archive_ref`
+  的方式而没登记，preflight 闸就会漏掉它，所以让它第一次用就炸。
+
+- `_reject_escaping_bundle_paths`：preflight 在迁移之后、发 token 之前，校验每个
+  `artifacts.json` 行的 `file_path`（复用 `artifact_relpath_or_raise`）、zip/full_copy
+  技能的 `archive_ref`（`_bundle_member_path_or_raise`），以及 zip/full_copy 技能的
+  `skill_dir`（与 confirm 对这两种方式的同一条单段规则 `sanitize_filename`）。任一不合格即拒
+  整份包、删解压目录。其他安装方式的 `skill_dir` 交给 confirm：2026-08-18 前的 builder 对
+  url/builtin 技能会写未 sanitize 的 `skill_dir`（SKILL.md 名字带 `/`），confirm 忽略或单技能
+  失败，在这里拒就是对诚实包的误报。技能 `name` 也不在这里查。越界抛 `BundlePathEscape`
+  并记边界日志；结构错误抛普通 ValueError，只拒不记。
+  confirm 里的两处校验保留为第二道。解析不了（含非 UTF-8）的 `artifacts.json` 不拦（confirm 本来就只记
+  warning、不写行）；能解析但形状不对（非 list / 行非 dict / 字段非 str）则拒。
+- `rewrite_artifact_row` 新增必填关键字 `team_id`：行的 `agent_id` 一律改为本次新建的
+  agent；原本带 team 的行归入本次导入新建的 team（无则 None），不带 team 的行保持私有。
+  原因：`rewrite_row` 只映射 id_map 里有的 id，`team_id` 不在映射表里，包里写别人的
+  agent/team id 会原样落库。
+- 被拒时调用 `log_boundary_violation`（surface `bundle_import.preflight` /
+  `bundle_import.confirm`），供日志告警统一匹配。
+
 ## 2026-10-28（二审）— `artifacts.json` 行改写提成 `rewrite_artifact_row`
 
 导入循环里"校验 `file_path` → 前缀接收方 workspace → 清 session、置 pinned、去时间戳"整段

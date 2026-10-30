@@ -37,6 +37,7 @@ from narranexus.platform.schema import (
 )
 from narranexus.platform.settings import settings as platform_settings
 from narranexus.platform.utils import confined_io
+from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.utils.file_safety import (
     enforce_max_bytes,
     ensure_within_directory,
@@ -70,6 +71,9 @@ def _get_workspace_path(agent_id: str, user_id: str) -> str:
     except ValueError:
         # The owner replaced its workspace dir with a link (to anywhere);
         # nothing under it is served, listed or deleted.
+        log_boundary_violation(
+            "agent_files.workspace_symlink", actor=user_id, owner=user_id, detail=str(workspace)
+        )
         raise HTTPException(404, "agent not found")
     return str(workspace)
 
@@ -172,7 +176,7 @@ def _build_tree(workspace_root: Path) -> tuple[List[FileInfo], bool]:
     return tree, budget["truncated"]
 
 
-def _resolve_within_workspace(workspace: Path, rel_path: str) -> Path:
+def _resolve_within_workspace(workspace: Path, rel_path: str, *, actor: str) -> Path:
     """Resolve a workspace-relative path to an absolute path, refusing escape.
 
     Rejects:
@@ -183,12 +187,29 @@ def _resolve_within_workspace(workspace: Path, rel_path: str) -> Path:
 
     Returns the realpath-resolved absolute path. The caller decides what to do
     with it (read, delete, ...).
+
+    A `..` segment, a NUL byte, an absolute path, and a link inside the
+    workspace that resolves into ANOTHER tenant's tree are also logged as
+    boundary violations (``actor`` = the caller): the file browser only ever
+    sends relative paths it listed. Two refusals stay quiet: a dotfile name
+    (a policy — hidden files are not served) and a link leaving the shared
+    base altogether (an agent's own `venv/bin/python -> /usr/bin/python3`, which
+    an honest owner can hit by typing the path).
     """
-    if not rel_path or "\x00" in rel_path:
+    if not rel_path:
+        raise HTTPException(400, "invalid path")
+    if "\x00" in rel_path:
+        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
         raise HTTPException(400, "invalid path")
     posix = PurePosixPath(rel_path.replace("\\", "/"))
     parts = posix.parts
-    if any(part in ("", ".", "..") or part.startswith(".") for part in parts):
+    if posix.is_absolute():
+        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
+        raise HTTPException(400, "invalid path: outside the agent workspace")
+    if any(part == ".." for part in parts):
+        log_boundary_violation("agent_files.path", actor=actor, detail=rel_path)
+        raise HTTPException(400, "invalid path: dotfolders and traversal are not allowed")
+    if any(part in ("", ".") or part.startswith(".") for part in parts):
         raise HTTPException(400, "invalid path: dotfolders and traversal are not allowed")
 
     # The workspace root is LEXICAL (base already realpath-ed by
@@ -199,6 +220,12 @@ def _resolve_within_workspace(workspace: Path, rel_path: str) -> Path:
     try:
         candidate.relative_to(workspace)
     except ValueError:
+        # Quiet when the link leads outside the tenant tree (a venv's python ->
+        # /usr/bin); logged when it leads into ANOTHER tenant's tree under the
+        # shared base — no honest workspace links there.
+        base = Path(os.path.realpath(platform_settings.base_working_path))
+        if candidate.is_relative_to(base):
+            log_boundary_violation("agent_files.path", actor=actor, detail=f"{rel_path} -> {candidate}")
         raise HTTPException(400, "invalid path: outside the agent workspace")
     return candidate
 
@@ -254,7 +281,7 @@ async def fetch_workspace_file(
     """
     user_id = await require_owned_workspace_agent(request, agent_id)
     workspace = Path(_get_workspace_path(agent_id, user_id))
-    target = _resolve_within_workspace(workspace, path)
+    target = _resolve_within_workspace(workspace, path, actor=user_id)
     # Open through the link-free walk and serve from that file object: the
     # resolution above is only a check, and FileResponse(path=...) would
     # re-open the string after a directory on it may have been swapped for a
@@ -337,7 +364,7 @@ async def delete_file(
     logger.info(f"Deleting workspace path '{path}' for agent: {agent_id}, user: {user_id}")
     try:
         workspace = Path(_get_workspace_path(agent_id, user_id))
-        target = _resolve_within_workspace(workspace, path)
+        target = _resolve_within_workspace(workspace, path, actor=user_id)
         try:
             root, rel = confined_io.split_under_base(
                 str(target), platform_settings.base_working_path

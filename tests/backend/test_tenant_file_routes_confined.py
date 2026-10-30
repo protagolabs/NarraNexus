@@ -106,8 +106,8 @@ def test_download_serves_the_owners_file_with_attachment_headers(env):
 def test_download_swap_after_resolve_never_serves_the_victim(env, monkeypatch):
     real = env["files_mod"]._resolve_within_workspace
 
-    def swapping(workspace, rel):
-        out = real(workspace, rel)
+    def swapping(workspace, rel, **kw):
+        out = real(workspace, rel, **kw)
         _swap_dir_for_link(env["own_ws"] / "report", env["vic_ws"] / "secret")
         return out
 
@@ -188,8 +188,8 @@ def test_delete_missing_path_reports_not_found(env):
 def test_delete_file_swap_of_an_intermediate_dir_never_deletes_the_victims_file(env, monkeypatch):
     real = env["files_mod"]._resolve_within_workspace
 
-    def swapping(workspace, rel):
-        out = real(workspace, rel)
+    def swapping(workspace, rel, **kw):
+        out = real(workspace, rel, **kw)
         _swap_dir_for_link(env["own_ws"] / "report", env["vic_ws"] / "secret")
         return out
 
@@ -202,8 +202,8 @@ def test_delete_file_swap_of_an_intermediate_dir_never_deletes_the_victims_file(
 def test_delete_tree_swap_of_an_intermediate_dir_never_deletes_the_victims_tree(env, monkeypatch):
     real = env["files_mod"]._resolve_within_workspace
 
-    def swapping(workspace, rel):
-        out = real(workspace, rel)
+    def swapping(workspace, rel, **kw):
+        out = real(workspace, rel, **kw)
         _swap_dir_for_link(env["own_ws"] / "report", env["vic_ws"] / "secret")
         return out
 

@@ -6,6 +6,7 @@
  * the {success,data,msg} envelope — rejecting on success:false.
  */
 import { getNetmindConfig } from '@/lib/runtimeConfig';
+import { guardedFetch } from '../guardedFetch';
 
 /**
  * The upstream deliberately REJECTED the request (envelope `success:false`) —
@@ -40,7 +41,7 @@ export async function netmindPost<T = unknown>(
     'Content-Type': 'application/x-www-form-urlencoded',
   };
   if (token) headers['token'] = `Bearer ${token}`;
-  const resp = await fetch(`${authApi}${path}`, {
+  const resp = await guardedFetch(`${authApi}${path}`, {
     method: 'POST',
     headers,
     body: encodeForm(body),

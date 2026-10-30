@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/schema/executor_audit.py
-last_verified: 2026-08-21
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 新事件 `mcp_identity_user_override`
+
+[[_mcp_identity]] 把不一致的真实 `user_id` 改成回合所有者时，按刷新窗口聚合写一行
+（`{total, counts:[{tool, supplied, owner, n}]}`），日志轮转后仍能用 SQL 回答"覆盖有没有
+触发、对哪个工具和账号、多少次"。
 
 ## 2026-08-21 — 新增 event_type `cull_skipped_busy` + `cull_disabled`
 

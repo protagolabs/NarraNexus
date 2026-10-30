@@ -51,6 +51,7 @@ import type {
   BundleArtifactPreview,
   BundleMcpPreview,
 } from '@/types';
+import { guardedFetch } from '@/lib/guardedFetch';
 
 const TABS: { id: TabId; labelKey: string; icon: any }[] = [
   { id: 'agents', labelKey: 'pages.bundleExport.tabs.agents', icon: Users },
@@ -1758,7 +1759,7 @@ function AskAgentToBackupButton({
           // to call its skill_backup MCP tool. We use the standard send-message
           // surface (post-message) so the request goes through the regular
           // agent loop.
-          await fetch(`/api/agents/${encodeURIComponent(aid)}/messages`, {
+          await guardedFetch(`/api/agents/${encodeURIComponent(aid)}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

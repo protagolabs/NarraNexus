@@ -2519,7 +2519,8 @@
     "actionFailedTitle": "Das hat nicht funktioniert",
     "savedTo": "Gespeichert unter {{path}}",
     "downloadFailed": "Download fehlgeschlagen: {{error}}",
-    "doneTitle": "Fertig"
+    "doneTitle": "Fertig",
+    "requestBlocked": "Zu viele Anfragen. Bitte gleich erneut versuchen."
   },
   "toast": {
     "view": "Ansehen",

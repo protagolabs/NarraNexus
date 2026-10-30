@@ -38,6 +38,9 @@ _DEFAULT_LOG_ROOT = Path.home() / ".narranexus" / "logs"
 # Format with two trace fields baked in. Missing keys are filled with
 # default placeholders by ``logger.configure(extra=...)`` below so
 # missing fields show as dashes instead of raising KeyError.
+# Contract: the deploy repo's sentinel (abuse.boundary_violation) matches the
+# `[security.boundary]` line (see _security.py) from its first character
+# using this exact head; change it in step with the sentinel's signatures.py.
 _TEXT_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
     "{extra[run_id]:>8} {extra[event_id]:>14} | "
@@ -151,6 +154,30 @@ def _ensure_audit_level() -> None:
         pass
 
 
+def _escape_line_breaks(record) -> None:
+    """Escape CR/LF inside the message so a message is one physical line.
+
+    Several call sites log user text verbatim (chat input, agent names,
+    request fields); an embedded newline would let that text start a fresh
+    line with any head it likes and read as a separate, genuine-looking
+    entry to a human grep or a line-based tool. This is log hygiene, NOT a
+    forgery boundary: exception text rendered by ``{exception}`` (tracebacks
+    keep their lines), uvicorn's own handler, ``print`` and subprocess output
+    all reach the same stream unescaped, and processes that never call
+    ``setup_logging`` are not covered. Anything that must trust a log line
+    has to verify it on its own — the boundary line is signed for that
+    reason (see _security.py).
+    """
+    message = record["message"]
+    if "\n" in message or "\r" in message:
+        record["message"] = message.replace("\r", "\\r").replace("\n", "\\n")
+
+
+def _no_patch(record) -> None:
+    """Explicit no-op: loguru's configure(patcher=None) leaves a previous
+    patcher in place, so switching formats must replace it."""
+
+
 def setup_logging(
     service_name: str,
     *,
@@ -205,7 +232,10 @@ def setup_logging(
         extra={
             "run_id": _RUN_ID_PLACEHOLDER,
             "event_id": _EVENT_ID_PLACEHOLDER,
-        }
+        },
+        # Text sinks only: JSON encoding already escapes CR/LF inside the
+        # message field, and escaping again would hand consumers a literal "\\n".
+        patcher=_escape_line_breaks if resolved_fmt != "json" else _no_patch,
     )
 
     log_file = str(resolved_dir / f"{service_name}_{{time:YYYYMMDD}}.log")

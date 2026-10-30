@@ -2519,7 +2519,8 @@
     "actionFailedTitle": "Cela n’a pas fonctionné",
     "savedTo": "Enregistré dans {{path}}",
     "downloadFailed": "Échec du téléchargement : {{error}}",
-    "doneTitle": "Terminé"
+    "doneTitle": "Terminé",
+    "requestBlocked": "Trop de requêtes. Réessayez dans un instant."
   },
   "toast": {
     "view": "Voir",

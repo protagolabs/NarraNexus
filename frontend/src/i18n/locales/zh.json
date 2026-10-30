@@ -3034,7 +3034,8 @@
     "savedTo": "已保存到 {{path}}",
     "downloadFailed": "下载失败：{{error}}",
     "doneTitle": "已完成",
-    "edit": "编辑"
+    "edit": "编辑",
+    "requestBlocked": "重复请求过多，请稍后再试。"
   },
   "toast": {
     "view": "查看",

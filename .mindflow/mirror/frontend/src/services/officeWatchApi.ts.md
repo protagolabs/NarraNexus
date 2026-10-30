@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/services/officeWatchApi.ts
-last_verified: 2026-08-20
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -41,3 +41,11 @@ JSON)——解析集中在这里,别在组件里再拆一遍。
 
 ## 2026-08-20 — sendBatch/getElement 改走 authed /office-watch/edit
 (#334 I14);签名从 watchBase 改为 artifactId。
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

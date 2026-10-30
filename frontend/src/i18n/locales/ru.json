@@ -2523,7 +2523,8 @@
     "actionFailedTitle": "Не получилось",
     "savedTo": "Сохранено в {{path}}",
     "downloadFailed": "Не удалось скачать: {{error}}",
-    "doneTitle": "Готово"
+    "doneTitle": "Готово",
+    "requestBlocked": "Слишком много запросов. Повторите попытку позже."
   },
   "toast": {
     "view": "Открыть",

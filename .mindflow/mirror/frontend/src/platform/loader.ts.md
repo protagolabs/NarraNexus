@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/platform/loader.ts
-last_verified: 2026-10-14
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -155,3 +155,10 @@ the field. The thrown error is not reported here directly: `activatePlugin` is i
 `registerActivation`'s callback, and `activation.ts`'s existing catch already calls
 `reportUiError` for any throw from that callback — adding a second `reportUiError` call here
 would double-report.
+
+## 2026-10-30 — default fetch is guardedFetch
+
+`fetchVerified` and the factory-list load default to `guardedFetch`
+(`lib/guardedFetch.ts`) instead of the global `fetch` when no `deps.fetchImpl`
+is injected, so plugin bundle downloads pass the request-loop guard like every
+other HTTP call. Enforced by `lib/__tests__/no-raw-fetch.test.ts`.

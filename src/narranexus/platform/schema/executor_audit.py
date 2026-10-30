@@ -65,6 +65,11 @@ EVENT_MCP_AUTH_DENIED = "mcp_auth_denied"
 # for the enforce flip: zero rows means "everyone carries a token", while a
 # quiet log alone could just mean nobody was looking (incident lesson #4/#5).
 EVENT_MCP_AUTH_TOKENLESS = "mcp_auth_tokenless"
+# A tool call's real-looking user_id that did not match the injected turn owner
+# and was replaced by it (module_system/_mcp_identity.py), aggregated per
+# flush window. Lets on-call answer "did the override fire, for which tool and
+# account, how often" with SQL after the logs have rotated (lesson #5).
+EVENT_MCP_IDENTITY_USER_OVERRIDE = "mcp_identity_user_override"
 
 # Literal union of the closed set — used for type hints where strict validation
 # is wanted (e.g. in tests). The repository accepts plain str so new event_types
@@ -84,6 +89,7 @@ ExecutorEventType = Literal[
     "executor_unreachable",
     "mcp_auth_denied",
     "mcp_auth_tokenless",
+    "mcp_identity_user_override",
 ]
 
 

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/platform/bootPlugins.ts
-last_verified: 2026-10-14
+last_verified: 2026-10-30
 stub: false
 ---
 
@@ -34,3 +34,11 @@ subscription's unsubscribe) purely for testability — `main.tsx`'s `void bootPl
 is unaffected (it already discards the return value); tests use the returned unsubscribe to keep
 each test's subscriber from leaking onto the next test via the module-level `useConfigStore`
 singleton.
+
+## 2026-10-30 — network calls via guardedFetch
+
+Its `fetch` calls now go through `guardedFetch` (`lib/guardedFetch.ts`), so a
+render loop that keeps re-reading through this file is refused locally (and,
+for reads, fails with `RequestLoopBlockedError` after a 1s delay) instead of
+flooding the edge; writes and every `Response` are unchanged. Enforced app-wide
+by `lib/__tests__/no-raw-fetch.test.ts`.

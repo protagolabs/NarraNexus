@@ -1,8 +1,18 @@
 ---
 code_file: src/narranexus/platform/module_system/identity/mcp_auth.py
 stub: false
-last_verified: 2026-08-10
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — tokenless 测量改用共享的 `WindowedAuditCounter`
+
+截断、溢出桶、窗口写行都移到 [[_audit_window]]（与 `user_id` 覆盖审计共用一份实现，
+auto-review #428）。本文件只描述字段和参数：`AuditField("caller", cap=64)`、
+`AuditField("method")`、`AuditField("path", cap=128)`、`AuditField("port", blank=0)`（溢出条目渲染为
+`{caller:"<overflow>", method:"", path:"", port:0}`，port 保持 int），256 key，60 秒窗口；以及自己的
+top-N WARNING 日志行 `_log_tokenless`，作为 `before_write` 回调交给 helper——"日志在写库之前"是
+helper 的保证，这里只是使用它。与之前一致：计数后立即 flush、行形状、排序、日志文本都不变（有测试
+钉住溢出行形状）。
 
 ## Why it exists
 
@@ -29,8 +39,8 @@ wrapper calls.
   string → "anonymous", reusing `_mcp_identity` 的读取器与占位符语义)。
   **调用方可控 + audit 不拒 = 每个可控维度都硬上限**（round-4/5 #1）:自述值
   64 截断、path 128 截断(中间件在路由**之前**计数,POST 任意瞎编 path 也会
-  先被记一笔再 404)、窗口基数 256 封顶——溢出折进**唯一常量桶**
-  `_OVERFLOW_KEY`(所有维度塌缩;带 path/port 的溢出 key 自己就是新 key,
+  先被记一笔再 404)、窗口基数 256 封顶——溢出折进 [[_audit_window]] 的**唯一常量桶**
+  `OVERFLOW_KEY`(所有维度塌缩;带 path/port 的溢出 key 自己就是新 key,
   上限只对 caller 维生效,这正是 round-5 抓的旁路)。字典真正封死在 257 条,
   总数与二值信号不丢,只有逐 key 归因饱和。method 无需上限(谓词钉死 POST),
   port 是服务端事实。flush 日志行只点名 top-20(人看信号),完整 entries 落

@@ -37,6 +37,9 @@ from typing import Any, Optional
 
 from loguru import logger
 
+from narranexus.platform.module_system._audit_window import AuditField, WindowedAuditCounter
+from narranexus.platform.schema.executor_audit import EVENT_MCP_AUTH_TOKENLESS
+
 from narranexus.platform.module_system.identity.tokens import (
     VerifiedIdentity,
     load_public_key_pem,
@@ -122,7 +125,7 @@ def verified_caller_for_tool_call() -> Optional[VerifiedIdentity]:
 # (which callers must be onboarded before enforce can flip). Logging each one
 # would flood; logging none reads as "everyone has a token" even when NOBODY
 # does (incident lesson #4: no signal is not a signal). So: aggregate per
-# (declared caller, method, path) — tokenless is not identity-less, the old
+# (declared caller, method, path, port) — tokenless is not identity-less, the old
 # bearer channel still carries the SELF-DECLARED user_id, which is exactly
 # who to go onboard — and flush one WARNING line + one sampled
 # instance_executor_audit row per window, so the flip decision reads SQL,
@@ -152,13 +155,26 @@ _TOKENLESS_FLUSH_SECONDS = 60.0
 _DECLARED_MAX_LEN = 64
 _PATH_MAX_LEN = 128
 _TOKENLESS_KEYS_MAX = 256
-_OVERFLOW_KEY = ("<overflow>", "", "", 0)
 # The flush log line names at most this many entries (highest counts first);
 # the DB row carries them all — the log is a human signal, the row is the
 # queryable worklist, and a bounded dict can still be ~257 entries wide.
 _LOG_TOP_N = 20
-_tokenless_counts: dict[tuple[str, str, str, int], int] = {}
-_tokenless_flush_deadline: float = 0.0
+# Counting, bounding (every dimension capped; past the key cap ONE constant
+# overflow bucket — round-5 #1) and the windowed row write live in the shared
+# _audit_window.WindowedAuditCounter (also used by _mcp_identity's user_id
+# override audit). Method and port are not truncated (method is pinned to
+# "POST"; port is a server-side int); the overflow entry keeps port an int.
+_TOKENLESS = WindowedAuditCounter(
+    event_type=EVENT_MCP_AUTH_TOKENLESS,
+    fields=(
+        AuditField("caller", cap=_DECLARED_MAX_LEN),
+        AuditField("method"),
+        AuditField("path", cap=_PATH_MAX_LEN),
+        AuditField("port", blank=0),
+    ),
+    keys_max=_TOKENLESS_KEYS_MAX,
+    window_s=_TOKENLESS_FLUSH_SECONDS,
+)
 
 
 def _declared_caller(headers) -> str:
@@ -192,31 +208,10 @@ def _declared_caller(headers) -> str:
     return "anonymous"
 
 
-async def _note_tokenless(declared_user: str, method: str, path: str, port: int) -> None:
-    global _tokenless_flush_deadline
-
-    key = (declared_user, method, path[:_PATH_MAX_LEN], port)
-    if key not in _tokenless_counts and len(_tokenless_counts) >= _TOKENLESS_KEYS_MAX:
-        # ONE constant bucket, every dimension collapsed — an overflow key
-        # that kept path/port would itself be a fresh key per value and the
-        # cap would only hold for the caller dimension (round-5 review #1).
-        key = _OVERFLOW_KEY
-    _tokenless_counts[key] = _tokenless_counts.get(key, 0) + 1
-    now = time.monotonic()
-    if now < _tokenless_flush_deadline:
-        return
-    _tokenless_flush_deadline = now + _TOKENLESS_FLUSH_SECONDS
-    counts = dict(_tokenless_counts)
-    _tokenless_counts.clear()
-    total = sum(counts.values())
-    # Structured entries, not a joined string: the declared value may contain
-    # anything (spaces included), and the flip decision queries this with SQL
-    # — ambiguity in the serialization would corrupt the worklist. The port
-    # names WHICH module server was called (one process fronts them all).
-    entries = [
-        {"caller": u, "method": m, "path": p, "port": pt, "n": n}
-        for (u, m, p, pt), n in sorted(counts.items())
-    ]
+def _log_tokenless(entries: list[dict[str, Any]]) -> None:
+    """The window's human signal, written BEFORE the audit row (the row is the
+    queryable worklist; the line must not wait on, or die with, the write)."""
+    total = sum(e["n"] for e in entries)
     top = sorted(entries, key=lambda e: -e["n"])[:_LOG_TOP_N]
     suffix = "" if len(entries) <= _LOG_TOP_N else f" (+{len(entries) - _LOG_TOP_N} more in the audit row)"
     logger.warning(
@@ -227,20 +222,14 @@ async def _note_tokenless(declared_user: str, method: str, path: str, port: int)
         )
         + suffix
     )
-    try:
-        from narranexus.platform.repository.executor_audit_repository import (
-            ExecutorAuditRepository,
-        )
-        from narranexus.platform.schema.executor_audit import EVENT_MCP_AUTH_TOKENLESS
-        from narranexus.platform.utils.db.db_factory import get_db_client
 
-        db = await get_db_client()
-        await ExecutorAuditRepository(db).record(
-            event_type=EVENT_MCP_AUTH_TOKENLESS,
-            detail={"total": total, "counts": entries},
-        )
-    except Exception as e:  # noqa: BLE001 — the observer must not break the observed
-        logger.debug(f"[mcp-auth] tokenless audit row not written: {e}")
+
+async def _note_tokenless(declared_user: str, method: str, path: str, port: int) -> None:
+    # Structured entries in the row (the declared value may contain anything,
+    # and the flip decision queries it with SQL). The port names WHICH module
+    # server was called.
+    _TOKENLESS.note((declared_user, method, path, port))
+    await _TOKENLESS.flush(before_write=_log_tokenless)
 
 
 class IdentityAuthMiddleware:

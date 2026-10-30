@@ -1,8 +1,12 @@
 ---
 code_file: src/narranexus/platform/utils/logging/__init__.py
-last_verified: 2026-08-11
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 公开面加 `log_boundary_violation`
+
+见 `_security.py.md`。docstring 里的"四个名字"改为"`__all__` 里的名字"（早已不止四个）。
 
 ## 2026-08-11 — 公开面从四个名字变六个
 
