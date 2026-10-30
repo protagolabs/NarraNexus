@@ -275,7 +275,8 @@ export class RequestLoopGuard {
       // Limits just switched off (mode resolved to local): reads still queued
       // from before would otherwise wait out SLOT_WAIT_MAX_MS for nothing.
       // The drain re-judges each one, so this is not a blanket release.
-      if (this.#slotQueue.length > 0 && !this.#edgeLimitsEnabled()) this.#drainQueue();
+      const limitsOff = !this.#edgeLimitsEnabled();
+      if (limitsOff && this.#slotQueue.length > 0) this.#drainQueue();
       return Promise.resolve(NOOP);
     }
     return new Promise((resolve, reject) => {
