@@ -14,3 +14,11 @@ stub: false
 兜底）。`configStore.refreshAgents` 清掉失效选中后，也靠 AgentList 下次挂载走这里。
 local / Manyfold 模式下 `created_by` 与 `userId` 是同一值（Manyfold 的
 `created_by = nx_user_id`），规则同样成立。
+
+另两个同源的小函数：`ownsAnyAgent`（列表里有没有**自己的** agent——
+[[useAutoRefresh]] 的首登快速轮询用它判断引导 agent 是否已到，不能用
+`agents.length`，否则陌生人的公开 agent 会让轮询直接退出）和 `pickOwnGuideAgent`
+（自己的 bootstrap_active 引导 agent，`configStore.refreshAgents` 在选中为空时用它
+自动选中刚供给好的引导 agent）。删除当前 agent 后的下一个选中（[[useAgentActions]]）
+也走 `pickDefaultAgent`。
+

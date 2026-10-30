@@ -58,12 +58,22 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   ignores them too.
 - **In-flight reads count once anything has failed.** Failures are known only
   when the response arrives, so a panel switch to an agent the viewer cannot
-  read (a dozen first reads at once) could overshoot the budget. Once at least
-  one read has failed in the window, every admitted read of a path not known
-  to work is registered by `track()` and counts as a pending failure until it
-  settles (2xx, failure, network error or abort — `guardedFetch` releases it in
-  `finally`). On a clean page nothing is counted, so the first load's burst of
-  parallel reads is never held back. A stale or foreign selection replayed on
+  read (a dozen first reads at once) could overshoot. Once at least one read
+  has failed in the window, every admitted read of a path not known to work is
+  registered by `track()` until it settles (2xx, failure, network error or
+  abort — `guardedFetch` releases it in `finally`), and unproven reads are
+  refused while landed failures plus those in flight reach `EDGE_FAIL_SAFE`
+  (18, under the edge's 20). This is a separate, higher line than
+  `PAGE_FAIL_MAX` (10 landed failures) on purpose: one stray 403 followed by
+  opening an unvisited agent of the viewer's own (~10–15 first reads from
+  `preloadAll` and the panels) must all go out. In-flight counts are per tab;
+  two tabs bursting at the same moment can still sum past the line.
+- **Clean-page gap.** With no failure in the window nothing is counted, so the
+  first load's burst of parallel reads is never held back. The cost: the very
+  first navigation in a fresh tab to an agent the viewer cannot read (e.g. a
+  crafted link to someone else's public agent) sends its whole first-read set
+  uncapped — bounded by the size of one agent's panel set (~10–15 reads),
+  under the edge line. A stale or foreign selection replayed on
   every load is also removed at the root (`configStore.refreshAgents` clears a
   selection the server does not list; defaults never pick a stranger's agent).
 - **Known limit.** A path whose answers alternate between 2xx and failure

@@ -112,6 +112,54 @@ describe('refreshAgents', () => {
     expect(useConfigStore.getState().agentId).toBe('agent_new');
   });
 
+  test("a new user's own guide agent is selected as soon as it is listed", async () => {
+    // Provisioned after login returns: login and the sidebar's mount pass had
+    // nothing of the user's own to select.
+    useConfigStore.getState().setAgentId('');
+    getAgents.mockResolvedValue({
+      success: true,
+      agents: [{ agent_id: 'public_new', created_by: 'stranger' }] as AgentInfo[],
+      count: 1,
+    });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentId).toBe('');
+    getAgents.mockResolvedValue({
+      success: true,
+      agents: [
+        { agent_id: 'public_new', created_by: 'stranger', bootstrap_active: true },
+        { agent_id: 'guide', created_by: 'alice', bootstrap_active: true },
+      ] as AgentInfo[],
+      count: 2,
+    });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentId).toBe('guide');
+  });
+
+  test('an empty selection is not filled with an ordinary own agent (no delayed silent swap)', async () => {
+    useConfigStore.getState().setAgentId('');
+    getAgents.mockResolvedValue({
+      success: true,
+      agents: [{ agent_id: 'mine', created_by: 'alice' }] as AgentInfo[],
+      count: 1,
+    });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentId).toBe('');
+  });
+
+  test('the guide never replaces a current selection', async () => {
+    useConfigStore.getState().setAgentId('mine');
+    getAgents.mockResolvedValue({
+      success: true,
+      agents: [
+        { agent_id: 'mine', created_by: 'alice' },
+        { agent_id: 'guide', created_by: 'alice', bootstrap_active: true },
+      ] as AgentInfo[],
+      count: 2,
+    });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentId).toBe('mine');
+  });
+
   test('a refusal never clears the selection', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     useConfigStore.getState().setAgentId('agent_gone');

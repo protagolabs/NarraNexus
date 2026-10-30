@@ -22,9 +22,10 @@
  *    or never answered 2xx) are refused until the window drains; paths whose
  *    last answer was a success (`recordSuccess`) keep working, so a burst of
  *    403s from one panel cannot freeze the agent list or the chat. Once any
- *    read has failed, reads of unproven paths that are still in flight count
- *    against the budget too (`track`), so a panel switch that fires a dozen
- *    first reads at once cannot overshoot it. The edge monitor (sentinel,
+ *    read has failed, landed failures plus unproven reads still in flight
+ *    (`track`) may not reach EDGE_FAIL_SAFE (18), so a burst of first reads
+ *    cannot carry the page past the edge line, while one stray failure leaves
+ *    room for an ordinary panel switch. The edge monitor (sentinel,
  *    monitoring v2) bans an IP at 20 probing-like failures a minute
  *    (400/403/404/405), so a looping client must stay below that line on its
  *    own. Limit: a path whose answers alternate between 2xx and failure stays
@@ -69,6 +70,10 @@ export const FAIL_BLOCK_MS = 60_000;
 export const PAGE_WINDOW_MS = 60_000;
 export const PAGE_RAPID_MAX = 150;
 export const PAGE_FAIL_MAX = 10;
+/** Failures landed plus unproven reads in flight may not reach this: the edge
+ * bans at 20 a minute. Separate from PAGE_FAIL_MAX so one stray failure does not
+ * starve the dozen first reads of an ordinary panel switch. */
+export const EDGE_FAIL_SAFE = 18;
 const REPORT_EVERY_MS = 60_000;
 const MAX_TRACKED_KEYS = 500;
 const MAX_TRACKED_PATHS = 1000;
@@ -134,9 +139,11 @@ export class RequestLoopGuard {
    *
    * Failing: a URL that `recordFailure` saw fail FAIL_MAX times inside
    * FAIL_WINDOW_MS is refused until FAIL_BLOCK_MS after the last of them.
-   * While the page's failure budget is spent, a read is refused unless the
-   * last answer for its path (query string ignored, so a loop that changes the
-   * query each call is still one path) was a success.
+   * While the page's failure budget is spent (PAGE_FAIL_MAX failures landed),
+   * or once any read has failed and landed failures plus unproven reads still
+   * in flight (`track`) reach EDGE_FAIL_SAFE, a read is refused unless the last
+   * answer for its path (see `pathOf`: agent_id kept, other query parameters
+   * dropped) was a success.
    *
    * Page: a rapid repeat spends the rapid budget; when it is spent the request
    * is refused. A request refused by the budget spends nothing and does not
@@ -160,9 +167,8 @@ export class RequestLoopGuard {
     }
     const failed = this.#expireBudget('fail', now).length;
     if (
-      failed > 0
-      && failed + this.#inflightUnproven >= PAGE_FAIL_MAX
-      && this.#pathOk.get(pathOf(key)) !== true
+      this.#pathOk.get(pathOf(key)) !== true
+      && (failed >= PAGE_FAIL_MAX || (failed > 0 && failed + this.#inflightUnproven >= EDGE_FAIL_SAFE))
     ) {
       return 'fail_budget';
     }

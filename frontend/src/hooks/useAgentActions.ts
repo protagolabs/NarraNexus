@@ -23,6 +23,7 @@ import { useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import type { ConfirmOptions, AlertOptions } from '@/components/ui/ConfirmDialog';
 import type { UpdateAgentResponse } from '@/types';
+import { pickDefaultAgent } from '@/lib/defaultAgent';
 
 export interface AgentActionDialogs {
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
@@ -38,7 +39,7 @@ export interface DeleteAgentOutcome {
 
 export function useAgentActions({ confirm, alert }: AgentActionDialogs) {
   const { t } = useTranslation();
-  const { agents, agentId: activeAgentId, setAgentId, refreshAgents } = useConfigStore();
+  const { agents, agentId: activeAgentId, userId, setAgentId, refreshAgents } = useConfigStore();
   const { setActiveAgent, clearAgent } = useChatStore();
 
   /**
@@ -135,7 +136,9 @@ export function useAgentActions({ confirm, alert }: AgentActionDialogs) {
         await refreshAgents();
         clearAgent(agentId);
         if (wasActive) {
-          const next = remaining[0]?.agent_id ?? '';
+          // The viewer's own next agent — never remaining[0], which is often a
+          // stranger's newer public agent (every panel would then 403).
+          const next = pickDefaultAgent(remaining, userId);
           setAgentId(next);
           if (next) setActiveAgent(next);
         }
@@ -151,7 +154,7 @@ export function useAgentActions({ confirm, alert }: AgentActionDialogs) {
         return { deleted: false, wasActive: false };
       }
     },
-    [activeAgentId, agents, alert, clearAgent, confirm, refreshAgents, setActiveAgent, setAgentId, t],
+    [activeAgentId, agents, alert, clearAgent, confirm, refreshAgents, setActiveAgent, setAgentId, t, userId],
   );
 
   return { renameAgent, deleteAgent, warnAboutUpdateSideEffects };

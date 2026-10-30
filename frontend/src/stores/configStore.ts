@@ -10,6 +10,7 @@ import { resetSessionGuard } from '@/lib/sessionGuard';
 import { useTeamsStore } from './teamsStore';
 import type { AgentInfo } from '@/types';
 import { isSafeAgentId } from '@/lib/agentIdSafety';
+import { pickOwnGuideAgent } from '@/lib/defaultAgent';
 
 export type { AgentInfo };
 
@@ -128,14 +129,25 @@ export const useConfigStore = create<ConfigState>()(
             // it on every load, a stream of 403/404s. It is cleared, not swapped
             // for another agent: a silent switch mid-chat would send the user's
             // next message to an agent they did not pick (the sidebar's mount
-            // pass picks the viewer's own default on the next load). Only a
+            // pass picks the viewer's own default on the next full page load;
+            // within this session it stays empty). Only a
             // selection that was already current when this request started is
             // judged: one made while it was in flight (a just-created agent)
             // may postdate it.
             const { agentId } = get();
             const stale = agentId !== '' && agentId === selectedAtStart
               && !res.agents.some((a) => a.agent_id === agentId);
-            set(stale ? { agents: res.agents, agentId: '' } : { agents: res.agents });
+            // A new user's guide agent is provisioned after login returns, so
+            // login and the sidebar's mount pass found nothing to select. When
+            // nothing was selected before or during this request, the viewer's
+            // own guide is selected as soon as it is listed. Only the guide:
+            // any own agent would turn "cleared, not swapped" into a delayed
+            // silent swap.
+            const guide = agentId === '' && selectedAtStart === ''
+              ? pickOwnGuideAgent(res.agents, userId) : '';
+            set(stale
+              ? { agents: res.agents, agentId: '' }
+              : guide ? { agents: res.agents, agentId: guide } : { agents: res.agents });
           } else {
             // Keeping the previous list is deliberate (a backend hiccup must
             // not blank the sidebar) — being SILENT about it was not. The

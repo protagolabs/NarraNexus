@@ -18,6 +18,7 @@ import {
   FAIL_BLOCK_MS,
   FAIL_MAX,
   PAGE_FAIL_MAX,
+  EDGE_FAIL_SAFE,
   PAGE_WINDOW_MS,
   RequestLoopGuard,
 } from '../requestLoopGuard';
@@ -548,7 +549,23 @@ describe('guardedFetch reports failing reads', () => {
     await guardedFetch('/api/agents/foreign/first');
     const burst = Array.from({ length: 25 }, (_, i) => guardedFetch(`/api/agents/foreign/panel${i}`).catch(() => null));
     await Promise.all(burst);
-    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(PAGE_FAIL_MAX);
+    // Under the edge line (20 a minute) including the first failure.
+    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(EDGE_FAIL_SAFE);
+    expect(EDGE_FAIL_SAFE).toBeLessThan(20);
+  });
+
+  it('one stray failure does not starve an ordinary panel switch', async () => {
+    // A 403 from someone else's public agent, then opening an unvisited agent
+    // of the viewer's own: its ~15 first reads must all go out.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      new Promise((resolve) => setTimeout(() => resolve(new Response('{}', {
+        status: String(input).includes('foreign') ? 403 : 200,
+      })), 20)),
+    );
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await guardedFetch('/api/agents/foreign/awareness');
+    await Promise.all(Array.from({ length: 15 }, (_, i) => guardedFetch(`/api/agents/mine/panel${i}`)));
+    expect(fetchSpy).toHaveBeenCalledTimes(16);
   });
 
   it('on a clean page a burst of first reads is never held back', async () => {

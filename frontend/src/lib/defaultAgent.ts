@@ -16,3 +16,14 @@ export function pickDefaultAgent(agents: readonly AgentInfo[], userId: string): 
   if (!userId) return '';
   return agents.find((a) => a.created_by === userId)?.agent_id ?? '';
 }
+
+/** Whether the viewer owns any listed agent (the list also carries strangers' public agents). */
+export function ownsAnyAgent(agents: readonly AgentInfo[], userId: string): boolean {
+  return Boolean(userId) && agents.some((a) => a.created_by === userId);
+}
+
+/** The viewer's own auto-provisioned guide agent, if it is listed yet. */
+export function pickOwnGuideAgent(agents: readonly AgentInfo[], userId: string): string {
+  if (!userId) return '';
+  return agents.find((a) => a.bootstrap_active && a.created_by === userId)?.agent_id ?? '';
+}

@@ -73,30 +73,28 @@ function methodOf(input: RequestInfo | URL, init?: RequestInit): string | undefi
 }
 
 export async function guardedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  if (isGuardedMethod(methodOf(input, init))) {
-    const url = urlOf(input);
-    const verdict = guard.check(url);
-    if (verdict !== 'ok') {
-      // Budget reports throttle under one fixed key each, so the console gets one
-      // line a minute rather than one per refused read.
-      const reportKey = verdict === 'rapid_budget' || verdict === 'fail_budget' ? `<${verdict}>` : url;
-      if (guard.shouldReport(reportKey)) {
-        console.error(
-          verdict === 'loop'
-            ? `[request-loop-guard] refusing repeated read of ${url} (a component is fetching it in a loop)`
-            : verdict === 'failing'
-              ? `[request-loop-guard] refusing ${url} for a minute: it keeps failing`
-              : verdict === 'fail_budget'
-                ? `[request-loop-guard] ${guard.spent('fail')} failed reads in the last minute; pausing reads (refusing ${url})`
-                : `[request-loop-guard] ${guard.spent('rapid')} rapid repeat reads in the last minute; refusing ${url}`,
-        );
-      }
-      await delayUnlessAborted(LOOP_BLOCK_DELAY_MS, init?.signal);
-      throw new RequestLoopBlockedError();
-    }
-  }
   if (!isGuardedMethod(methodOf(input, init))) return fetch(input, init);
   const url = urlOf(input);
+  const verdict = guard.check(url);
+  if (verdict !== 'ok') {
+    // Budget reports throttle under one fixed key each, so the console gets one
+    // line a minute rather than one per refused read.
+    const reportKey = verdict === 'rapid_budget' || verdict === 'fail_budget' ? `<${verdict}>` : url;
+    if (guard.shouldReport(reportKey)) {
+      console.error(
+        verdict === 'loop'
+          ? `[request-loop-guard] refusing repeated read of ${url} (a component is fetching it in a loop)`
+          : verdict === 'failing'
+            ? `[request-loop-guard] refusing ${url} for a minute: it keeps failing`
+            : verdict === 'fail_budget'
+              ? `[request-loop-guard] ${guard.spent('fail')} failed reads in the last minute; pausing reads (refusing ${url})`
+              : `[request-loop-guard] ${guard.spent('rapid')} rapid repeat reads in the last minute; refusing ${url}`,
+      );
+    }
+    const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+    await delayUnlessAborted(LOOP_BLOCK_DELAY_MS, signal);
+    throw new RequestLoopBlockedError();
+  }
   const settle = guard.track(url);
   try {
     const response = await fetch(input, init);

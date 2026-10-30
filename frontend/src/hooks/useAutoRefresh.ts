@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 import { isGuideCoachmarkPending } from '@/lib/guideCoachmark';
 import { teamHasUnread } from '@/lib/unread';
 import type { ToastItem } from '@/stores/chatStore';
+import { ownsAnyAgent } from '@/lib/defaultAgent';
 
 // ── Polling interval config ─────────────────────
 
@@ -104,14 +105,16 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
   // preview) and must not be fast-polled indefinitely.
   useEffect(() => {
     if (!userId || !isGuideCoachmarkPending()) return;
-    if (useConfigStore.getState().agents.length > 0) return;
+    // Own agents only: the list also carries every public agent on the
+    // platform, so a non-empty list says nothing about the guide being there.
+    if (ownsAnyAgent(useConfigStore.getState().agents, userId)) return;
     let attempts = 0;
     const id = window.setInterval(() => {
       // Count BEFORE the hidden skip so the ~20s cap is wall-clock time, not
       // foreground time — a backgrounded tab must not keep this interval
       // armed indefinitely (the 30s tick covers late returns).
       attempts += 1;
-      if (attempts > 10 || useConfigStore.getState().agents.length > 0) {
+      if (attempts > 10 || ownsAnyAgent(useConfigStore.getState().agents, userId)) {
         window.clearInterval(id);
         return;
       }

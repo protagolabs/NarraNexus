@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/hooks/useAutoRefresh.ts
-last_verified: 2026-08-21
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 首登快速轮询按「自己的 agent」判断是否已到
+
+快速轮询的进入 / 退出条件从 `agents.length > 0` 改为 `ownsAnyAgent(agents, userId)`：
+列表含全平台公开 agent，非空不代表新用户的引导 agent 已供给，原条件在 prod 上让快速
+轮询直接不启动。引导 agent 出现后由 `configStore.refreshAgents` 自动选中（见其 mirror）。
 
 ## 2026-08-21 — tickBgMessages「有新回复」信号只订阅 chat 流
 

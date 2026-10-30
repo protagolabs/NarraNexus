@@ -44,7 +44,8 @@ repeats and failures spend this tab's budgets, and this tab's are announced.
 Failure wiring: a read that keeps answering 404 stops reaching the network,
 a read that answered 2xx keeps working while other reads exhaust the budget,
 once a read has failed 25 concurrent first reads reach the network at most
-`PAGE_FAIL_MAX` times, a clean page's burst of 40 first reads is never held,
+`EDGE_FAIL_SAFE` times (< 20), one stray failure still lets an ordinary panel
+switch's 15 first reads all go out, a clean page's burst of 40 first reads is never held,
 reads settling by network error release their pending slot,
 its failures are announced to other tabs, and failing writes are never
 counted. Each case starts
