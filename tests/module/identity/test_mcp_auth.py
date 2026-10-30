@@ -345,7 +345,8 @@ def test_every_agent_id_tool_is_async():
 
     # The served (instrumented) fns: the wrapper is async exactly when the
     # tool is, so this checks what module_runner actually serves.
-    tools, _failed = served_tools()
+    tools, failed = served_tools()
+    assert not failed, f"modules failed to build: {failed}"
     offenders = []
     checked = 0
     for t in tools:
@@ -356,9 +357,8 @@ def test_every_agent_id_tool_is_async():
     assert offenders == [], (
         f"sync tools declaring agent_id bypass OwnerScopedPolicy: {offenders}"
     )
-    # Coverage floor: the except/continue above silently skips modules whose
-    # constructor starts failing under database_client=None — without this,
-    # the invariant could hollow out while staying green (93 tools today).
+    # Coverage floor: build failures are asserted above; this guards against
+    # the walk itself shrinking (93 tools today).
     assert checked >= 90, f"invariant only checked {checked} tools — coverage shrank"
 
 

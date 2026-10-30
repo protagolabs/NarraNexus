@@ -349,6 +349,17 @@ def test_sync_tool_mismatching_user_is_overridden():
 # measurement: in-process counts, bounded keys, one row per flush window.
 
 
+@pytest.fixture(autouse=True)
+def _clean_override_state():
+    """Every test starts and ends with no pending override counts, so no
+    test's leftovers get flushed by a later test's tool call."""
+    from narranexus.platform.module_system import _mcp_identity as ident
+
+    ident._override_counts.clear()
+    yield
+    ident._override_counts.clear()
+
+
 @pytest.fixture
 def audit_rows(monkeypatch):
     from narranexus.platform.module_system import _mcp_identity as ident
@@ -397,8 +408,7 @@ async def test_placeholder_and_matching_values_are_not_overrides(audit_rows):
     assert audit_rows == []
 
 
-@pytest.mark.asyncio
-async def test_override_keys_are_bounded(audit_rows, monkeypatch):
+def test_override_keys_are_bounded(audit_rows, monkeypatch):
     from narranexus.platform.module_system import _mcp_identity as ident
 
     monkeypatch.setattr(ident, "_override_flush_deadline", float("inf"))  # hold the window open
@@ -447,3 +457,34 @@ async def test_audit_failure_never_breaks_the_tool(monkeypatch):
     with injected(agent_id_headers(AGENT, user_id=USER)):
         out = await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")
     assert out["user_id"] == USER
+
+
+@pytest.mark.asyncio
+async def test_overrides_within_one_window_share_one_row(audit_rows):
+    """The 60s window coalesces: two overrides back to back -> one row, n=2."""
+    from narranexus.platform.module_system import _mcp_identity as ident
+
+    fn = _fn(_server(), "needs_both")
+    with injected(agent_id_headers(AGENT, user_id=USER)):
+        await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")   # flushes (deadline 0)
+        await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")   # counted, window open
+        await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")
+    assert len(audit_rows) == 1
+    assert ident._override_counts[("needs_both", OTHER_USER, USER)] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_denied_call_still_flushes(audit_rows, monkeypatch):
+    """Flush runs before the ownership check, so a refused call still lands
+    its pending counts."""
+    async def deny(_agent_id):
+        return "not your agent"
+
+    monkeypatch.setattr(
+        "narranexus.platform.module_system.identity.mcp_auth.check_agent_ownership", deny
+    )
+    fn = _fn(_server(), "needs_both")
+    with injected(agent_id_headers(AGENT, user_id=USER)):
+        out = await fn(agent_id=AGENT, user_id=OTHER_USER, title="t")
+    assert out == {"success": False, "error": "not your agent"}
+    assert len(audit_rows) == 1

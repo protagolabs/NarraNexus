@@ -467,10 +467,15 @@ def _note_user_override(tool: str, supplied: str, owner: str) -> None:
 
 async def flush_user_overrides() -> None:
     """Write the pending override counts as one audit row, at most once per
-    window. Called by the async tool wrapper after every call (a dict check
-    when nothing is due). A sync tool cannot await the write: its overrides
-    are counted and land with the next async call in the same process.
-    The observer never breaks the observed: any failure is logged at debug.
+    window. Called by the async tool wrapper right after identity resolution,
+    before the ownership check and the tool body (a dict check when nothing
+    is due); a call refused by the placeholder guard does not flush, its
+    counts wait for the next call. A sync tool cannot await the write: its
+    overrides are counted and land with the next async call in the same
+    process. The observer never breaks the observed: any failure is logged at
+    debug. Counts are cleared before the write, so a failed or cancelled
+    write loses that window's COUNTS — never the fact that overrides
+    happened, which each override's own warning line records.
     """
     global _override_flush_deadline
     if not _override_counts:
@@ -511,7 +516,8 @@ def resolve_caller_user_id(supplied: Any, *, tool: str = "") -> Any:
     - ``None`` → returned untouched; injection must never scope a
       legitimately unfiltered query (retrieval tools stay agent-scoped);
     - a placeholder string → the injected turn owner;
-    - a mismatching REAL value → the injected turn owner, warning-logged.
+    - a mismatching REAL value → the injected turn owner, warning-logged and
+      counted into the aggregated mcp_identity_user_override audit row.
 
     The mismatch case used to keep the supplied value ("measure before you
     police"). Measured 2026-10-30: zero mismatches on prod over four days,
