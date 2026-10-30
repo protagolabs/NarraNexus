@@ -48,6 +48,7 @@ from narranexus.platform.artifact import (
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.settings import settings
 from narranexus.platform.schema import Artifact, EmbedMode, HealResult
+from narranexus.platform.utils import confined_io
 from narranexus.platform.utils.db.db_factory import get_db_client
 
 from backend.middleware.body_size import MAX_OFFICE_ASSET_BYTES, PUT_CONTENT_MARGIN
@@ -468,7 +469,19 @@ async def upload_office_asset(
     except ArtifactPathEscape:
         raise HTTPException(404, "artifact not found")
     entry_dir = os.path.dirname(entry_abs)
-    if not os.path.isdir(entry_dir):
+    # The upload is created THROUGH the confined walk (O_NOFOLLOW on every
+    # component below the base, O_EXCL on the file): resolve_owned_entry above
+    # is only a check, and `open(dest)` by string would follow a directory
+    # swapped for a link in the meantime into another tenant's tree.
+    base_real = os.path.realpath(settings.base_working_path)
+    entry_dir_rel = os.path.relpath(entry_dir, base_real)
+    try:
+        if entry_dir_rel.startswith(".."):  # resolve_owned_entry guarantees below-base
+            raise confined_io.ConfinedPathError("entry directory is outside the base")
+        os.close(confined_io.open_dir_fd(base_real, entry_dir_rel))
+    except confined_io.ConfinedPathError:
+        raise HTTPException(404, "artifact not found")
+    except OSError:
         raise HTTPException(410, "entry directory is gone")
 
     # Honest bounds (review #334 r3 I1): with an UploadFile in the
@@ -495,10 +508,12 @@ async def upload_office_asset(
     # nothing. lstrip(".") above already handled leading-dot names.
     stem, ext = os.path.splitext(safe)
     safe = stem[:104] + ext[:16]
-    dest = os.path.join(entry_dir, f"{uuid.uuid4().hex[:8]}_{safe}")
+    dest_name = f"{uuid.uuid4().hex[:8]}_{safe}"
+    dest = os.path.join(entry_dir, dest_name)
+    dest_rel = f"{entry_dir_rel}/{dest_name}"
     received = 0
     try:
-        with open(dest, "wb") as out:
+        with confined_io.open_new(base_real, dest_rel) as out:
             while chunk := await file.read(1024 * 1024):
                 received += len(chunk)
                 if received > MAX_OFFICE_ASSET_BYTES:
@@ -508,12 +523,15 @@ async def upload_office_asset(
                         f"({MAX_OFFICE_ASSET_BYTES // (1024 * 1024)} MB max)",
                     )
                 out.write(chunk)
+    except confined_io.ConfinedPathError:
+        # A link appeared on the path after the check: nothing was created.
+        raise HTTPException(404, "artifact not found")
     except BaseException:
         # Never leave a partial file: the entry dir is served by the raw
         # route and counted by _dir_size.
         try:
-            os.unlink(dest)
-        except OSError:
+            confined_io.unlink(base_real, dest_rel)
+        except (OSError, confined_io.ConfinedPathError):
             pass
         raise
     return {"path": dest}

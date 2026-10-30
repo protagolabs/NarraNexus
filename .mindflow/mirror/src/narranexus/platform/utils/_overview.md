@@ -20,6 +20,7 @@ Infrastructure utilities shared by every other layer of `xyz_agent_context` — 
 | `text.py` | Keyword extraction and smart truncation for mixed Chinese-English text |
 | `exceptions.py` | `AgentContextError` hierarchy — typed errors with rich context |
 | `file_safety.py` | Path traversal and upload size validation helpers |
+| `confined_io.py` | fd-relative O_NOFOLLOW file ops: path check and open as one operation (tenant symlink swaps) |
 | `evermemos/` | HTTP client for the optional EverMemOS external memory service |
 
 ## Collaboration with external directories

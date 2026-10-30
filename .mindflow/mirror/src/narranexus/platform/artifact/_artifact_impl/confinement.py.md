@@ -1,8 +1,19 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/confinement.py
 stub: false
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 ---
+
+## 2026-10-30 — 检查与打开合为一个操作（`*_confined` 一族）
+
+`confine_entry` 只是**检查**：返回 realpath 之后，调用方若再按字符串重新打开，检查与打开之间路径上的
+目录可以被换成指向别的租户的链接（租户的沙箱能在自己的 workspace 里建 symlink），打开就落到别人的树里。
+文件末尾新增的 `open_confined_read` / `sha256_of_confined` / `confined_file_size` / `write_confined_atomic` /
+`confined_dir_size` / `confined_path_exists` 把 I/O 本身交给 [[utils/confined_io]]：从 `realpath(base_working_path)`
+起，其下每一级都是 `O_NOFOLLOW` + dir_fd 逐级打开，任何时刻出现的链接都被拒绝而不是跟随。
+`split_under_base(abs, base)` 负责把 confine_entry 给出的绝对路径还原成 (base, rel)；不在 base 下 → `ArtifactPathEscape`。
+`ConfinedPathError`（含链接、平台不支持 dir_fd）统一映射成 `ArtifactPathEscape`；缺失/非常规文件仍是普通
+`OSError`，由调用方映射 410。**不要**在需要读写 entry 的地方再 `open(abs_entry)`——那正是被修掉的竞态。
 
 # artifact/_artifact_impl/confinement.py — 把 artifact 的 file_path 钉在属主的根下
 

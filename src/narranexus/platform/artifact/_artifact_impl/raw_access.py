@@ -26,6 +26,7 @@ from __future__ import annotations
 import mimetypes
 import os
 from dataclasses import dataclass
+from typing import BinaryIO
 
 from loguru import logger
 
@@ -68,10 +69,27 @@ _OFFICE_MIME_BY_EXT = {
 class ResolvedRawFile:
     """A raw-route resolution: which file to serve and how to label it."""
 
-    path: str  # absolute, realpath-resolved file path
+    path: str  # absolute, realpath-resolved file path (a label: never re-open it)
     media_type: str
     is_entry: bool  # True → this is the artifact's entry file (drives CSP choice)
     kind: ArtifactKind  # the artifact's registered kind
+
+    def open(self) -> BinaryIO:
+        """Open the resolved file for reading THROUGH the confined walk.
+
+        Serving must read from this file object, not re-open ``path`` by
+        string: a directory on the path can be swapped for a link between the
+        resolution above and the first byte served, and the string open would
+        follow it into another tenant's tree. Here every component below the
+        base is opened O_NOFOLLOW, so such a swap fails closed.
+
+        Raises:
+            ArtifactPathEscape: a link on the path (route → 404).
+            OSError (FileNotFoundError / NotARegularFileError): gone (route → 410).
+        """
+        from .confinement import open_confined_read
+
+        return open_confined_read(self.path)
 
 
 async def resolve_raw_file(
@@ -112,7 +130,7 @@ async def resolve_raw_file(
         # Legacy (pre-pointer-model) row that was never re-registered.
         raise ArtifactContentGone("artifact has no content pointer on disk")
 
-    from .confinement import confine_entry, owner_roots
+    from .confinement import confine_entry, open_confined_read, owner_roots
 
     base = os.path.realpath(settings.base_working_path)
     # Resolve with a flat→nested fallback so artifacts whose file_path was
@@ -156,7 +174,10 @@ async def resolve_raw_file(
             )
 
     if file_path:
-        requested = os.path.realpath(os.path.join(artifact_root, file_path))
+        try:
+            requested = os.path.realpath(os.path.join(artifact_root, file_path))
+        except ValueError:  # embedded NUL and friends
+            raise ArtifactNotFound("not found") from None
         if not requested.startswith(artifact_root + os.sep):
             logger.warning(f"path-escape blocked: artifact={artifact_id} file_path={file_path!r}")
             raise ArtifactNotFound("not found")
@@ -164,9 +185,18 @@ async def resolve_raw_file(
     else:
         target = entry_abs
 
-    if not os.path.isfile(target):
+    # Existence is proven by a confined open (closed at once): a link on the
+    # path reads as not-found, a missing / non-regular file as gone. The route
+    # opens again via ResolvedRawFile.open() for the bytes it serves.
+    try:
+        with open_confined_read(target, base):
+            pass
+    except ArtifactPathEscape:
+        logger.warning(f"path-escape blocked: artifact={artifact_id} target={target!r}")
+        raise ArtifactNotFound("not found") from None
+    except OSError:
         logger.warning(f"artifact file missing on disk: {target}")
-        raise ArtifactContentGone("artifact file missing on disk")
+        raise ArtifactContentGone("artifact file missing on disk") from None
 
     is_entry = target == entry_abs
     if is_entry and art.kind in _RENDER_MARKER_KINDS:

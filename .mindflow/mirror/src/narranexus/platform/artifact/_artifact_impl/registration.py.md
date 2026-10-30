@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/registration.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — hash 与 size 不再被链接带偏
+
+`compute_entry_hash` 经 `sha256_of_confined` 读（链接 → 返回 None，不是别人的 hash）；`_dir_size` 现在 fd 相对遍历，
+**只数常规文件、跳过一切符号链接**（原先 `os.path.getsize` 会跟随文件链接，把别的租户文件的大小写进自己的行）；
+顶层单文件模式的 `getsize` 也改为 `confined_file_size`。`_dir_size` 的参数必须在 `base_working_path` 之下，否则
+`ArtifactPathEscape`。
 
 ## 2026-10-28 — 注册时 workspace/team 根为字面路径且拒绝符号链接
 

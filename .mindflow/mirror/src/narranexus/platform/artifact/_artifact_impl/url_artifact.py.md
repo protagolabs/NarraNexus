@@ -1,8 +1,16 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/url_artifact.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — 新建 tab 先证明目录无链接再写；读写全部受限
+
+`open_url` 原来 `os.makedirs` + 按串写：workspace 下的 `tabs` 若是指向别人目录的链接，doc 与 content.md 直接落到
+受害者目录。现在先 `_make_tab_dir`（[[utils/confined_io]] 的 `make_dirs`，从 base 起逐级 `O_NOFOLLOW`，链接 →
+`ArtifactPathEscape`，在此之前什么都不写），再经 `write_confined_atomic` 写 doc 与 content.md。
+`set_embed_mode` 的 `_read_doc`/`_write_doc` 同样走受限 fd（读 doc 和原子重写之间目录被换成链接 →
+`ArtifactNotFound`，受害者的 doc 不被改写）。注意：`_write_doc` 不再自己建目录，目录必须已存在。
 
 # url_artifact.py — create / update URL-tab artifacts (application/x-url)
 

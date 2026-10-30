@@ -19,8 +19,6 @@ A stale table hash must not let a save silently overwrite that external edit.
 from __future__ import annotations
 
 import hashlib
-import os
-import tempfile
 
 from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactContentGone,
@@ -31,11 +29,12 @@ from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactTooLarge,
 )
 from narranexus.platform.artifact._artifact_impl.commit import commit_content_refresh
-from narranexus.platform.artifact._artifact_impl.confinement import confine_entry
-from narranexus.platform.artifact._artifact_impl.registration import (
-    MAX_ARTIFACT_BYTES,
-    compute_entry_hash,
+from narranexus.platform.artifact._artifact_impl.confinement import (
+    confine_entry,
+    sha256_of_confined,
+    write_confined_atomic,
 )
+from narranexus.platform.artifact._artifact_impl.registration import MAX_ARTIFACT_BYTES
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact
 from narranexus.platform.settings import settings
@@ -45,6 +44,17 @@ from narranexus.platform.utils.db.database import AsyncDatabaseClient
 # office-live goes through officecli command translation, never raw bytes;
 # binary kinds have no text content to PUT.
 EDITABLE_KINDS = ("text/markdown", "text/csv", "text/html")
+
+
+def _confined_entry_hash(abs_entry: str, artifact: Artifact) -> str:
+    """sha256 of the confined entry. Link on the path → ArtifactNotFound (the
+    routes' 404 discipline); missing / not a regular file → ArtifactContentGone."""
+    try:
+        return sha256_of_confined(abs_entry)
+    except ArtifactPathEscape:
+        raise ArtifactNotFound(f"artifact not found: {artifact.artifact_id}")
+    except OSError:
+        raise ArtifactContentGone(f"entry file is gone: {artifact.file_path}")
 
 
 async def save_user_content(
@@ -98,36 +108,27 @@ async def save_user_content(
         # Same 404 discipline as the routes: a pointer outside the owner's
         # roots is treated as not-found, never written through.
         raise ArtifactNotFound(f"artifact not found: {artifact_id}")
-    if not os.path.isfile(abs_entry):
-        raise ArtifactContentGone(f"entry file is gone: {artifact.file_path}")
-
-    current_hash = compute_entry_hash(abs_entry)
+    # Read and write ONLY through the confined helpers: the entry was proven
+    # under the owner's roots above, but a directory on its path can be swapped
+    # for a link between that check and any by-string open. A link refuses
+    # (not-found, same discipline as the check); a missing/non-regular entry
+    # is "gone".
+    current_hash = _confined_entry_hash(abs_entry, artifact)
     if current_hash != base_hash:
         raise ArtifactEditConflict(
             "the file changed since this editor loaded it",
-            current_hash=current_hash or "",
+            current_hash=current_hash,
         )
 
     # Atomic write: temp file in the SAME directory (os.replace must not cross
-    # filesystems), then rename over the entry. Concurrent readers — the raw
-    # route, officecli watch, the agent's own tools — see either the old bytes
-    # or the new bytes, never a half-written file.
-    entry_dir = os.path.dirname(abs_entry)
-    fd, tmp_path = tempfile.mkstemp(dir=entry_dir, prefix=".narra_edit_", suffix=".tmp")
+    # filesystems), then rename over the entry — both through the parent
+    # directory's fd. Concurrent readers — the raw route, officecli watch, the
+    # agent's own tools — see either the old bytes or the new bytes, never a
+    # half-written file; a failed write removes its temp file.
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(raw)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, abs_entry)
-    except BaseException:
-        # Never leave temp droppings next to the entry — they'd show up in
-        # dir listings and in the multi-file artifact's served folder.
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+        write_confined_atomic(abs_entry, raw)
+    except ArtifactPathEscape:
+        raise ArtifactNotFound(f"artifact not found: {artifact_id}")
 
     new_hash = hashlib.sha256(raw).hexdigest()
     return await commit_content_refresh(
@@ -166,12 +167,7 @@ async def commit_office_user_edit(
         )
     except ArtifactPathEscape:
         raise ArtifactNotFound(f"artifact not found: {artifact_id}")
-    if not os.path.isfile(abs_entry):
-        raise ArtifactContentGone(f"entry file is gone: {artifact.file_path}")
-
-    new_hash = compute_entry_hash(abs_entry)
-    if new_hash is None:
-        raise ArtifactContentGone(f"entry unreadable: {artifact.file_path}")
+    new_hash = _confined_entry_hash(abs_entry, artifact)
     if new_hash == artifact.content_hash:
         return artifact  # nothing changed — not a commit point
 

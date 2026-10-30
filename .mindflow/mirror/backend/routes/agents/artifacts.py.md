@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/agents/artifacts.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — office-asset 经受限 fd 创建
+
+`resolve_owned_entry` 之后用 `open(dest, "wb")` 按串写，目录被换成链接就落进别人的目录。现在先用
+`confined_io.open_dir_fd` 证明目录（链接 → 404，缺失 → 410），再用 `confined_io.open_new`（`O_EXCL|O_NOFOLLOW`，
+经父目录 fd）创建上传文件；超限/失败经 `confined_io.unlink` 清理。返回的 `path` 仍是绝对路径（officecli 的 watch
+进程按它在自己的文件系统里解析）。
 
 ## 2026-10-28 — office-asset 落盘目录先过属主限定
 

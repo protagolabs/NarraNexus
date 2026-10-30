@@ -119,7 +119,12 @@ async def test_missing_entry_reports_missing_without_commits(env):
     assert await _history(env["db"], "art_fresh001") == []
 
 
-def test_office_lock_present(tmp_path):
+def test_office_lock_present(tmp_path, monkeypatch):
+    # The probe runs through the confined walk below base_working_path (it is
+    # only ever called on a confined entry), so the doc must live under it.
+    from narranexus.platform.settings import settings as sa
+    monkeypatch.setattr(sa, "base_working_path", str(tmp_path), raising=False)
+    tmp_path = tmp_path.resolve()
     doc = tmp_path / "Q3 deck.pptx"
     doc.write_bytes(b"pk")
     assert office_lock_present(str(doc)) is False

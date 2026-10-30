@@ -23,6 +23,10 @@ from __future__ import annotations
 
 import os
 
+from narranexus.platform.artifact._artifact_impl.confinement import (
+    confined_file_size,
+    owner_roots,
+)
 from narranexus.platform.artifact._artifact_impl.notify import stage_artifact_event
 from narranexus.platform.artifact._artifact_impl.registration import (
     _dir_size,
@@ -30,17 +34,28 @@ from narranexus.platform.artifact._artifact_impl.registration import (
 )
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact
+from narranexus.platform.settings import settings
 from narranexus.platform.utils.db.database import AsyncDatabaseClient
 
 
-def entry_size_bytes(abs_entry: str, file_path: str) -> int:
-    """size_bytes under registration's semantics: an entry at the workspace
-    top level counts the file alone; an entry in a dedicated directory counts
-    the whole directory (sibling assets included)."""
-    workspace_top = os.path.dirname(file_path) in ("", ".")
-    if workspace_top:
-        return os.path.getsize(abs_entry)
-    return _dir_size(os.path.dirname(abs_entry))
+def entry_size_bytes(abs_entry: str, artifact: Artifact) -> int:
+    """size_bytes under registration's semantics: an entry sitting directly in
+    a CONTAINER root (the owner's workspace, or the team folder) counts the
+    file alone; an entry in a dedicated directory counts the whole directory
+    (sibling assets included).
+
+    "At a container root" is decided on the confined entry's real directory
+    against ``owner_roots`` — the same set raw serving and registration use.
+    It used to test ``dirname(file_path)`` of the BASE-relative stored pointer
+    (``<user>/<agent>/x.md`` → never empty), so the top-level condition never
+    matched and a top-level entry was charged the size of the whole workspace.
+    """
+    base = os.path.realpath(settings.base_working_path)
+    roots = owner_roots(artifact.agent_id, artifact.user_id, base, team_id=artifact.team_id)
+    entry_dir = os.path.dirname(abs_entry)
+    if entry_dir in roots:
+        return confined_file_size(abs_entry, base)
+    return _dir_size(entry_dir)
 
 
 async def commit_content_refresh(
@@ -62,7 +77,7 @@ async def commit_content_refresh(
     commits). Returns the refreshed row.
     """
     repo = ArtifactRepository(db)
-    size_bytes = entry_size_bytes(abs_entry, artifact.file_path)
+    size_bytes = entry_size_bytes(abs_entry, artifact)
 
     await repo.update_pointer(
         artifact.artifact_id,

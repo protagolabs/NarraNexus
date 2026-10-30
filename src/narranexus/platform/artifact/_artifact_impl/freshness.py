@@ -29,7 +29,11 @@ from narranexus.platform.artifact._artifact_impl.commit import (
     commit_content_refresh,
     entry_size_bytes,
 )
-from narranexus.platform.artifact._artifact_impl.confinement import confine_entry
+from narranexus.platform.artifact._artifact_impl.confinement import (
+    confine_entry,
+    confined_path_exists,
+    open_confined_read,
+)
 from narranexus.platform.artifact._artifact_impl.errors import ArtifactPathEscape
 from narranexus.platform.artifact._artifact_impl.registration import compute_entry_hash
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
@@ -48,7 +52,9 @@ def office_lock_present(abs_entry: str) -> bool:
     the desktop app's own saves — direct-edit surfaces grey out on it.
     """
     directory, name = os.path.split(abs_entry)
-    return os.path.exists(os.path.join(directory, f"~${name}"))
+    # Probed through the confined lstat: a directory swapped for a link reads as
+    # "no lock" instead of an existence oracle into another tenant's folder.
+    return confined_path_exists(os.path.join(directory, f"~${name}"))
 
 
 async def refresh_external_state(
@@ -79,8 +85,11 @@ async def refresh_external_state(
     except ArtifactPathEscape:
         return "missing"
     try:
-        stat = os.stat(abs_entry)
-    except OSError:
+        # fstat on the fd the confined open returned: the mtime belongs to the
+        # same inode the hash below will read.
+        with open_confined_read(abs_entry) as entry_file:
+            stat = os.fstat(entry_file.fileno())
+    except (OSError, ArtifactPathEscape):
         return "missing"
 
     # Fast screen: an mtime at or before the last commit point cannot be an
@@ -108,7 +117,7 @@ async def refresh_external_state(
         await repo.update_pointer(
             artifact.artifact_id,
             file_path=artifact.file_path,
-            size_bytes=entry_size_bytes(abs_entry, artifact.file_path),
+            size_bytes=entry_size_bytes(abs_entry, artifact),
             content_hash=new_hash,
         )
         return "fresh"

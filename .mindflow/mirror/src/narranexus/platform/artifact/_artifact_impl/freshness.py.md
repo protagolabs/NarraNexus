@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/artifact/_artifact_impl/freshness.py
-last_verified: 2026-10-28
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — mtime、hash、office 锁探测都走受限路径
+
+确权后的 `os.stat(abs_entry)` 改为对受限打开的 fd 做 `fstat`（mtime 与随后读 hash 的是同一个 inode）；hash 经
+`compute_entry_hash`（受限读）；`office_lock_present` 用 `confined_path_exists`——链接被换进来时读作"无锁"，
+不再是对别人目录的存在性探针。链接/越界一律 `"missing"`。`entry_size_bytes` 现在接收 artifact（见 [[commit]]）。
 
 # freshness.py — 外部编辑侦测(5①)
 
