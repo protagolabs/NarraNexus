@@ -13,12 +13,12 @@ Provides endpoints for:
 - GET /chat-latest - newest conversation-row timestamp per agent, for a list of agents
 """
 
-from typing import Optional, List, Dict, Any, Literal
+from typing import Annotated, Optional, List, Dict, Any, Literal
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, StringConstraints
 
 from narranexus.sdk.web import current_user_id
 from narranexus.sdk.web import require_agent_owner
@@ -449,9 +449,11 @@ class ChatLatestResponse(BaseModel):
 @router.get("/chat-latest", response_model=ChatLatestResponse)
 async def get_chat_latest(
     request: Request,
-    agent_ids: List[str] = Query(
+    agent_ids: List[Annotated[str, StringConstraints(max_length=CHAT_LATEST_ID_MAX_LENGTH)]] = Query(
         default=[],
-        max_length=CHAT_LATEST_ID_MAX_LENGTH,
+        # On a list, max_length bounds the number of items (raw, before the
+        # de-duplication below); the per-item length bound is on the item type.
+        max_length=CHAT_LATEST_MAX_AGENTS,
         description=f"Agent ids, one parameter each (at most {CHAT_LATEST_MAX_AGENTS}).",
     ),
 ):
@@ -463,8 +465,6 @@ async def get_chat_latest(
     """
     user_id = await current_user_id(request)
     ids = list(dict.fromkeys(a.strip() for a in agent_ids if a.strip()))
-    if len(ids) > CHAT_LATEST_MAX_AGENTS:
-        raise HTTPException(status_code=422, detail=f"at most {CHAT_LATEST_MAX_AGENTS} agent ids per call")
     if not ids:
         return ChatLatestResponse(success=True, latest={})
     try:

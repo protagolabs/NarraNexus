@@ -280,11 +280,21 @@ async def test_more_instances_than_one_stamp_read_chunk(env, monkeypatch):
     with its own slice of instance ids, including across a chunk boundary."""
     client, _db, instance = env
     monkeypatch.setattr(cl, "_STAMP_READ_CHUNK", 3)
+    stamp_reads = []
+    real_get_by_ids = _db.get_by_ids
+
+    async def spy(table, id_field, ids, fields=None):
+        if fields == ["instance_id", "updated_at"]:
+            stamp_reads.append(len(ids))
+        return await real_get_by_ids(table, id_field, ids, fields=fields)
+
+    monkeypatch.setattr(_db, "get_by_ids", spy)
     for i in range(7):
         await instance(f"c{i}", f"a{i % 3}", OWNER, _msg("assistant", "x", f"2026-10-30T10:0{i}:00"))
     assert _latest(client, OWNER, ["a0", "a1", "a2"]) == {
         "a0": "2026-10-30T10:06:00", "a1": "2026-10-30T10:04:00", "a2": "2026-10-30T10:05:00",
     }
+    assert stamp_reads == [3, 3, 1]
 
 
 def test_unauthenticated_call_is_refused(env):
@@ -295,9 +305,16 @@ def test_unauthenticated_call_is_refused(env):
 
 @pytest.mark.asyncio
 async def test_input_bounds(env):
+    """At most CHAT_LATEST_MAX_AGENTS ids (the sidebar's chunk size — exactly that
+    many must pass), each at most CHAT_LATEST_ID_MAX_LENGTH characters."""
     client, _db, _instance = env
     assert _latest(client, OWNER, []) == {}
-    too_many = [f"a{i}" for i in range(cl.CHAT_LATEST_MAX_AGENTS + 1)]
-    r = client.get("/api/agents/chat-latest", params={"agent_ids": too_many},
-                   headers={"x-test-user": OWNER})
-    assert r.status_code == 422
+
+    def get(ids):
+        return client.get("/api/agents/chat-latest", params={"agent_ids": ids}, headers={"x-test-user": OWNER})
+
+    assert get([f"a{i}" for i in range(cl.CHAT_LATEST_MAX_AGENTS)]).status_code == 200
+    assert get([f"a{i}" for i in range(129)]).status_code == 200
+    assert get([f"a{i}" for i in range(cl.CHAT_LATEST_MAX_AGENTS + 1)]).status_code == 422
+    assert get(["x" * cl.CHAT_LATEST_ID_MAX_LENGTH]).status_code == 200
+    assert get(["x" * (cl.CHAT_LATEST_ID_MAX_LENGTH + 1)]).status_code == 422

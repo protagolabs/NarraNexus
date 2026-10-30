@@ -10,8 +10,9 @@ simple-chat-history 循环里「一条 memory 消息在 owner 面板上显示成
 [[_chat_projection]] 的 `project_message`（连同 `parse_timestamp` / `parse_json_field` / 两个
 来源常量 / 表名常量），本文件直接用公共名调用，行为不变（test_activity_log_a2a_visibility 全绿）。
 
-新增 **`GET /api/agents/chat-latest?agent_ids=a&agent_ids=b…`**（每个 id 一个查询参数，≤200 个、
-单个 ≤128 字符，超出 422；需登录）：薄壳，解析去重
+新增 **`GET /api/agents/chat-latest?agent_ids=a&agent_ids=b…`**（每个 id 一个查询参数；原始参数个数 ≤200
+——按去重前计，前端不会发重复 id——单个 ≤128 字符，超出 422；需登录。FastAPI 里列表参数的
+`max_length` 限的是条数，单项长度靠 `Annotated[str, StringConstraints(...)]`）：薄壳，解析去重
 后交给 [[_chat_latest]] 的 `chat_latest_for_user`，返回每个 agent 对话 tab 最新一行的时间戳。侧栏
 后台「有新回复」用，替代逐 agent 调 simple-chat-history；投影、作用域、成本与缓存见 [[_chat_latest]]。
 
@@ -251,7 +252,7 @@ Event 的 `event_log` 字段里存的是流式 delta，每个 thinking_delta 是
 
 - **non-chat working_source 的消息过滤**：`simple-chat-history` 对 `working_source != "chat"` 的消息只保留 assistant 角色的消息，过滤掉 user 消息。这是因为 job/matrix 触发的 user 消息是系统生成的触发提示，不应该展示给用户。如果将来有新的 working_source 类型，需要检查这个过滤逻辑。
 - **分页方向**：`simple-chat-history` 的 `offset` 参数是"从末尾跳过 N 条"，而不是传统的"从开头跳过 N 条"。`offset=20, limit=20` 取的是倒数 21-40 条，而不是正向的第 21-40 条。
-- **timestamp 解析的多格式兼容**：`_parse_timestamp` 需要处理 MySQL datetime（带或不带时区）和 SQLite 文本格式，代码里有一个多格式 fallback 列表。这说明历史数据里存在时间戳格式不一致的情况。
+- **timestamp 解析的多格式兼容**：[[_chat_projection]] `parse_timestamp` 需要处理 MySQL datetime（带或不带时区）和 SQLite 文本格式，代码里有一个多格式 fallback 列表。这说明历史数据里存在时间戳格式不一致的情况。
 
 ## 新人易踩的坑
 

@@ -15,7 +15,7 @@ stub: false
 ## 常量
 
 `CHAT_LATEST_MAX_AGENTS`（200）与前端 `useAutoRefresh.ts` 的 `CHAT_LATEST_CHUNK` 必须一起改：
-前端块大于它会每个 tick 都 422。`CHAT_LATEST_ID_MAX_LENGTH`（128）是单个 id 的宽松上界。
+前端块大于它会每个 tick 都 422。`CHAT_LATEST_ID_MAX_LENGTH`（128）是单个 id 的宽松上界（路由里作用在列表元素类型上，超出 422）。
 
 ## 与 tab 一致（按构造）
 
