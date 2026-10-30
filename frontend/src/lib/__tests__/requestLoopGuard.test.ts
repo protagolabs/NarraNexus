@@ -202,6 +202,15 @@ describe('RequestLoopGuard', () => {
     expect(admitted).toBe(2_000);
   });
 
+  it("another tab's messages can at most spend a budget, never pile up beyond it", () => {
+    let now = 0;
+    const g = new RequestLoopGuard(() => now);
+    for (let i = 0; i < 10 * PAGE_TOTAL_MAX; i++) g.recordRemote('total');
+    expect(g.spent('total')).toBe(PAGE_TOTAL_MAX);
+    now += PAGE_WINDOW_MS + 1;
+    expect(g.check('/api/after-burst')).toBe('ok'); // a minute later, not ten
+  });
+
   it('tabs share the page budgets (review I-3)', () => {
     let now = 0;
     const tabs: RequestLoopGuard[] = [];
@@ -229,7 +238,7 @@ describe('RequestLoopGuard', () => {
     for (let i = 0; i < LOOP_MAX_PER_WINDOW * 2; i++) {
       // Rapid repeats, all refused by the budget. Were refusals counted toward
       // the URL's window, this would flip to 'loop' after 15.
-      expect(g.check('/api/z')).toBe('page_budget');
+      expect(g.check('/api/z')).toBe('rapid_budget');
     }
   });
 
@@ -382,7 +391,7 @@ describe('guardedFetch across tabs (pre-push review I-C)', () => {
 
   it("another tab's reads spend this tab's budget", async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {});
     for (let i = 0; i < PAGE_TOTAL_MAX; i++) other.postMessage('total');
     await new Promise((r) => setTimeout(r, 50)); // let the messages land
     vi.useFakeTimers();
@@ -390,6 +399,35 @@ describe('guardedFetch across tabs (pre-push review I-C)', () => {
     const settled = expect(refused).rejects.toBeInstanceOf(RequestLoopBlockedError);
     await vi.advanceTimersByTimeAsync(LOOP_BLOCK_DELAY_MS);
     await settled;
+    // The report states the count and the edge line, not a guessed cause.
+    expect(String(report.mock.calls[0][0])).toContain(`${PAGE_TOTAL_MAX} reads in the last minute`);
+  });
+
+  it('an unknown mode keeps the total budget on (fail-closed, pre-merge review I-B)', async () => {
+    useRuntimeStore.setState({ mode: null });
+    const win = window as unknown as { __NARRANEXUS_CONFIG__?: unknown };
+    win.__NARRANEXUS_CONFIG__ = { apiUrl: 'https://agent.example.com' }; // mode left unset
+    try {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      for (let i = 0; i < PAGE_TOTAL_MAX; i++) other.postMessage('total');
+      await new Promise((r) => setTimeout(r, 50));
+      vi.useFakeTimers();
+      const refused = guardedFetch('/api/one-more');
+      const settled = expect(refused).rejects.toBeInstanceOf(RequestLoopBlockedError);
+      await vi.advanceTimersByTimeAsync(LOOP_BLOCK_DELAY_MS);
+      await settled;
+    } finally {
+      delete win.__NARRANEXUS_CONFIG__;
+    }
+  });
+
+  it('a loopback backend with no mode set ignores the total budget (bash run.sh in a browser)', async () => {
+    useRuntimeStore.setState({ mode: null }); // jsdom origin is localhost; no API override
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}'));
+    for (let i = 0; i < PAGE_TOTAL_MAX; i++) other.postMessage('total');
+    await new Promise((r) => setTimeout(r, 50));
+    await expect(guardedFetch('/api/one-more')).resolves.toBeInstanceOf(Response);
   });
 
   it('a local backend ignores the total budget (no edge in front of it)', async () => {

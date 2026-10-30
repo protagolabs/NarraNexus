@@ -19,7 +19,8 @@ Unit tests drive `RequestLoopGuard` with an injected clock:
   `PAGE_TOTAL_MAX`; a loop over 6 URLs at 2/s each is capped by
   `PAGE_RAPID_MAX`; **100 agents polled every 15s plus the other background
   polls are never refused**; a 281/min human pace is never refused; the total
-  budget can be switched off (local backend); two guards
+  budget can be switched off (local backend); another tab's messages can at
+  most spend a budget, never pile up beyond it; two guards
   wired through `onSpend` / `recordRemote` share one budget; a request refused
   by a budget does not count toward its URL's window; a block that expires
   untouched and is then pruned keeps its real release time (a trip 70s later
@@ -33,8 +34,10 @@ refusal settles only after the delay, writes are never refused; through
 `guardedFetch` the `Response` comes back untouched (a HEAD 410 included) and a
 raw-fetch loop is refused with a localized message naming no URL or agent id.
 Cross-tab wiring through a real `BroadcastChannel`: another tab's spends
-make this tab refuse (in cloud mode), a local backend ignores the total budget,
-and this tab's reads are announced. Each case starts
+make this tab refuse in cloud mode (and the report states the count at the edge
+line), an unknown mode with a non-loopback API keeps the total budget on
+(fail-closed), a local mode or a loopback backend ignores it, and this tab's
+reads are announced. Each case starts
 from `__resetRequestLoopGuardForTests()`.
 
 Every mechanism was checked red on revert: wiring, block extension, the 2s gap,

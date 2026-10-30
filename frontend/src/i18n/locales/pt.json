@@ -2520,7 +2520,7 @@
     "savedTo": "Guardado em {{path}}",
     "downloadFailed": "Falha no download: {{error}}",
     "doneTitle": "Concluído",
-    "requestBlocked": "Muitas solicitações repetidas desta página, por isso foram pausadas brevemente. Tente novamente em instantes."
+    "requestBlocked": "Muitas solicitações. Tente novamente em instantes."
   },
   "toast": {
     "view": "Ver",

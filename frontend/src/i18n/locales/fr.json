@@ -2520,7 +2520,7 @@
     "savedTo": "Enregistré dans {{path}}",
     "downloadFailed": "Échec du téléchargement : {{error}}",
     "doneTitle": "Terminé",
-    "requestBlocked": "Trop de requêtes répétées depuis cette page : elles ont été brièvement suspendues. Réessayez dans un instant."
+    "requestBlocked": "Trop de requêtes. Réessayez dans un instant."
   },
   "toast": {
     "view": "Voir",

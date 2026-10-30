@@ -18,11 +18,11 @@
  *  - page-wide budgets shared by same-origin tabs (`recordRemote`, wired in
  *    guardedFetch.ts), because the edge counts per IP, not per tab: a "rapid"
  *    budget for the same URL again within LOOP_EXTEND_GAP_MS (stops loops over
- *    a few URLs early), and — only when the backend sits behind the cloud edge —
- *    a total read budget just under the edge ban line: reads beyond it would
- *    get the IP banned anyway, so refusing them can only be better for the user
- *    than letting them through. Against a local backend (desktop app, run.sh)
- *    there is no edge ban, so the total budget would only refuse real work.
+ *    a few URLs early), and a total read budget just under the edge ban line:
+ *    reads beyond it would get the IP banned anyway, so refusing them can only
+ *    be better for the user than letting them through. guardedFetch switches the
+ *    total budget off only when the backend is known to be local (desktop app,
+ *    run.sh), where there is no edge ban and it would only refuse real work.
  * The app's network calls go through `guardedFetch` (enforced by a source
  * scan), which owns the single instance.
  */
@@ -55,7 +55,7 @@ const MAX_TRACKED_KEYS = 500;
 
 type Clock = () => number;
 
-export type LoopVerdict = 'ok' | 'loop' | 'page_budget';
+export type LoopVerdict = 'ok' | 'loop' | 'rapid_budget' | 'total_budget';
 export type BudgetKind = 'rapid' | 'total';
 
 export interface RequestLoopGuardOptions {
@@ -134,10 +134,8 @@ export class RequestLoopGuard {
     const rapid = previous !== undefined && now - previous < LOOP_EXTEND_GAP_MS;
     const total = this.#expireBudget('total', now);
     const rapidSpent = rapid ? this.#expireBudget('rapid', now) : null;
-    const totalSpent = this.#totalBudgetEnabled() && total.length >= PAGE_TOTAL_MAX;
-    if (totalSpent || (rapidSpent && rapidSpent.length >= PAGE_RAPID_MAX)) {
-      return 'page_budget';
-    }
+    if (rapidSpent && rapidSpent.length >= PAGE_RAPID_MAX) return 'rapid_budget';
+    if (this.#totalBudgetEnabled() && total.length >= PAGE_TOTAL_MAX) return 'total_budget';
     total.push(now);
     this.#onSpend?.('total');
     if (rapidSpent) {
@@ -148,10 +146,17 @@ export class RequestLoopGuard {
     return 'ok';
   }
 
-  /** Another tab spent a page budget; count it here too. */
+  /** Another tab spent a page budget; count it here too. Capped at the budget:
+   * a burst of messages can at most spend it, never pile up beyond. */
   recordRemote(kind: BudgetKind): void {
     const now = this.#now();
-    this.#expireBudget(kind, now).push(now);
+    const q = this.#expireBudget(kind, now);
+    if (q.length < (kind === 'rapid' ? PAGE_RAPID_MAX : PAGE_TOTAL_MAX)) q.push(now);
+  }
+
+  /** Reads counted against `kind` in the current window (for reports). */
+  spent(kind: BudgetKind): number {
+    return this.#expireBudget(kind, this.#now()).length;
   }
 
   /** True at most once per key per REPORT_EVERY_MS — keeps the console readable. */

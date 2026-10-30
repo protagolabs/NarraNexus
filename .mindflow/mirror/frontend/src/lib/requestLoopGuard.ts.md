@@ -19,7 +19,8 @@ and to the other tabs.
 
 ## What it does
 
-`RequestLoopGuard.check(key)` returns `ok`, `loop` or `page_budget`, for reads
+`RequestLoopGuard.check(key)` returns `ok`, `loop`, `rapid_budget` or
+`total_budget` (so reports can say which limit was hit), for reads
 (GET / HEAD — `isGuardedMethod`) only; writes are never refused.
 
 - **Per URL.** Timestamps per key in a sliding window (`LOOP_WINDOW_MS` = 5s);
@@ -36,8 +37,8 @@ and to the other tabs.
 - **Page budgets, shared across same-origin tabs** (`PAGE_WINDOW_MS` = 60s;
   `onSpend` reports each spend, `recordRemote` counts another tab's, because
   the edge counts per IP). Every admitted read spends the *total* budget
-  (`PAGE_TOTAL_MAX` = 500) — enforced only while the backend sits behind the
-  cloud edge (`totalBudgetEnabled`, wired in `guardedFetch.ts`); a *rapid*
+  (`PAGE_TOTAL_MAX` = 500) — switched off only when the backend is known to be
+  local (`totalBudgetEnabled`, wired fail-closed in `guardedFetch.ts`); a *rapid*
   repeat (the same URL again within 2s) also spends the *rapid* budget
   (`PAGE_RAPID_MAX` = 150), in every mode.
   - The total budget sits just under the edge ban line (562/min per IP, minus
@@ -51,7 +52,10 @@ and to the other tabs.
     sees: a fixed set of 20+ URLs each re-read every 2s+, or a changing query.
   - Against a local backend (desktop app, `run.sh`) there is no edge ban, so
     the total budget is off there; the per-URL and rapid layers still keep a
-    loop from hammering the local backend.
+    loop from hammering the local backend. When the mode is unknown it stays
+    on: it is the only layer that holds a loop whose query changes every call.
+  - `recordRemote` is capped at the budget, so a burst of messages from other
+    tabs can at most spend it, never lock a tab out for longer than a window.
   - The rapid budget stops loops over a few URLs, each under the per-URL limit
     (6 URLs × 2/s = 720/min), long before the total does.
   - History: the first version capped all reads at 400/min per tab (exhausted

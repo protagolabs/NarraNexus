@@ -27,10 +27,20 @@ console error per URL per minute (the endpoint lives only there), waits
 comes back untouched, so callers keep their own status handling (410 / 409
 branches in the artifact code, `ApiError` mapping in `api.request`).
 
-The total read budget is enforced only when the backend is the cloud
-deployment (`behindCloudEdge`: the deploy pipeline forced cloud mode, or the
-runtime store is in `cloud-web`); against a local backend there is no edge ban
-to avoid, so it would only refuse real work.
+The total read budget is switched off only when the backend is known to be
+local (`knownLocalBackend`: Tauri, forced-local config, runtime mode `local`, or
+an API origin on a loopback host — `bash run.sh` in a browser), where there is
+no edge ban to avoid. Forced cloud / `cloud-web` keeps it on, and so does an
+unknown mode: it is fail-closed because it is the only layer that holds a loop
+whose query changes on every call, and its on-switch would otherwise depend on
+the deploy repo writing `mode` into `/config.js` (prod injects `mode: "cloud"`,
+verified 2026-10-30). Trade-off accepted with fail-closed: a LAN self-host on a
+non-loopback address keeps the total budget on even without an edge in front,
+which only matters for sessions near 500 reads/min (~85+ agents).
+
+Reports name the limit that was hit and its count for the last minute (budget
+reports throttle under one fixed key per budget), so a heavy-but-legitimate
+session reads as "N reads at the edge ban line", not as a phantom loop.
 
 The page budgets are shared across same-origin tabs over a `BroadcastChannel`:
 each admitted read that spends a budget is broadcast and counted by the other
@@ -46,8 +56,10 @@ cases cannot leak budget into each other.
 - Guard `lib/sessionGuard.ts`'s session probe — a refusal there would read as a
   dead session; it is allowlisted in the raw-fetch scan instead.
 - Cover WebSocket / SSE traffic.
-
-Note: plugins share the host's budgets through `platform/host.ts`'s request
-helper, so a third-party plugin stuck in a read loop can push the whole page
-into refusals — by design, since its traffic would count toward the same IP
-ban at the edge.
+- **Cover plugin bundles.** The plugin loader imports them as modules in this
+  page's realm, so a plugin can call the global `fetch` directly; only its
+  calls through `HostAPI.http` (platform/host.ts) are guarded, and those share
+  the host page's budgets. Closing this needs the loader to hand plugins a
+  guarded `fetch` (or a sandbox exposing only `HostAPI.http`); patching
+  `window.fetch` globally is not an option because sessionGuard must reach the
+  real one.
