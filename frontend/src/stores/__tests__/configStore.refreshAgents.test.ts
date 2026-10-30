@@ -135,6 +135,20 @@ describe('refreshAgents', () => {
     expect(useConfigStore.getState().agentId).toBe('guide');
   });
 
+  test('when the first own agents arrive together, the guide wins over a newer import', async () => {
+    useConfigStore.setState({ agents: [], agentId: '' });
+    getAgents.mockResolvedValue({
+      success: true,
+      agents: [
+        { agent_id: 'imported_newer', created_by: 'alice' },
+        { agent_id: 'guide', created_by: 'alice', bootstrap_active: true },
+      ] as AgentInfo[],
+      count: 2,
+    });
+    await useConfigStore.getState().refreshAgents();
+    expect(useConfigStore.getState().agentId).toBe('guide');
+  });
+
   test("a veteran's cleared selection is never refilled, even by a not-yet-chatted own agent", async () => {
     // bootstrap_active is carried by every own agent that has not had three
     // owner turns yet — it does not identify the guide.

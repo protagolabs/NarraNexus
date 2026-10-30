@@ -45,8 +45,8 @@ covers every protected entry point at once.
   account (Owner report 2026-08-27: a fresh login landed straight in the chat,
   flag written behind their back). Login provisions a guide agent for every new
   user, and auto-registers NetMind provider cards on the Power path. The probes
-  therefore discount both: agents other than the guide
-  ([[guideAgent]]'s `pickGuideAgent`), and providers whose `source` is not in
+  therefore discount both: they count only the viewer's own agents other than
+  the guide ([[guideAgent]]'s `pickGuideAgent`), and providers whose `source` is not in
   `AUTO_PROVISIONED_PROVIDER_SOURCES`.
 - **A failing probe means "let them in"**, never "hold them". Onboarding state is
   not worth blocking someone's first minute over; the worst case is asking again

@@ -11,6 +11,7 @@ import { useTeamsStore } from './teamsStore';
 import type { AgentInfo } from '@/types';
 import { isSafeAgentId } from '@/lib/agentIdSafety';
 import { ownsAnyAgent, pickDefaultAgent } from '@/lib/defaultAgent';
+import { pickGuideAgent } from '@/lib/guideAgent';
 
 export type { AgentInfo };
 
@@ -151,7 +152,9 @@ export const useConfigStore = create<ConfigState>()(
             // is never refilled, so "cleared, not swapped" holds.
             const firstOwn = agentId === '' && selectedAtStart === ''
               && !ownsAnyAgent(get().agents, userId) && ownsAnyAgent(res.agents, userId)
-              ? pickDefaultAgent(res.agents, userId) : '';
+              // The guide login made for them first (imports in the welcome
+              // flow may be newer); otherwise their newest own agent.
+              ? (pickGuideAgent(res.agents, userId)?.agent_id || pickDefaultAgent(res.agents, userId)) : '';
             set(stale
               ? { agents: res.agents, agentId: '' }
               : firstOwn ? { agents: res.agents, agentId: firstOwn } : { agents: res.agents });

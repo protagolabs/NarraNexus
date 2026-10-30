@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/hooks/useAgentImported.ts
-last_verified: 2026-08-27
+last_verified: 2026-10-30
 stub: false
 ---
+
+## 2026-10-30 — `open:false` 也可能让零自有 agent 的用户得到一个选中
+
+只加了注释、行为来自 `configStore.refreshAgents`：查看者此前没有任何自己的 agent 时，这次
+refresh 会选中第一个自己的 agent（优先引导 agent），即使 `open:false`——不导航，但空选中不再
+保持为空。open:true 时随后照旧显式选中 `results[0]`。
 
 # hooks/useAgentImported.ts — shared post-import side effect
 

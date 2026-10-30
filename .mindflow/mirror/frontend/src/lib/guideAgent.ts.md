@@ -7,7 +7,7 @@ stub: false
 ## 2026-10-30 — 只认查看者**自己的** bootstrap_active agent
 
 签名改为 `pickGuideAgent(agents, userId)`，多一条 `created_by === userId`。`/api/auth/agents`
-返回全平台公开 agent 且每行都算 `bootstrap_active`，陌生人还在 bootstrap 期的公开 agent
+返回全平台公开 agent，每行都带 `bootstrap_active`（还没聊满 3 轮的 agent 为真），陌生人还在 bootstrap 期的公开 agent
 会被当成「你的引导 agent」：StepAgent 介绍它、WelcomePage 的 openGuideAgent 选中它，各面板
 以非 owner 身份成串 403（监控 v2 按失败数封 IP）。三个调用方（[[WelcomePage]]、[[StepAgent]]、
 [[onboardingGate]]）都传 userId。
@@ -29,7 +29,12 @@ step file (only components may be exported from a component module).
 
 ## Design decisions
 
-- `bootstrap_active` first, then "the only agent a fresh account has". Agents
-  imported from Claude Code / Codex are never bootstrap-active, so a user who
-  just imported three sources still gets pointed at their guide agent, not at a
-  random import.
+- The viewer's own bootstrap-active agent only; no "only agent a fresh account
+  has" fallback (removed 2026-09-03). Agents imported from Claude Code / Codex
+  are never bootstrap-active, so a user who just imported three sources still
+  gets pointed at their guide agent, not at a random import.
+- Known limit: `bootstrap_active` is true for every own agent not yet chatted
+  with three times, not only the provisioned guide. With provisioning off (or
+  the guide deleted), a fresh unchatted own agent is taken for the guide by the
+  welcome flow and the onboarding gate. Identifying the guide exactly needs a
+  server-side flag for the provisioned agent.

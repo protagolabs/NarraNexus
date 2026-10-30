@@ -111,7 +111,7 @@ export function WelcomePage() {
     return () => {
       alive = false;
     };
-  }, [mode]);
+  }, [mode, userId]);
 
   useEffect(() => {
     if (enteredFired.current || !probe) return;
