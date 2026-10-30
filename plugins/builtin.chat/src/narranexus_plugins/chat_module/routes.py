@@ -10,10 +10,12 @@ Provides endpoints for:
 - GET /{agent_id}/simple-chat-history - Get simplified chat message list
 - GET /{agent_id}/event-log/{event_id} - Get one event's timeline
 - POST /{agent_id}/chat-history/by-instance - MCP seam twin of get_chat_history
+- GET /chat-latest - newest conversation-row timestamp per agent, for a list of agents
 """
 
 import json
-from typing import Optional, List, Dict, Any, Literal
+from collections import OrderedDict
+from typing import Optional, List, Dict, Any, Literal, Tuple
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -494,6 +496,262 @@ async def clear_conversation_history(
         return ClearHistoryResponse(success=False, error=str(e))
 
 
+def _project_message(msg: Dict[str, Any], peer_scoped: bool) -> Optional[Dict[str, Any]]:
+    """Project one stored ChatModule memory message into the row the chat panel
+    shows, or None when it is not shown at all.
+
+    The single source of truth for what the owner's panel sees from a memory
+    message — used by get_simple_chat_history (every row) and by
+    get_chat_latest (only the newest conversation row's timestamp), so the
+    background "new reply" signal can never drift from the conversation tab.
+    """
+    meta_data = msg.get("meta_data", {})
+    working_source = meta_data.get("working_source", "chat")
+    role = msg.get("role", "unknown")
+
+    # Peer-scoped (A2A / team) instances contribute
+    # ACTIVITY only: their a2a / message_bus rows, which the
+    # block below collapses to a compact marker. Any other
+    # source (a user-facing chat, an IM channel) belonging
+    # to a non-owner scope is dropped here, never surfaced.
+    if peer_scoped and working_source not in _A2A_TEAM_SOURCES:
+        return None
+
+    # For non-user-facing sources (job/lark/slack/
+    # telegram/message_bus/etc), only show assistant
+    # messages — the "user" side is the trigger
+    # prompt, not something a human typed.
+    if (
+        working_source not in _USER_FACING_SOURCES
+        and role != "assistant"
+    ):
+        return None
+
+    timestamp = meta_data.get("timestamp") or msg.get("created_at")
+    message_type = meta_data.get("message_type", "chat")
+
+    # Privacy guard for IM channels: agent replies sent
+    # via platform tools (tg_cli sendMessage, slack_cli
+    # chat.postMessage, lark_cli +messages-send) live in
+    # the same instance memory as chat replies so the
+    # agent's NEXT turn can still see them (long-term
+    # memory). But surfacing the raw IM reply text to
+    # the owner's chat panel mixes two contexts:
+    #   (a) "owner ↔ agent direct chat"
+    #   (b) "agent ↔ third party on IM"
+    # The frontend chat panel is for (a); routine IM
+    # chatter should stay on the IM platform. We
+    # replace the content with a one-line activity
+    # marker AND override ``message_type`` to
+    # ``"activity"`` so the frontend renders it
+    # compactly (small centered italic line) rather
+    # than as a full agent reply bubble — see
+    # ``ChatPanel.tsx`` ``if item.messageType ===
+    # 'activity'`` branch.
+    #
+    # Carve-out: when the agent explicitly called
+    # ``send_message_to_user_directly`` / ``notify_owner``
+    # during the turn (the "tell owner about this important
+    # thing" path the iron rules carve out), the writer
+    # stashes that content on
+    # ``meta_data.owner_notify_content``. We surface it
+    # VERBATIM so the owner DOES see the notification while
+    # routine IM/peer chatter stays hidden. Which tab it
+    # lands in depends on scope — see the branch below.
+    content = msg.get("content", "")
+    # Privacy-collapse rule applies only to truly-IM
+    # / background sources where the assistant reply
+    # was meant for a third party, not for the owner
+    # viewing this chat panel. Manyfold's assistant
+    # reply IS the user-facing answer, so leave it
+    # alone.
+    if (
+        working_source not in _USER_FACING_SOURCES
+        and role == "assistant"
+    ):
+        owner_notify = meta_data.get("owner_notify_content", "")
+        if owner_notify:
+            content = owner_notify
+            # Owner scope: the agent's own IM turn notifying
+            # its owner — keep it in the conversation tab
+            # (message_type stays 'chat'), the long-standing
+            # behaviour. Peer scope (A2A/team): the
+            # conversation tab never reads peer instances and
+            # the activity stream keeps only
+            # message_type=='activity', so a 'chat'-typed row
+            # would vanish from BOTH tabs. Mark it 'activity'
+            # (content stays verbatim, NOT collapsed) so the
+            # Activity Log shows the agent's report.
+            if peer_scoped:
+                message_type = "activity"
+        else:
+            content = f"Background activity ({working_source})"
+            # Force compact rendering on the frontend.
+            # Without this the row keeps the writer's
+            # default message_type and renders as a
+            # full chat bubble — observed 2026-05-13.
+            message_type = "activity"
+
+    return {
+        "role": role,
+        "content": content,
+        "timestamp": timestamp,
+        "working_source": working_source,
+        "message_type": message_type,
+        "event_id": meta_data.get("event_id"),
+        # The seeded first-run greeting: the client folds the
+        # same greeting into its session on the first send and
+        # must recognise this row as that greeting (the two
+        # texts differ once the client localises its copy).
+        "bootstrap": bool(meta_data.get("bootstrap")),
+        "attachments": msg.get("attachments"),
+    }
+
+
+_CHAT_MEMORY_TABLE = "instance_json_format_memory_chat"
+
+#: Most agent ids one /chat-latest call accepts (the sidebar sends its whole
+#: agent list in chunks below this). A bound on caller-controlled cardinality.
+_CHAT_LATEST_MAX_AGENTS = 200
+
+#: instance_id -> (memory row updated_at, newest conversation row or None).
+#: A pure cache: an entry is used only while the row's updated_at is unchanged,
+#: so it is correct per process and needs no cross-process coherence. Bounded,
+#: oldest entry evicted first. Only sub-second stamps are trusted (see
+#: _stamp_is_precise): SQLite's datetime('now') has whole seconds, so two writes
+#: in one second would leave the second one unseen.
+_LATEST_CACHE: "OrderedDict[str, Tuple[Any, Optional[Tuple[datetime, str]]]]" = OrderedDict()
+_LATEST_CACHE_MAX = 20_000
+
+
+def _latest_conversation_row(messages: List[Dict[str, Any]]) -> Optional[Tuple[datetime, str]]:
+    """(parsed, raw) timestamp of the newest row the conversation tab shows from
+    one owner-scoped instance, or None. Same projection as
+    get_simple_chat_history(include='chat'): rows _project_message drops or marks
+    'activity' do not count; ties keep the later message, like that endpoint's
+    stable sort."""
+    best: Optional[Tuple[datetime, str]] = None
+    for msg in messages:
+        row = _project_message(msg, peer_scoped=False)
+        if row is None or row["message_type"] == "activity" or not row["timestamp"]:
+            continue
+        parsed = _parse_timestamp(row["timestamp"])
+        if best is None or parsed >= best[0]:
+            best = (parsed, str(row["timestamp"]))
+    return best
+
+
+def _stamp_is_precise(updated_at: Any) -> bool:
+    """Whether an updated_at value can tell two writes in the same second apart.
+
+    MySQL's DATETIME(6) comes back as a datetime with microseconds; SQLite's
+    datetime('now') as a whole-second string. A whole-second stamp is never
+    cached on: the row is re-read every call (local single-user mode, where that
+    costs what the old per-agent poll did). A MySQL write that lands exactly on
+    .000000 is merely re-read too."""
+    if isinstance(updated_at, datetime):
+        return updated_at.microsecond != 0
+    return isinstance(updated_at, str) and "." in updated_at
+
+
+def _cache_put(instance_id: str, updated_at: Any, latest: Optional[Tuple[datetime, str]]) -> None:
+    _LATEST_CACHE[instance_id] = (updated_at, latest)
+    _LATEST_CACHE.move_to_end(instance_id)
+    while len(_LATEST_CACHE) > _LATEST_CACHE_MAX:
+        _LATEST_CACHE.popitem(last=False)
+
+
+class ChatLatestResponse(BaseModel):
+    """agent_id -> timestamp of the newest conversation row (only agents with one)."""
+    success: bool
+    latest: Dict[str, str] = {}
+    error: Optional[str] = None
+
+
+@router.get("/chat-latest", response_model=ChatLatestResponse)
+async def get_chat_latest(
+    request: Request,
+    agent_ids: str = Query(
+        default="",
+        max_length=_CHAT_LATEST_MAX_AGENTS * 130,
+        description=f"Comma-separated agent ids (at most {_CHAT_LATEST_MAX_AGENTS}).",
+    ),
+):
+    """
+    For each listed agent, the timestamp of the newest row the caller's
+    conversation tab (simple-chat-history, include='chat') would show.
+
+    The sidebar's "new background reply" signal (toast + badge for agents not
+    on screen). It used to call simple-chat-history once per agent every 15s —
+    a request fan-out that grew with the agent count. One call now covers the
+    whole list, and the per-message projection is the same function, so the
+    signal cannot drift from the tab.
+
+    Cost per call: one indexed instance listing, one projected (instance_id,
+    updated_at) read of the chat memory rows, and a full memory read + parse
+    only for rows whose updated_at changed since this process last looked.
+
+    Scope: the caller's OWN ChatModule instances only (user_id = caller), so an
+    agent id the caller has no conversation with simply has no entry.
+    """
+    user_id = await current_user_id(request)
+    ids = list(dict.fromkeys(a.strip() for a in agent_ids.split(",") if a.strip()))
+    if len(ids) > _CHAT_LATEST_MAX_AGENTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"at most {_CHAT_LATEST_MAX_AGENTS} agent ids per call",
+        )
+    if not ids:
+        return ChatLatestResponse(success=True, latest={})
+
+    try:
+        db_client = await get_db_client()
+        rows = await InstanceRepository(db_client).list_ids_by_agents_and_user(
+            ids, user_id, "ChatModule"
+        )
+        rows = [r for r in rows if r.get("status") not in ("cancelled", "archived")]
+        if not rows:
+            return ChatLatestResponse(success=True, latest={})
+
+        instance_ids = [r["instance_id"] for r in rows]
+        stamps = await db_client.get_by_ids(
+            _CHAT_MEMORY_TABLE, "instance_id", instance_ids, fields=["instance_id", "updated_at"]
+        )
+        changed = [
+            iid for iid, stamp in zip(instance_ids, stamps)
+            if stamp is not None and not (
+                iid in _LATEST_CACHE
+                and _stamp_is_precise(stamp.get("updated_at"))
+                and _LATEST_CACHE[iid][0] == stamp.get("updated_at")
+            )
+        ]
+        if changed:
+            memory_rows = await db_client.get_by_ids(
+                _CHAT_MEMORY_TABLE, "instance_id", changed,
+                fields=["instance_id", "memory", "updated_at"],
+            )
+            for iid, mem in zip(changed, memory_rows):
+                if mem is None:
+                    continue
+                messages = _parse_json_field(mem.get("memory"), {}).get("messages", [])
+                _cache_put(iid, mem.get("updated_at"), _latest_conversation_row(messages))
+
+        best: Dict[str, Tuple[datetime, str]] = {}
+        for row, stamp in zip(rows, stamps):
+            if stamp is None:
+                continue
+            entry = _LATEST_CACHE.get(row["instance_id"])
+            if entry is None or entry[1] is None:
+                continue
+            current = best.get(row["agent_id"])
+            if current is None or entry[1][0] >= current[0]:
+                best[row["agent_id"]] = entry[1]
+        return ChatLatestResponse(success=True, latest={aid: v[1] for aid, v in best.items()})
+    except Exception as e:
+        logger.exception(f"Error getting chat latest: {e}")
+        return ChatLatestResponse(success=False, error=str(e))
+
+
 @router.get("/{agent_id}/simple-chat-history", response_model=SimpleChatHistoryResponse)
 async def get_simple_chat_history(
     agent_id: str,
@@ -622,109 +880,14 @@ async def get_simple_chat_history(
                     narrative_id = links[0].get("narrative_id") if links else None
 
                     for msg in messages:
-                        meta_data = msg.get("meta_data", {})
-                        working_source = meta_data.get("working_source", "chat")
-                        role = msg.get("role", "unknown")
-
-                        # Peer-scoped (A2A / team) instances contribute
-                        # ACTIVITY only: their a2a / message_bus rows, which the
-                        # block below collapses to a compact marker. Any other
-                        # source (a user-facing chat, an IM channel) belonging
-                        # to a non-owner scope is dropped here, never surfaced.
-                        if peer_scoped and working_source not in _A2A_TEAM_SOURCES:
+                        row = _project_message(msg, peer_scoped)
+                        if row is None:
                             continue
-
-                        # For non-user-facing sources (job/lark/slack/
-                        # telegram/message_bus/etc), only show assistant
-                        # messages — the "user" side is the trigger
-                        # prompt, not something a human typed.
-                        if (
-                            working_source not in _USER_FACING_SOURCES
-                            and role != "assistant"
-                        ):
-                            continue
-
-                        timestamp = meta_data.get("timestamp") or msg.get("created_at")
-                        message_type = meta_data.get("message_type", "chat")
-
-                        # Privacy guard for IM channels: agent replies sent
-                        # via platform tools (tg_cli sendMessage, slack_cli
-                        # chat.postMessage, lark_cli +messages-send) live in
-                        # the same instance memory as chat replies so the
-                        # agent's NEXT turn can still see them (long-term
-                        # memory). But surfacing the raw IM reply text to
-                        # the owner's chat panel mixes two contexts:
-                        #   (a) "owner ↔ agent direct chat"
-                        #   (b) "agent ↔ third party on IM"
-                        # The frontend chat panel is for (a); routine IM
-                        # chatter should stay on the IM platform. We
-                        # replace the content with a one-line activity
-                        # marker AND override ``message_type`` to
-                        # ``"activity"`` so the frontend renders it
-                        # compactly (small centered italic line) rather
-                        # than as a full agent reply bubble — see
-                        # ``ChatPanel.tsx`` ``if item.messageType ===
-                        # 'activity'`` branch.
-                        #
-                        # Carve-out: when the agent explicitly called
-                        # ``send_message_to_user_directly`` / ``notify_owner``
-                        # during the turn (the "tell owner about this important
-                        # thing" path the iron rules carve out), the writer
-                        # stashes that content on
-                        # ``meta_data.owner_notify_content``. We surface it
-                        # VERBATIM so the owner DOES see the notification while
-                        # routine IM/peer chatter stays hidden. Which tab it
-                        # lands in depends on scope — see the branch below.
-                        content = msg.get("content", "")
-                        # Privacy-collapse rule applies only to truly-IM
-                        # / background sources where the assistant reply
-                        # was meant for a third party, not for the owner
-                        # viewing this chat panel. Manyfold's assistant
-                        # reply IS the user-facing answer, so leave it
-                        # alone.
-                        if (
-                            working_source not in _USER_FACING_SOURCES
-                            and role == "assistant"
-                        ):
-                            owner_notify = meta_data.get("owner_notify_content", "")
-                            if owner_notify:
-                                content = owner_notify
-                                # Owner scope: the agent's own IM turn notifying
-                                # its owner — keep it in the conversation tab
-                                # (message_type stays 'chat'), the long-standing
-                                # behaviour. Peer scope (A2A/team): the
-                                # conversation tab never reads peer instances and
-                                # the activity stream keeps only
-                                # message_type=='activity', so a 'chat'-typed row
-                                # would vanish from BOTH tabs. Mark it 'activity'
-                                # (content stays verbatim, NOT collapsed) so the
-                                # Activity Log shows the agent's report.
-                                if peer_scoped:
-                                    message_type = "activity"
-                            else:
-                                content = f"Background activity ({working_source})"
-                                # Force compact rendering on the frontend.
-                                # Without this the row keeps the writer's
-                                # default message_type and renders as a
-                                # full chat bubble — observed 2026-05-13.
-                                message_type = "activity"
-
                         all_messages.append({
-                            "role": role,
-                            "content": content,
-                            "timestamp": timestamp,
+                            **row,
                             "narrative_id": narrative_id,
                             "instance_id": instance.instance_id,
-                            "working_source": working_source,
-                            "message_type": message_type,
-                            "event_id": meta_data.get("event_id"),
-                            # The seeded first-run greeting: the client folds the
-                            # same greeting into its session on the first send and
-                            # must recognise this row as that greeting (the two
-                            # texts differ once the client localises its copy).
-                            "bootstrap": bool(meta_data.get("bootstrap")),
-                            "attachments": msg.get("attachments"),
-                            "_sort_key": timestamp or ""
+                            "_sort_key": row["timestamp"] or "",
                         })
 
                     logger.debug(

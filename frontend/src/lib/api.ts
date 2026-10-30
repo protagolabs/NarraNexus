@@ -34,6 +34,7 @@ import type {
   SocialNetworkSearchResponse,
   ChatHistoryResponse,
   SimpleChatHistoryResponse,
+  ChatLatestResponse,
   EventLogResponse,
   CreateAgentResponse,
   UpdateAgentResponse,
@@ -528,6 +529,16 @@ class ApiClient {
     return this.request<SimpleChatHistoryResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/simple-chat-history?${params}`
     );
+  }
+
+  /**
+   * For each listed agent, the timestamp of the newest row its conversation
+   * tab (getSimpleChatHistory, include='chat') shows — one call for a whole
+   * agent list. The background "agent replied" poll; at most 200 ids a call.
+   */
+  async getChatLatest(agentIds: string[]): Promise<ChatLatestResponse> {
+    const params = new URLSearchParams({ agent_ids: agentIds.join(',') });
+    return this.request<ChatLatestResponse>(`/api/agents/chat-latest?${params}`);
   }
 
   async getEventLog(agentId: string, eventId: string): Promise<EventLogResponse> {

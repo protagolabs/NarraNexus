@@ -251,6 +251,12 @@ export interface SimpleChatMessage {
   attachments?: import('./messages').Attachment[];  // User uploads attached to this message
 }
 
+/** GET /api/agents/chat-latest: agent_id -> timestamp of the newest row its
+ * conversation tab shows (agents with no such row are absent). */
+export interface ChatLatestResponse extends ApiResponse {
+  latest: Record<string, string>;
+}
+
 export interface SimpleChatHistoryResponse extends ApiResponse {
   messages: SimpleChatMessage[];
   total_count: number;
