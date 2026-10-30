@@ -4,6 +4,23 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（续）— 安装 / 启停 / 物化 / 元数据 / 扫描全部 fd 相对
+
+删除之外的同类写、改名、读也走 `utils/confined_io`（`skills`、`.disabled`、技能目录都在租户自己的挂载里，随时可被换成指向别的租户的链接）：
+- `install_from_dir`：`make_dirs` 建 `skills/`，把**平台自有的 staging**（clone / unzip 目录）`copy_tree` 到私有同级 `.installing.<name>.<rand>`，
+  再 `rename_within` 到位（原子；失败清理）。原来的 `shutil.move`/`mkdir` 按路径落笔。staging 由调用方自己的 `finally` 清理，和以前一样。
+- `disable_skill` / `enable_skill`：`rename_within`（两个父目录都逐级 `O_NOFOLLOW`，`renameat` 作用在两个 dir fd 上）。目标已存在且非空 →
+  `FileExistsError`（不再像 `shutil.move` 那样嵌套）；路径有链接 → `ValueError`；源缺失 → False。
+- `_materialize_builtin_skills`：vendored 内置目录（平台自有）`copy_tree` 到 `.materialize.<name>.<rand>` 再 `rename_within`；竞争失败清理 staging。
+  内置目录里的链接按链接复制（以前 `copytree` 默认跟随）。
+- `.skill_meta.json` 的读写（`_save_skill_meta` / `set_study_status` / `get_study_status` / `_write_skill_meta` / `_write_builtin_meta` /
+  `_load_meta_dict`）：`_read_confined_text` / `_write_confined_text`（`write_atomic`）。读用 `split_source`：base 之下从 base 逐级 `NOFOLLOW`，
+  base 之外视为平台自有（插件技能目录、staging），父目录可信、叶子仍 `NOFOLLOW`。
+- 扫描 / 列表 / 解析：`_scan_workspace_skills`、`_resolve_skill_dir`、`list_skills` 的 `.disabled` 列表、`SKILL.md` 读取与存在探测都经
+  `_list_confined_dirs` / `_confined_exists` / `_confined_is_dir` / `_read_confined_text`；**链接不算目录**（lstat），被换成链接的 `skills`
+  在技能表里读作空，不再把受害者的技能名/描述列给属主。
+- **注意**：`self.base_path` 必须是 `skills_dir` 的祖先（测试夹具要同步设置）；`make_dirs` 会在首次运行时创建缺失的 base（平台自有）。
+
 ## 2026-10-30 — 删除技能目录走 fd 相对的 `remove_tree`
 
 `remove_skill`（含 `.disabled`）与 `install_from_dir` 的"替换已存在目录"原来是 `exists()` + `shutil.rmtree(path)`：

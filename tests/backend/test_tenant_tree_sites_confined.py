@@ -451,3 +451,189 @@ async def test_agent_delete_with_a_swapped_workspace_unlinks_the_link_and_spares
     assert r.json()["success"] is True
     assert not os.path.lexists(delete_client["own"])
     assert (delete_client["vic"] / "report" / "a.txt").read_bytes() == b"victim"
+
+
+# ── skill disable / enable / install / materialize / metadata ────────────────
+
+
+def _owner_skill(ws, name="demo", where="skills"):
+    d = ws["own"] / where / name
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text(_skill_md(name), encoding="utf-8")
+    return d
+
+
+def test_disable_and_enable_move_the_owners_skill(ws):
+    sm = _module()
+    d = _owner_skill(ws)
+    assert sm.disable_skill("demo") is True
+    assert not d.exists()
+    assert (ws["own"] / "skills" / ".disabled" / "demo" / "SKILL.md").exists()
+    assert sm.disable_skill("demo") is False
+    assert sm.enable_skill("demo") is True
+    assert (ws["own"] / "skills" / "demo" / "SKILL.md").exists()
+    assert sm.enable_skill("demo") is False
+
+
+def test_disable_refuses_a_swapped_skills_dir_and_moves_nothing_in_the_victim(ws):
+    victim = _victim_skill(ws)
+    _link(ws["own"] / "skills", ws["vic"] / "skills")
+    with pytest.raises(ValueError, match="refusing"):
+        _module().disable_skill("demo")
+    assert (victim / "data.bin").read_bytes() == b"victim-data"
+    assert not (ws["vic"] / "skills" / ".disabled").exists()
+
+
+def test_enable_refuses_a_swapped_disabled_dir_and_steals_nothing(ws):
+    vdis = ws["vic"] / "skills" / ".disabled" / "demo"
+    vdis.mkdir(parents=True)
+    (vdis / "data.bin").write_bytes(b"victim-data")
+    (ws["own"] / "skills").mkdir(parents=True)
+    _link(ws["own"] / "skills" / ".disabled", ws["vic"] / "skills" / ".disabled")
+    with pytest.raises(ValueError, match="refusing"):
+        _module().enable_skill("demo")
+    assert (vdis / "data.bin").read_bytes() == b"victim-data"
+    assert not (ws["own"] / "skills" / "demo").exists()
+
+
+def test_install_swap_between_removal_and_copy_never_writes_into_the_victim(ws, tmp_path, monkeypatch):
+    from narranexus_plugins.skill_module.skill_module import SkillModule
+
+    victim = _victim_skill(ws)
+    (ws["own"] / "skills").mkdir(parents=True)
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    (staged / "SKILL.md").write_text(_skill_md("other"), encoding="utf-8")
+    real = SkillModule._remove_skill_dir
+
+    def swapping(self, path):
+        out = real(self, path)
+        _swap_dir_for_link(ws["own"] / "skills", ws["vic"] / "skills")
+        return out
+
+    monkeypatch.setattr(SkillModule, "_remove_skill_dir", swapping)
+    before = sorted(os.listdir(ws["vic"] / "skills"))
+    with pytest.raises(ValueError, match="refusing"):
+        _module().install_from_dir(staged, source_type="zip")
+    assert sorted(os.listdir(ws["vic"] / "skills")) == before
+    assert sorted(os.listdir(victim)) == ["SKILL.md", "data.bin"]
+
+
+def test_install_writes_provenance_meta_and_leaves_no_staging_droppings(ws, tmp_path):
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    (staged / "SKILL.md").write_text(_skill_md("demo"), encoding="utf-8")
+    (staged / "run.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    os.chmod(staged / "run.sh", 0o755)
+    _module().install_from_dir(staged, source_type="github", source_url="https://example.org/r")
+    d = ws["own"] / "skills" / "demo"
+    assert sorted(os.listdir(ws["own"] / "skills")) == ["demo"]
+    meta = json.loads((d / ".skill_meta.json").read_text(encoding="utf-8"))
+    assert meta["source_type"] == "github" and meta["source_url"] == "https://example.org/r"
+    assert os.stat(d / "run.sh").st_mode & 0o777 == 0o755
+
+
+def test_install_creates_a_missing_workspace_base(tmp_path, monkeypatch):
+    base = tmp_path / "fresh" / "ws"  # nothing exists yet (first run)
+    monkeypatch.setattr(settings, "base_working_path", str(base))
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    (staged / "SKILL.md").write_text(_skill_md("demo"), encoding="utf-8")
+    _module().install_from_dir(staged, source_type="zip")
+    assert (base / agent_workspace_relpath(A_OWN, OWNER) / "skills" / "demo" / "SKILL.md").exists()
+
+
+def test_materialize_builtin_never_writes_into_a_swapped_skills_dir(ws, tmp_path, monkeypatch):
+    from narranexus_plugins.skill_module import skill_module as sm_mod
+
+    src_root = tmp_path / "builtin_src"
+    (src_root / "tool").mkdir(parents=True)
+    (src_root / "tool" / "SKILL.md").write_text(_skill_md("tool"), encoding="utf-8")
+    monkeypatch.setattr(sm_mod, "BUILTIN_SKILLS_DIR", src_root)
+    (ws["vic"] / "skills").mkdir(parents=True)
+    _link(ws["own"] / "skills", ws["vic"] / "skills")
+    _module()._materialize_builtin_skills()
+    assert os.listdir(ws["vic"] / "skills") == []
+
+
+def test_materialize_builtin_still_materializes_for_the_owner(ws, tmp_path, monkeypatch):
+    from narranexus_plugins.skill_module import skill_module as sm_mod
+
+    src_root = tmp_path / "builtin_src"
+    (src_root / "tool").mkdir(parents=True)
+    (src_root / "tool" / "SKILL.md").write_text(_skill_md("tool"), encoding="utf-8")
+    monkeypatch.setattr(sm_mod, "BUILTIN_SKILLS_DIR", src_root)
+    _module()._materialize_builtin_skills()
+    meta = json.loads((ws["own"] / "skills" / "tool" / ".skill_meta.json").read_text(encoding="utf-8"))
+    assert meta["builtin"] is True
+    assert sorted(os.listdir(ws["own"] / "skills")) == ["tool"]
+
+
+def test_study_status_write_never_lands_in_a_swapped_skill_dir(ws):
+    victim = _victim_skill(ws)
+    (victim / ".skill_meta.json").write_text('{"keep": "victim"}', encoding="utf-8")
+    (ws["own"] / "skills").mkdir(parents=True)
+    _link(ws["own"] / "skills" / "demo", victim)
+    sm = _module()
+    sm.set_study_status("demo", "completed", result="pwn")
+    assert json.loads((victim / ".skill_meta.json").read_text(encoding="utf-8")) == {"keep": "victim"}
+    assert sm.get_study_status("demo") == {"study_status": "idle"}
+
+
+def test_study_status_round_trips_for_the_owner(ws):
+    _owner_skill(ws)
+    sm = _module()
+    sm.set_study_status("demo", "completed", result="ok")
+    got = sm.get_study_status("demo")
+    assert got["study_status"] == "completed" and got["study_result"] == "ok"
+
+
+def test_copy_skill_into_agent_source_behind_a_swapped_link_is_refused(ws, tmp_path):
+    from narranexus.platform.bundle import importer
+    from narranexus.platform.utils import confined_io
+
+    victim = _victim_skill(ws)
+    _link(ws["own"] / "skills", ws["vic"] / "skills")  # the SOURCE walks through this
+    other = "agent_aaaaaaaaaaaa"
+    with pytest.raises(confined_io.ConfinedPathError):
+        importer.copy_skill_into_agent(
+            ws["own"] / "skills" / "demo", other, OWNER, "demo", base=str(ws["base"])
+        )
+    assert not (ws["base"] / agent_workspace_relpath(other, OWNER) / "skills" / "demo").exists()
+    assert (victim / "data.bin").read_bytes() == b"victim-data"
+
+
+def test_copy_skill_into_agent_copies_the_owners_installed_skill(ws):
+    from narranexus.platform.bundle import importer
+
+    src = _owner_skill(ws)
+    (src / "run.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    other = "agent_aaaaaaaaaaaa"
+    target = importer.copy_skill_into_agent(src, other, OWNER, "demo", base=str(ws["base"]))
+    assert (target / "SKILL.md").read_text(encoding="utf-8") == _skill_md("demo")
+    assert (target / "run.sh").exists()
+
+
+def test_skill_scan_and_resolution_never_surface_a_swapped_skills_dir(ws):
+    """Listing / reading SKILL.md by path showed the victim's skills (names and
+    descriptions) in the owner's skill table."""
+    _victim_skill(ws)
+    _link(ws["own"] / "skills", ws["vic"] / "skills")
+    sm = _module()
+    assert "demo" not in [s.name for s in sm._scan_skills()]
+    assert sm._resolve_skill_dir("demo") is None
+    assert sm._read_skill_meta("demo") == {}
+
+
+def test_skill_scan_lists_the_owners_skills_and_disabled_ones(ws):
+    _owner_skill(ws, "alpha")
+    _owner_skill(ws, "beta", where="skills/.disabled")
+    sm = _module()
+    assert [s.name for s in sm._scan_skills() if s.source_type != "plugin"] == ["alpha"]
+    listed = {
+        s.name: s.disabled
+        for s in sm.list_skills(include_disabled=True)
+        if s.source_type != "plugin" and not s.builtin  # list_skills materializes the vendored built-ins
+    }
+    assert listed == {"alpha": False, "beta": True}
+    assert sm._resolve_skill_dir("alpha") == ws["own"] / "skills" / "alpha"

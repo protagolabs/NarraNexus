@@ -4,6 +4,13 @@ last_verified: 2026-10-30
 stub: false
 ---
 
+## 2026-10-30（续）— `copy_skill_into_agent` 整个流程 fd 相对；`copy_skill_dir` 删除
+
+`mkdir` + `copytree` 也改为 `confined_io.make_dirs` + `copy_tree`（目的端逐项 `mkdir` / `O_CREAT|O_EXCL|O_NOFOLLOW`，经 dir fd）。**源**必须是
+同一租户已安装的技能目录或平台 staging，**绝不能**是别的租户可控的路径；源同样用 `split_source` 逐级 `NOFOLLOW` 遍历，里面的链接按链接复制、
+从不解引用（行为同旧的 `copytree(symlinks=True)`）。源经被换成链接的 `skills` 时拒绝（`ConfinedPathError`），受害者的技能不会被复制过来。
+`copy_skill_dir` 已删除（无调用方；其测试改为直接测 `copy_tree`）。
+
 ## 2026-10-30 — `copy_skill_into_agent` 替换已有技能走 `remove_tree`
 
 原来 `target.exists()` + `shutil.rmtree(target)`，`skills` 被换成链接时会删受害者的技能目录。现在对**词法**路径

@@ -157,7 +157,14 @@ def _open_dir_at(parent_fd: int, name: str, *, create: bool) -> int:
 
 
 def _walk(root: str, parts: list[str], *, create: bool = False) -> int:
-    """Open ``root`` then each of ``parts`` as directories; return the last fd."""
+    """Open ``root`` then each of ``parts`` as directories; return the last fd.
+
+    With ``create`` the (platform-owned) root itself is created first when it
+    does not exist yet — a fresh install has no workspace base on disk — and
+    every missing component below it is created as a real directory."""
+    if create and isinstance(root, str) and os.path.isabs(root) and "\x00" not in root:
+        _require_support()
+        os.makedirs(root, exist_ok=True)
     fd = _open_root(root)
     try:
         for name in parts:
@@ -428,6 +435,145 @@ def dir_regular_bytes(root: str, rel: str) -> int:
         return scan(start_fd, 0)
     finally:
         os.close(start_fd)
+
+
+def split_source(path: str, base: str) -> tuple[str, str]:
+    """(root, rel) for a copy SOURCE directory.
+
+    Below the workspace base → ``split_under_base`` (so the source is walked
+    O_NOFOLLOW from the base too: a source inside a tenant's own tree must not
+    be redirected by a swapped link). Otherwise (platform-owned staging such as
+    a ``mkdtemp`` clone / unzip dir) → (realpath(parent), leaf): the parent is
+    platform-owned and trusted, the leaf itself is opened O_NOFOLLOW.
+    """
+    try:
+        return split_under_base(path, base)
+    except ConfinedPathError:
+        p = os.path.abspath(path)
+        parent, leaf = os.path.split(p)
+        if not leaf:
+            raise
+        return os.path.realpath(parent), leaf
+
+
+def rename_within(root: str, src_rel: str, dst_rel: str, *, make_dst_parents: bool = False) -> None:
+    """Rename ``root/src_rel`` to ``root/dst_rel`` through BOTH parents' fds.
+
+    Neither parent chain is followed through a link (O_NOFOLLOW per component),
+    and the rename itself is ``renameat`` on the two directory fds, so a swapped
+    directory can neither receive the moved entry nor lose one that was never
+    ours. A link leaf is renamed as a link, never followed. A non-empty
+    destination directory raises FileExistsError (nothing is merged or nested).
+    """
+    src_parts = _split(src_rel)
+    dst_parts = _split(dst_rel)
+    src_fd = _walk(root, src_parts[:-1])
+    try:
+        dst_fd = _walk(root, dst_parts[:-1], create=make_dst_parents)
+        try:
+            try:
+                os.rename(src_parts[-1], dst_parts[-1], src_dir_fd=src_fd, dst_dir_fd=dst_fd)
+            except OSError as e:
+                if e.errno in (errno.ENOTEMPTY, errno.EEXIST):
+                    raise FileExistsError(e.errno, "destination exists", dst_rel) from e
+                raise
+        finally:
+            os.close(dst_fd)
+    finally:
+        os.close(src_fd)
+
+
+def copy_tree(
+    src_root: str,
+    src_rel: str,
+    dst_root: str,
+    dst_rel: str,
+    *,
+    make_parents: bool = False,
+    max_depth: int = 64,
+) -> None:
+    """Copy the directory ``src_root/src_rel`` to the NEW directory
+    ``dst_root/dst_rel`` without following a link on either side.
+
+    The SOURCE must be platform-owned staging (a fresh clone / unzip dir) or
+    another directory of the SAME tenant — never a path a different tenant
+    controls; it is still walked O_NOFOLLOW (see ``split_source``), and links
+    inside it are copied AS LINKS (``readlink`` + ``symlink`` via dir fds), never
+    dereferenced. The DESTINATION is created through dir fds: ``mkdir`` /
+    ``O_CREAT|O_EXCL|O_NOFOLLOW`` per entry, so nothing can be written through a
+    link planted there. Regular files keep their permission bits (``& 0o777``);
+    FIFOs, sockets and devices are skipped. The destination must not exist
+    (FileExistsError). On any failure the partial destination is removed.
+    """
+    src_fd = open_dir_fd(src_root, src_rel)
+    try:
+        parts = _split(dst_rel)
+        parent_fd = _walk(dst_root, parts[:-1], create=make_parents)
+        try:
+            os.mkdir(parts[-1], 0o755, dir_fd=parent_fd)
+        finally:
+            os.close(parent_fd)
+        try:
+            dst_fd = open_dir_fd(dst_root, dst_rel)
+            try:
+                _copy_dir_fds(src_fd, dst_fd, 0, max_depth)
+            finally:
+                os.close(dst_fd)
+        except BaseException:
+            try:
+                remove_tree(dst_root, dst_rel)
+            except (OSError, ConfinedPathError):
+                pass
+            raise
+    finally:
+        os.close(src_fd)
+
+
+def _copy_dir_fds(src_fd: int, dst_fd: int, depth: int, max_depth: int) -> None:
+    if depth > max_depth:
+        raise ConfinedScanError(f"directory tree deeper than {max_depth} levels")
+    with os.scandir(src_fd) as it:
+        entries = list(it)
+    for entry in entries:
+        name = entry.name
+        if entry.is_symlink():
+            os.symlink(os.readlink(name, dir_fd=src_fd), name, dir_fd=dst_fd)
+        elif entry.is_dir(follow_symlinks=False):
+            child_src = _open_dir_at(src_fd, name, create=False)
+            try:
+                os.mkdir(name, 0o755, dir_fd=dst_fd)
+                child_dst = _open_dir_at(dst_fd, name, create=False)
+                try:
+                    _copy_dir_fds(child_src, child_dst, depth + 1, max_depth)
+                finally:
+                    os.close(child_dst)
+            finally:
+                os.close(child_src)
+        elif entry.is_file(follow_symlinks=False):
+            in_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC, dir_fd=src_fd)
+            try:
+                st = os.fstat(in_fd)
+                if not stat_mod.S_ISREG(st.st_mode):
+                    continue
+                os.set_blocking(in_fd, True)
+                mode = stat_mod.S_IMODE(st.st_mode) & 0o777
+                out_fd = os.open(
+                    name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | _O_CLOEXEC,
+                    mode,
+                    dir_fd=dst_fd,
+                )
+                try:
+                    while chunk := os.read(in_fd, 1024 * 1024):
+                        view = memoryview(chunk)
+                        while view:
+                            view = view[os.write(out_fd, view):]
+                    os.fchmod(out_fd, mode)
+                finally:
+                    os.close(out_fd)
+            finally:
+                os.close(in_fd)
+        # sockets / FIFOs / devices are not part of a skill: skipped
 
 
 def remove_tree(root: str, rel: str, *, max_depth: int = 256) -> None:

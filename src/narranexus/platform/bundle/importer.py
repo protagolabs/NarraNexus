@@ -1873,40 +1873,35 @@ def copy_skill_into_agent(
 
     Module-level (not a closure) so the symlink behaviour is testable: the
     name is sanitised and confined, an existing target is replaced, and the
-    copy never dereferences links (see :func:`copy_skill_dir`).
+    copy never dereferences links (see ``confined_io.copy_tree``).
     """
     from narranexus.platform.utils.file_safety import ensure_within_directory, sanitize_filename
     from narranexus.platform.utils.workspace_paths import agent_workspace_path
     skills_base = agent_workspace_path(target_aid, user_id, base=base) / "skills"
-    skills_base.mkdir(parents=True, exist_ok=True)
     safe_name = sanitize_filename(skill_name, label="skill name")
     target = ensure_within_directory(skills_base, safe_name, label="skill name")
-    # Replace an existing skill fd-relative below the base: ``skills`` sits in
-    # the owner's own mount and can be swapped for a link to another tenant's
-    # tree, which a by-path rmtree would follow. ConfinedPathError (a
-    # ValueError) propagates — the import fails closed.
+    # Everything below is fd-relative under the base (``utils/confined_io``):
+    # ``skills`` sits in the owner's own mount and can be swapped for a link to
+    # another tenant's tree, which a by-path rmtree / mkdir / copytree would
+    # follow (deleting there and writing there). Paths are LEXICAL
+    # (``skills_base / safe_name``): ``ensure_within_directory`` resolve()s its
+    # result, which would turn a swapped link into the victim's real path.
+    # ConfinedPathError (a ValueError) propagates — the import fails closed.
+    # SOURCE: ``src_skill_dir`` is an installed skill of the SAME tenant (or
+    # platform staging) — never another tenant's tree; it is walked O_NOFOLLOW
+    # too and links inside it are copied as links, never dereferenced.
     from narranexus.platform.utils import confined_io
 
-    # Lexical target (ensure_within_directory resolves its result, which would
-    # turn a swapped ``skills`` link into the victim's real path).
-    root, rel = confined_io.split_under_base(str(skills_base / safe_name), base)
+    root, skills_rel = confined_io.split_under_base(str(skills_base), base)
+    confined_io.make_dirs(root, skills_rel)
+    target_rel = f"{skills_rel}/{safe_name}"
     try:
-        confined_io.remove_tree(root, rel)
+        confined_io.remove_tree(root, target_rel)
     except FileNotFoundError:
         pass
-    copy_skill_dir(src_skill_dir, target)
+    src_root, src_rel = confined_io.split_source(str(src_skill_dir), base)
+    confined_io.copy_tree(src_root, src_rel, root, target_rel)
     return target
-
-
-def copy_skill_dir(src: Path, dst: Path) -> None:
-    """Copy an installed skill dir WITHOUT dereferencing symlinks.
-
-    ``copytree`` defaults to following links, which turns a link planted in a
-    cloned repo (``leak.txt -> /etc/passwd``) into a real file in the target
-    workspace. Links are copied as links; the executor's workspace confinement
-    then decides whether they resolve.
-    """
-    shutil.copytree(src, dst, symlinks=True)
 
 
 def _extract_tar_safely(tar_path: Path, target: Path) -> None:

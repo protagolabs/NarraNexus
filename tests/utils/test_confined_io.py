@@ -493,3 +493,167 @@ def test_list_dir_errors(tree):
         cio.list_dir(tree["root"], "evil")
     with pytest.raises(cio.SymlinkRefusedError):
         cio.list_dir(tree["root"], "evil/anything")
+
+
+# ── rename_within ────────────────────────────────────────────────────────────
+
+
+def test_rename_within_moves_a_directory_and_a_file(tree):
+    os.makedirs(os.path.join(tree["root"], "dis"))
+    cio.rename_within(tree["root"], "a/b", "dis/b2")
+    assert not os.path.exists(os.path.join(tree["root"], "a", "b"))
+    assert _read(tree["root"], "dis/b2/f.txt") == b"inside"
+    cio.rename_within(tree["root"], "dis/b2/f.txt", "a/moved.txt")
+    assert _read(tree["root"], "a/moved.txt") == b"inside"
+
+
+def test_rename_within_missing_source_is_file_not_found(tree):
+    with pytest.raises(FileNotFoundError):
+        cio.rename_within(tree["root"], "a/nope", "a/other")
+
+
+def test_rename_within_nonempty_destination_dir_is_file_exists_not_nested(tree):
+    os.makedirs(os.path.join(tree["root"], "dst"))
+    (open(os.path.join(tree["root"], "dst", "keep.txt"), "wb")).close()
+    with pytest.raises(FileExistsError):
+        cio.rename_within(tree["root"], "a/b", "dst")
+    assert os.path.exists(os.path.join(tree["root"], "a", "b", "f.txt"))
+    assert sorted(os.listdir(os.path.join(tree["root"], "dst"))) == ["keep.txt"]
+
+
+def test_rename_within_refuses_a_swapped_destination_parent(tree):
+    """The move must not land in another tenant's tree."""
+    os.symlink(tree["outside"], os.path.join(tree["root"], "dis"))
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.rename_within(tree["root"], "a/b", "dis/b")
+    assert sorted(os.listdir(tree["outside"])) == ["secret.txt"]
+    assert os.path.exists(os.path.join(tree["root"], "a", "b", "f.txt"))
+
+
+def test_rename_within_refuses_a_swapped_source_parent_and_moves_nothing_out(tree):
+    """...nor take an entry out of another tenant's tree."""
+    (tree["outside"] / "victim.txt").write_bytes(b"v")
+    os.symlink(tree["outside"], os.path.join(tree["root"], "evil"))
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.rename_within(tree["root"], "evil/victim.txt", "a/stolen.txt")
+    assert (tree["outside"] / "victim.txt").exists()
+    assert not os.path.exists(os.path.join(tree["root"], "a", "stolen.txt"))
+
+
+def test_rename_within_renames_a_link_leaf_as_a_link(tree):
+    os.symlink(tree["outside"], os.path.join(tree["root"], "lnk"))
+    cio.rename_within(tree["root"], "lnk", "a/lnk2")
+    assert os.path.islink(os.path.join(tree["root"], "a", "lnk2"))
+    assert sorted(os.listdir(tree["outside"])) == ["secret.txt"]
+
+
+# ── copy_tree ────────────────────────────────────────────────────────────────
+
+
+def _src_tree(tmp_path):
+    src = tmp_path / "srcdir"
+    (src / "sub" / "deep").mkdir(parents=True)
+    (src / "SKILL.md").write_bytes(b"# s")
+    (src / "sub" / "deep" / "x.bin").write_bytes(b"x" * 5000)
+    run = src / "run.sh"
+    run.write_bytes(b"#!/bin/sh\n")
+    os.chmod(run, 0o755)
+    return src
+
+
+def test_copy_tree_copies_files_modes_and_nested_dirs(tree, tmp_path):
+    src = _src_tree(tmp_path)
+    cio.copy_tree(str(tmp_path), "srcdir", tree["root"], "a/skill")
+    assert _read(tree["root"], "a/skill/SKILL.md") == b"# s"
+    assert _read(tree["root"], "a/skill/sub/deep/x.bin") == b"x" * 5000
+    assert os.stat(os.path.join(tree["root"], "a", "skill", "run.sh")).st_mode & 0o777 == 0o755
+    assert src.exists()  # a copy, never a move
+
+
+def test_copy_tree_keeps_links_as_links_in_both_directions(tree, tmp_path):
+    src = _src_tree(tmp_path)
+    secret = tmp_path / "host-secret"
+    secret.write_bytes(b"host-secret")
+    os.symlink(secret, src / "leak.txt")
+    os.symlink(tmp_path, src / "dirleak")
+    cio.copy_tree(str(tmp_path), "srcdir", tree["root"], "a/skill")
+    leak = os.path.join(tree["root"], "a", "skill", "leak.txt")
+    assert os.path.islink(leak) and os.readlink(leak) == str(secret)
+    assert os.path.islink(os.path.join(tree["root"], "a", "skill", "dirleak"))
+
+
+def test_copy_tree_skips_fifos(tree, tmp_path):
+    src = _src_tree(tmp_path)
+    os.mkfifo(src / "pipe")
+    cio.copy_tree(str(tmp_path), "srcdir", tree["root"], "a/skill")
+    assert not os.path.lexists(os.path.join(tree["root"], "a", "skill", "pipe"))
+
+
+def test_copy_tree_destination_must_not_exist(tree, tmp_path):
+    _src_tree(tmp_path)
+    with pytest.raises(FileExistsError):
+        cio.copy_tree(str(tmp_path), "srcdir", tree["root"], "a/b")
+
+
+def test_copy_tree_refuses_a_swapped_destination_parent_and_writes_nothing(tree, tmp_path):
+    _src_tree(tmp_path)
+    os.symlink(tree["outside"], os.path.join(tree["root"], "evil"))
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.copy_tree(str(tmp_path), "srcdir", tree["root"], "evil/skill")
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.copy_tree(str(tmp_path), "srcdir", tree["root"], "evil/skill", make_parents=True)
+    assert sorted(os.listdir(tree["outside"])) == ["secret.txt"]
+
+
+def test_copy_tree_refuses_a_symlinked_source_root_or_parent_in_the_walk(tree, tmp_path):
+    victim_src = tree["outside"] / "vsrc"
+    victim_src.mkdir()
+    (victim_src / "SKILL.md").write_bytes(b"victim")
+    os.symlink(tree["outside"], os.path.join(tree["root"], "srclink"))
+    with pytest.raises(cio.SymlinkRefusedError):
+        cio.copy_tree(tree["root"], "srclink/vsrc", tree["root"], "a/skill")
+    assert not os.path.exists(os.path.join(tree["root"], "a", "skill"))
+
+
+def test_copy_tree_failure_removes_the_partial_destination(tree, tmp_path, monkeypatch):
+    _src_tree(tmp_path)
+    real_open = os.open
+    calls = {"n": 0}
+
+    def flaky(path, flags, *a, **k):
+        if flags & os.O_EXCL and flags & os.O_CREAT:
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OSError(28, "No space left on device")
+        return real_open(path, flags, *a, **k)
+
+    monkeypatch.setattr(cio.os, "open", flaky)
+    monkeypatch.setattr(cio.os, "supports_dir_fd", cio.os.supports_dir_fd | {flaky})
+    with pytest.raises(OSError):
+        cio.copy_tree(str(tmp_path), "srcdir", tree["root"], "a/skill")
+    monkeypatch.undo()
+    assert not os.path.exists(os.path.join(tree["root"], "a", "skill"))
+
+
+def test_copy_tree_too_deep_fails_closed(tree, tmp_path):
+    p = tmp_path / "deepsrc"
+    q = p
+    for _ in range(8):
+        q = q / "d"
+    q.mkdir(parents=True)
+    with pytest.raises(cio.ConfinedScanError):
+        cio.copy_tree(str(tmp_path), "deepsrc", tree["root"], "a/deepcopy", max_depth=3)
+    assert not os.path.exists(os.path.join(tree["root"], "a", "deepcopy"))
+
+
+def test_split_source_below_base_and_staging(tree, tmp_path):
+    root, rel = cio.split_source(os.path.join(tree["root"], "a", "b"), tree["root"])
+    assert (root, rel) == (os.path.realpath(tree["root"]), "a/b")
+    root, rel = cio.split_source(str(tmp_path / "srcdir"), tree["root"])
+    assert (root, rel) == (os.path.realpath(tmp_path), "srcdir")
+
+
+def test_make_dirs_creates_a_missing_platform_root(tmp_path):
+    root = str(tmp_path / "fresh" / "base")
+    cio.make_dirs(root, "u/a/skills")
+    assert os.path.isdir(os.path.join(root, "u", "a", "skills"))

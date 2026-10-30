@@ -39,6 +39,7 @@ def test_plugin_skills_follow_workspace_and_workspace_wins(tmp_path: Path, monke
     monkeypatch.setattr(pc, "_registries", lambda r=None: _registries(plugin_dir / "alpha", plugin_dir / "zeta"))
 
     module = SkillModule("agent_test", "user_test", None)
+    module.base_path = ws  # skill I/O is confined below the workspace base
     module.skills_dir = ws / "skills"
     skills = module._scan_skills()
     assert [(s.name, s.source_type) for s in skills] == [("alpha", None), ("zeta", "plugin")]

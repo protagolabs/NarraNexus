@@ -64,6 +64,7 @@ def _module(skills_dir: Path) -> SkillModule:
     mod.agent_id = "agent_skill_order"
     mod.user_id = "user_skill_order"
     mod.db = None
+    mod.base_path = skills_dir.parent  # skill I/O is confined below the workspace base
     mod.skills_dir = skills_dir
     mod.instructions = SKILL_INSTRUCTIONS_TEMPLATE
     # Built-in materialization would copy the repo's vendored skills into the
@@ -75,13 +76,21 @@ def _module(skills_dir: Path) -> SkillModule:
 
 
 def _patch_iterdir(monkeypatch: pytest.MonkeyPatch, permute) -> None:
-    """Make every Path.iterdir() hand back a caller-chosen permutation."""
+    """Make every directory listing hand back a caller-chosen permutation —
+    Path.iterdir() and the confined walk's list_dir (what the scan uses now)."""
+    from narranexus.platform.utils import confined_io
+
     real_iterdir = Path.iterdir
+    real_list_dir = confined_io.list_dir
 
     def fake_iterdir(self: Path):
         return iter(permute(list(real_iterdir(self))))
 
+    def fake_list_dir(root, rel=""):
+        return permute(list(real_list_dir(root, rel)))
+
     monkeypatch.setattr(Path, "iterdir", fake_iterdir)
+    monkeypatch.setattr(confined_io, "list_dir", fake_list_dir)
 
 
 async def _render(skills_dir: Path) -> str:
