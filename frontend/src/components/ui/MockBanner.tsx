@@ -6,7 +6,7 @@
  * Renders nothing when MOCK_ENABLED is false.
  */
 
-import { MOCK_ENABLED, setMockEnabled } from '@/lib/mock';
+import { MOCK_ENABLED, setMockEnabled } from '@/lib/mock/flag';
 
 export function MockBanner() {
   if (!MOCK_ENABLED) return null;

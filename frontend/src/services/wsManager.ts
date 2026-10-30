@@ -8,7 +8,7 @@
 import { useChatStore } from '@/stores/chatStore';
 import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
-import { MOCK_ENABLED } from '@/lib/mock';
+import { MOCK_ENABLED } from '@/lib/mock/flag';
 import { isAuthErrorMessage, reportWsAuthFailure } from './wsAuthError';
 import { parseBackendTs } from '@/lib/backendTs';
 import {
