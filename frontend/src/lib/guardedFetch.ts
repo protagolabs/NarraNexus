@@ -95,12 +95,17 @@ export async function guardedFetch(input: RequestInfo | URL, init?: RequestInit)
       throw new RequestLoopBlockedError();
     }
   }
-  const response = await fetch(input, init);
-  if (isGuardedMethod(methodOf(input, init))) {
-    if (FAILURE_STATUSES.has(response.status)) guard.recordFailure(urlOf(input));
-    else if (response.ok) guard.recordSuccess(urlOf(input));
+  if (!isGuardedMethod(methodOf(input, init))) return fetch(input, init);
+  const url = urlOf(input);
+  const settle = guard.track(url);
+  try {
+    const response = await fetch(input, init);
+    if (FAILURE_STATUSES.has(response.status)) guard.recordFailure(url);
+    else if (response.ok) guard.recordSuccess(url);
+    return response;
+  } finally {
+    settle();
   }
-  return response;
 }
 
 /** Tests only: a fresh guard (and channel) so cases cannot leak budget into each other. */

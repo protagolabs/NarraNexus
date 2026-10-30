@@ -243,6 +243,22 @@ describe('RequestLoopGuard', () => {
     expect(g.check('/api/never/seen')).toBe('fail_budget'); // not known to work: fail-closed
   });
 
+  it('a path is keyed with its agent_id, and relative and absolute spellings agree', () => {
+    let now = 0;
+    const g = new RequestLoopGuard(() => now);
+    g.check('/api/jobs?agent_id=mine&status=all');
+    g.recordSuccess('/api/jobs?agent_id=mine&status=all');
+    for (let i = 0; i < PAGE_FAIL_MAX; i++) {
+      g.check(`/api/jobs?agent_id=foreign&n=${i}`);
+      g.recordFailure(`/api/jobs?agent_id=foreign&n=${i}`);
+    }
+    now += 3_000;
+    // The viewer's own agent's jobs keep working, under either spelling.
+    expect(g.check('/api/jobs?agent_id=mine&status=active')).toBe('ok');
+    expect(g.check('http://localhost:8000/api/jobs?agent_id=mine')).toBe('ok');
+    expect(g.check('/api/jobs?agent_id=foreign&n=99')).toBe('fail_budget');
+  });
+
   it('a path that worked once but now fails is refused even when the query changes', () => {
     let now = 0;
     const g = new RequestLoopGuard(() => now);
@@ -520,6 +536,38 @@ describe('guardedFetch reports failing reads', () => {
     const res = await guardedFetch('/api/auth/agents');
     expect(res.status).toBe(200);
     expect(fetchSpy).toHaveBeenCalledTimes(PAGE_FAIL_MAX + 2);
+  });
+
+  it('once a read has failed, concurrent first reads cannot overshoot the failure budget', async () => {
+    // A panel switch to an agent the viewer may not read fires many first reads
+    // at once; failures are only known when they land.
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(new Response('', { status: 403 })), 20)),
+    );
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await guardedFetch('/api/agents/foreign/first');
+    const burst = Array.from({ length: 25 }, (_, i) => guardedFetch(`/api/agents/foreign/panel${i}`).catch(() => null));
+    await Promise.all(burst);
+    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(PAGE_FAIL_MAX);
+  });
+
+  it('on a clean page a burst of first reads is never held back', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(new Response('{}', { status: 200 })), 20)),
+    );
+    await Promise.all(Array.from({ length: 40 }, (_, i) => guardedFetch(`/api/first/load${i}`)));
+    expect(fetchSpy).toHaveBeenCalledTimes(40);
+  });
+
+  it('reads that settle by network error or abort release their pending slot', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('', { status: 404 }))
+      .mockRejectedValue(new TypeError('network'));
+    await guardedFetch('/api/one/failure');
+    for (let i = 0; i < 30; i++) await guardedFetch(`/api/flaky/net${i}`).catch(() => null);
+    // 1 failure + 30 settled network errors: nothing is left pending, so reads still go out.
+    expect(fetchSpy).toHaveBeenCalledTimes(31);
   });
 
   it.each([200, 401, 429, 500])('status %i is not a failure for the guard', async (status) => {

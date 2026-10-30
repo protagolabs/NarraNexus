@@ -32,6 +32,7 @@ import { getLastReadMs, markAgentRead, countUnread, latestMessageMs, markTeamRea
 import { AgentGroupSection, type AgentRowActions } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
 import { TeamChatRow } from './TeamChatRow';
+import { pickDefaultAgent } from '@/lib/defaultAgent';
 
 /** Small collapsible category header (TEAMS / AGENTS) in the sidebar list. */
 function CategoryHeader({
@@ -228,9 +229,10 @@ export function AgentList() {
     setLoadingAgents(true);
     try {
       await refreshAgents();
-      const currentAgents = useConfigStore.getState().agents;
-      if (!agentId && currentAgents.length > 0) {
-        setAgentId(currentAgents[0].agent_id);
+      const { agents: currentAgents, agentId: current, userId: viewer } = useConfigStore.getState();
+      if (!current) {
+        const pick = pickDefaultAgent(currentAgents, viewer);
+        if (pick) setAgentId(pick);
       }
     } catch (err) {
       console.error('Failed to fetch agents:', err);

@@ -31,6 +31,7 @@ import { AuthBindDialog } from '@/components/auth/AuthBindDialog';
 import { ForgotPasswordCard } from '@/components/auth/ForgotPasswordCard';
 import { SignUpDialog } from '@/components/auth/SignUpDialog';
 import { isPowerLoginAvailable } from '@/lib/runtimeConfig';
+import { pickDefaultAgent } from '@/lib/defaultAgent';
 
 export function LoginPage() {
   const [userId, setUserId] = useState('');
@@ -76,7 +77,7 @@ export function LoginPage() {
       const agentsRes = await api.getAgents();
       if (agentsRes.success && agentsRes.agents.length > 0) {
         setAgents(agentsRes.agents);
-        setAgentId(agentsRes.agents[0].agent_id);
+        setAgentId(pickDefaultAgent(agentsRes.agents, res.user_id));
       }
       const params = new URLSearchParams(location.search);
       const next = params.get('next');
@@ -106,7 +107,7 @@ export function LoginPage() {
       const agentsRes = await api.getAgents();
       if (agentsRes.success && agentsRes.agents.length > 0) {
         setAgents(agentsRes.agents);
-        setAgentId(agentsRes.agents[0].agent_id);
+        setAgentId(pickDefaultAgent(agentsRes.agents, userId.trim()));
       }
       // Return-URL flow: ProtectedRoute redirects unauthenticated visitors
       // to /login?next=<encoded-path>. After auth, send them back to that

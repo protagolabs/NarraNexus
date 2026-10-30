@@ -7,9 +7,12 @@ stub: false
 ## 2026-10-30 — `refreshAgents` 丢掉服务端不认识的选中
 
 成功拿到列表后，若当前 `agentId` 不在列表里（已删除 / 别人的私有 agent / 构造链接
-写进来的合法格式 id），改选列表第一个（空列表则 `''`），与 AgentList 挂载时的兜底
-一致。否则这个选中会被 persist、每次加载都让各面板请求它，产生成串 403/404（监控
-v2 按失败数封 IP）。只判断**请求发出时就已是当前选中**的值：请求在途期间新选的
+写进来的合法格式 id），**清成 `''`，不换成别的 agent**。否则这个选中会被 persist、
+每次加载都让各面板请求它，产生成串 403/404（监控 v2 按失败数封 IP）。不自动换人：
+聊天中途静默切到另一个 agent，用户下一条消息就发错对象；下次加载由 AgentList 挂载
+时用 [[defaultAgent.ts]] 挑查看者**自己的**默认 agent（列表含全平台公开 agent，
+`agents[0]` 是陌生人最新建的那个，不能用）。`chatStore.activeAgentId` 不在这里同步：
+BrowserNotices 读它，对已失效 id 最多再请求一次（403/404 后停止轮询）。只判断**请求发出时就已是当前选中**的值：请求在途期间新选的
 （刚创建的 agent）可能晚于这份列表，不能被它判死。`success:false` / 网络失败一律
 不动选中。
 
@@ -132,4 +135,4 @@ Depends on `api.ts` (`getAgents`, `getAwareness`) and `@/types` for `AgentInfo`.
 
 **`cloud-web` mode never shows "Change Mode".** If `mode === 'cloud-web'` (force-deployed cloud build), `LoginPage` hides the "Change Mode" button. Calling `logout()` in this mode clears the session but leaves `mode` as `cloud-web` in `runtimeStore`, sending the user directly back to `/login` instead of `/mode-select`.
 
-**`refreshAgents` silently ignores network errors.** Called by `useAutoRefresh` every 30 seconds. A transient backend restart will not clear the agent list — it just logs a console error. This is intentional so a brief backend restart doesn't destroy the UI.
+**`refreshAgents` keeps the list on errors, and says so.** Called by `useAutoRefresh` every 30 seconds. A transient backend restart or a `{success:false}` answer will not clear the agent list (a brief backend restart must not destroy the UI); both paths log a console error (see the 2026-08-17 entry).

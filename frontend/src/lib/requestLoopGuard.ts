@@ -21,14 +21,19 @@
  *    tabs). Past that, reads of paths not known to work (last answer a failure,
  *    or never answered 2xx) are refused until the window drains; paths whose
  *    last answer was a success (`recordSuccess`) keep working, so a burst of
- *    403s from one panel cannot freeze the agent list or the chat. The edge monitor
- *    (sentinel, monitoring v2) bans an IP at 20 probing-like failures a minute
- *    (400/403/404/405), so a looping client must stay far below that line on
- *    its own — whatever mix of URLs, query strings or tabs the loop uses;
+ *    403s from one panel cannot freeze the agent list or the chat. Once any
+ *    read has failed, reads of unproven paths that are still in flight count
+ *    against the budget too (`track`), so a panel switch that fires a dozen
+ *    first reads at once cannot overshoot it. The edge monitor (sentinel,
+ *    monitoring v2) bans an IP at 20 probing-like failures a minute
+ *    (400/403/404/405), so a looping client must stay below that line on its
+ *    own. Limit: a path whose answers alternate between 2xx and failure stays
+ *    "proven" and is held only by the per-URL failure block;
  *  - a page-wide "rapid" budget (the same URL again within LOOP_EXTEND_GAP_MS)
  *    shared by same-origin tabs (`recordRemote`, wired in guardedFetch.ts),
  *    which stops loops spread over a few URLs, each under the per-URL limit.
- * Request VOLUME alone is not judged: the edge no longer bans on it, and
+ * Request VOLUME alone is not judged: monitoring v2 at the edge no longer bans
+ * on it (this guard must ship together with or after that edge change), and
  * ordinary polling must never be refused however many agents it covers.
  * The app's network calls go through `guardedFetch` (enforced by a source
  * scan), which owns the single instance.
@@ -68,12 +73,27 @@ const REPORT_EVERY_MS = 60_000;
 const MAX_TRACKED_KEYS = 500;
 const MAX_TRACKED_PATHS = 1000;
 
-/** The path part of a guard key (a URL, absolute or relative): query and fragment dropped. */
+/**
+ * The endpoint a guard key (a URL, absolute or relative) addresses: its path,
+ * plus the `agent_id` query parameter when present — several endpoints take the
+ * agent there (`/api/jobs?agent_id=…`), and a 403 on someone else's agent must
+ * not mark the viewer's own agent's reads as failing. Origin, other query
+ * parameters and the fragment are dropped, so a loop that changes its query on
+ * every call is still one path, and relative and absolute spellings agree.
+ */
 function pathOf(key: string): string {
-  return key.split(/[?#]/, 1)[0];
+  let url: URL;
+  try {
+    url = new URL(key, 'http://guard.invalid');
+  } catch {
+    return key.split(/[?#]/, 1)[0];
+  }
+  const agent = url.searchParams.get('agent_id');
+  return agent === null ? url.pathname : `${url.pathname}?agent_id=${agent}`;
 }
 
 type Clock = () => number;
+const NOOP = (): void => {};
 
 export type LoopVerdict = 'ok' | 'loop' | 'failing' | 'rapid_budget' | 'fail_budget';
 export type BudgetKind = 'rapid' | 'fail';
@@ -93,6 +113,7 @@ export class RequestLoopGuard {
   readonly #failBlockedUntil = new Map<string, number>();
   /** Last outcome per path (true = 2xx, false = failure status); insertion-ordered, capped. */
   readonly #pathOk = new Map<string, boolean>();
+  #inflightUnproven = 0;
   readonly #budget: Record<BudgetKind, number[]> = { rapid: [], fail: [] };
   readonly #reportedAt = new Map<string, number>();
   readonly #now: Clock;
@@ -137,8 +158,10 @@ export class RequestLoopGuard {
       this.#failBlockedUntil.delete(key);
       this.#failures.delete(key);
     }
+    const failed = this.#expireBudget('fail', now).length;
     if (
-      this.#expireBudget('fail', now).length >= PAGE_FAIL_MAX
+      failed > 0
+      && failed + this.#inflightUnproven >= PAGE_FAIL_MAX
       && this.#pathOk.get(pathOf(key)) !== true
     ) {
       return 'fail_budget';
@@ -179,6 +202,26 @@ export class RequestLoopGuard {
     }
     this.#hits.set(key, hits);
     return 'ok';
+  }
+
+  /**
+   * An admitted read of `key` is going out; call the returned function once it
+   * settles (success, failure, network error or abort alike). While any read
+   * has failed in the window, a read of a path not known to work counts as a
+   * pending failure until then, so concurrent first reads cannot overshoot the
+   * page failure budget. On a clean page (no failures) nothing is counted, so
+   * the first load's burst of reads is never held back.
+   */
+  track(key: string): () => void {
+    if (this.#pathOk.get(pathOf(key)) === true) return NOOP;
+    if (this.#expireBudget('fail', this.#now()).length === 0) return NOOP;
+    this.#inflightUnproven += 1;
+    let settled = false;
+    return () => {
+      if (settled) return;
+      settled = true;
+      this.#inflightUnproven -= 1;
+    };
   }
 
   /** A read of `key` came back 2xx: its path is known to work. */

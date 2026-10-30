@@ -75,9 +75,10 @@ describe('refreshAgents', () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  test('a selection the server does not list falls back to the first listed agent', async () => {
+  test('a selection the server does not list is cleared, never swapped for another agent', async () => {
     // A deleted / foreign / crafted-link id must not stay selected: every panel
-    // would keep requesting it (403/404) on every load.
+    // would keep requesting it (403/404) on every load. Swapping it silently
+    // would send the next chat message to an agent the user did not pick.
     useConfigStore.getState().setAgentId('agent_gone');
     getAgents.mockResolvedValue({
       success: true,
@@ -85,7 +86,7 @@ describe('refreshAgents', () => {
       count: 2,
     });
     await useConfigStore.getState().refreshAgents();
-    expect(useConfigStore.getState().agentId).toBe('agent_a');
+    expect(useConfigStore.getState().agentId).toBe('');
   });
 
   test('a listed selection is kept', async () => {

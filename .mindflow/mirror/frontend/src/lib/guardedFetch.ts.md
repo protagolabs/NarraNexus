@@ -31,7 +31,10 @@ A guarded read whose response status is in `FAILURE_STATUSES` (400 / 403 /
 404 / 405) is reported to the guard (`recordFailure`), which blocks a URL that
 keeps failing and, when the page fails too many in a minute, pauses reads of
 paths not known to work; a 2xx answer is reported too (`recordSuccess`), which
-is what keeps a working path (agent list, chat) usable during that pause. Those
+is what keeps a working path (agent list, chat) usable during that pause.
+Every admitted read is wrapped in `guard.track(url)` and released in `finally`,
+so once a read has failed, concurrent reads of unproven paths count against
+the failure budget while they are in flight. Those
 are the statuses the edge monitor bans an IP on (20 a minute), so a client bug
 that loops on a deleted agent's 404 or a revoked resource's 403 stays far below
 that line instead of getting its user banned. The guard used to also keep a

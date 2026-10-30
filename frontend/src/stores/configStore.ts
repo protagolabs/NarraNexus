@@ -125,15 +125,17 @@ export const useConfigStore = create<ConfigState>()(
           if (res.success) {
             // A selection the server does not list (deleted, foreign, or from a
             // crafted link) would otherwise persist and make every panel request
-            // it on every load, a stream of 403/404s. Only a selection that was
-            // already current when this request started is judged: one made
-            // while it was in flight (a just-created agent) may postdate it.
+            // it on every load, a stream of 403/404s. It is cleared, not swapped
+            // for another agent: a silent switch mid-chat would send the user's
+            // next message to an agent they did not pick (the sidebar's mount
+            // pass picks the viewer's own default on the next load). Only a
+            // selection that was already current when this request started is
+            // judged: one made while it was in flight (a just-created agent)
+            // may postdate it.
             const { agentId } = get();
             const stale = agentId !== '' && agentId === selectedAtStart
               && !res.agents.some((a) => a.agent_id === agentId);
-            set(stale
-              ? { agents: res.agents, agentId: res.agents[0]?.agent_id ?? '' }
-              : { agents: res.agents });
+            set(stale ? { agents: res.agents, agentId: '' } : { agents: res.agents });
           } else {
             // Keeping the previous list is deliberate (a backend hiccup must
             // not blank the sidebar) — being SILENT about it was not. The

@@ -41,8 +41,12 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   loop on a deleted agent's 404 leaks at most 3 failures per URL per ~70s.
   Across URLs (a loop whose query changes every call), the page may fail at
   most `PAGE_FAIL_MAX` (10) reads per minute. Past that, a read is refused
-  unless the last answer for its **path** (query and fragment dropped) was a
-  2xx (`recordSuccess`); paths whose last answer was a failure, and paths never
+  unless the last answer for its **path** was a 2xx (`recordSuccess`). The path
+  key is the URL path plus its `agent_id` query parameter if any (several
+  endpoints take the agent there: `/api/jobs?agent_id=…`), with origin, other
+  parameters and fragment dropped — so a 403 on someone else's agent does not
+  mark the viewer's own agent's jobs as failing, relative and absolute
+  spellings agree, and a loop that changes its query is still one path; paths whose last answer was a failure, and paths never
   seen, are refused until the oldest failure leaves the window. So a burst of
   403s from one panel (e.g. a non-owner clicking through someone else's public
   agent) cannot freeze the agent list or the chat, while a loop that changes
@@ -52,12 +56,18 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   paths, oldest evicted first. 401 / 429 / 5xx are not counted:
   they are session/throttle/server conditions, not probing, and the edge
   ignores them too.
-- **In-flight reads are not pre-counted.** Failures are known only when the
-  response arrives, so N concurrent first reads can all fail at once. Capping
-  concurrent never-seen reads would break the first page load (dozens of
-  parallel first reads); the main source of such a burst — a stale or foreign
-  agent selection replayed on every load — is removed at the root instead
-  (`configStore.refreshAgents` drops a selection the server does not list).
+- **In-flight reads count once anything has failed.** Failures are known only
+  when the response arrives, so a panel switch to an agent the viewer cannot
+  read (a dozen first reads at once) could overshoot the budget. Once at least
+  one read has failed in the window, every admitted read of a path not known
+  to work is registered by `track()` and counts as a pending failure until it
+  settles (2xx, failure, network error or abort — `guardedFetch` releases it in
+  `finally`). On a clean page nothing is counted, so the first load's burst of
+  parallel reads is never held back. A stale or foreign selection replayed on
+  every load is also removed at the root (`configStore.refreshAgents` clears a
+  selection the server does not list; defaults never pick a stranger's agent).
+- **Known limit.** A path whose answers alternate between 2xx and failure
+  stays "proven"; only the per-URL failure block holds it.
 - **Local mode too.** The failure layers also run against a local backend
   (desktop app, `run.sh`), where no edge bans. That is intended: they hold a
   failing loop off the local backend as well, and with paths that answered 2xx

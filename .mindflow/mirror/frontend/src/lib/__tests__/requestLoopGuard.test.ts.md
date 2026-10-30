@@ -19,7 +19,8 @@ Unit tests drive `RequestLoopGuard` with an injected clock:
   20-a-minute failure line in its **worst sliding minute** (≤ `PAGE_FAIL_MAX`);
   while the failure budget is spent, a path that last answered 2xx keeps
   working and failing / never-seen paths are refused; a path that worked once
-  but now fails is held even when its query changes; a 404 loop with a changing query is held to
+  but now fails is held even when its query changes; the path key carries
+  `agent_id` and agrees across relative / absolute spellings; a 404 loop with a changing query is held to
   `PAGE_FAIL_MAX`; **a real-user failure pace (6 a minute) never pauses
   reads**; occasional spread-out failures never block;
 - page budgets: a loop over 6 URLs at 2/s each is capped by `PAGE_RAPID_MAX`;
@@ -42,12 +43,16 @@ Cross-tab wiring through a real `BroadcastChannel`: another tab's rapid
 repeats and failures spend this tab's budgets, and this tab's are announced.
 Failure wiring: a read that keeps answering 404 stops reaching the network,
 a read that answered 2xx keeps working while other reads exhaust the budget,
+once a read has failed 25 concurrent first reads reach the network at most
+`PAGE_FAIL_MAX` times, a clean page's burst of 40 first reads is never held,
+reads settling by network error release their pending slot,
 its failures are announced to other tabs, and failing writes are never
 counted. Each case starts
 from `__resetRequestLoopGuardForTests()`.
 
 Every mechanism was checked red on revert: wiring, block extension, the 2s gap,
 escalation, release time, prune backfill, the failure block and failure and
-rapid budgets, failure reporting in guardedFetch,
+rapid budgets, failure reporting in guardedFetch, in-flight counting and its
+clean-page gate and release, the agent_id path key,
 cross-tab sharing (class and both channel directions), and not counting
 budget refusals per URL.
