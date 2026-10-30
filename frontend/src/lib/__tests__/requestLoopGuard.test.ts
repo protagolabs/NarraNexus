@@ -201,6 +201,38 @@ describe('RequestLoopGuard', () => {
     expect(admitted).toBeLessThanOrEqual(12 + PAGE_RAPID_MAX); // one shared budget, not one per tab
   });
 
+  it('a queued read is re-judged when it is served: a path proven meanwhile needs no slot', async () => {
+    let now = 0;
+    const g = new RequestLoopGuard({ now: () => now });
+    const held: Array<() => void> = [];
+    for (let i = 0; i < EDGE_FAIL_SAFE; i++) {
+      const r = await g.acquire(`/api/held/${i}`);
+      if (typeof r === 'function') held.push(r);
+    }
+    expect(held).toHaveLength(EDGE_FAIL_SAFE);
+    const queued = g.acquire('/api/agents/list');
+    for (let i = 0; i < PAGE_FAIL_MAX; i++) g.recordFailure(`/api/elsewhere/${i}`); // budget spent
+    g.recordSuccess('/api/agents/list?from=another-read'); // its path is proven meanwhile
+    held[0]();
+    expect(typeof (await queued)).toBe('function'); // served, not refused as fail_budget
+    now += 1;
+  });
+
+  it('a queued read is served without a slot once the edge limits are switched off', async () => {
+    let enabled = true;
+    const g = new RequestLoopGuard({ edgeLimitsEnabled: () => enabled });
+    const held: Array<() => void> = [];
+    for (let i = 0; i < EDGE_FAIL_SAFE; i++) {
+      const r = await g.acquire(`/api/held/${i}`);
+      if (typeof r === 'function') held.push(r);
+    }
+    const queued = g.acquire('/api/q');
+    for (let i = 0; i < PAGE_FAIL_MAX; i++) g.recordFailure(`/api/elsewhere/${i}`);
+    enabled = false; // the mode resolved to local
+    held[0]();
+    expect(typeof (await queued)).toBe('function');
+  });
+
   it('a URL that keeps failing is blocked for a minute, then released', () => {
     let now = 0;
     const g = new RequestLoopGuard(() => now);
@@ -625,6 +657,66 @@ describe('guardedFetch in-flight slots and runtime mode', () => {
     // wait limit) can let it through.
     await vi.advanceTimersByTimeAsync(6_000);
     expect((await waiting).status).toBe(200);
+  });
+
+  it('a newcomer never overtakes a queued read when capacity frees without a release', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const order: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const u = String(input);
+      order.push(u);
+      if (u.startsWith('/api/gone')) return new Response('', { status: 404 });
+      if (u.startsWith('/api/held')) return new Promise<Response>(() => {});
+      return new Response('{}');
+    });
+    for (let i = 0; i < 9; i++) await guardedFetch(`/api/gone/${i}`);
+    await vi.advanceTimersByTimeAsync(PAGE_WINDOW_MS - 5_000);
+    for (let i = 0; i < EDGE_FAIL_SAFE - 9; i++) void guardedFetch(`/api/held/${i}`);
+    await vi.advanceTimersByTimeAsync(0);
+    const a = guardedFetch('/api/queued-a');
+    // The failures leave the window now; the expiry wake fires 1ms later. A
+    // newcomer arriving in between must queue behind A, not take the room.
+    await vi.advanceTimersByTimeAsync(5_000);
+    const b = guardedFetch('/api/newcomer-b');
+    await vi.advanceTimersByTimeAsync(10);
+    await Promise.all([a, b]);
+    const tail = order.filter((u) => u === '/api/queued-a' || u === '/api/newcomer-b');
+    expect(tail).toEqual(['/api/queued-a', '/api/newcomer-b']);
+  });
+
+  it("a queued read whose URL got fail-blocked meanwhile is refused and never sent", async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const calls: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const u = String(input);
+      calls.push(u);
+      await gate;
+      return new Response('', { status: u === '/api/k' ? 404 : 200 });
+    });
+    // Fill every slot: 3 reads of K (which will 404) plus filler reads.
+    const first = [0, 1, 2].map(() => guardedFetch('/api/k'));
+    const filler = Array.from({ length: EDGE_FAIL_SAFE - 3 }, (_, i) => guardedFetch(`/api/fill/${i}`));
+    const queued = guardedFetch('/api/k').catch((e) => e);
+    release();
+    await Promise.all([...first, ...filler]);
+    expect(await queued).toBeInstanceOf(RequestLoopBlockedError);
+    expect(calls.filter((u) => u === '/api/k')).toHaveLength(3);
+  });
+
+  it('a status-0 (opaque) answer does not prove a path', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      String(input).startsWith('/api/opaque')
+        ? Object.defineProperty(new Response(null), 'status', { value: 0 })
+        : new Response('', { status: 404 }));
+    await guardedFetch('/api/opaque');
+    for (let i = 0; i < PAGE_FAIL_MAX; i++) await guardedFetch(`/api/gone/${i}`);
+    await expect(guardedFetch('/api/opaque')).rejects.toBeInstanceOf(RequestLoopBlockedError);
   });
 
   it('a local backend has no page-wide limits (no edge in front of it)', async () => {

@@ -28,13 +28,12 @@ comes back untouched, so callers keep their own status handling (410 / 409
 branches in the artifact code, `ApiError` mapping in `api.request`).
 
 A guarded read whose response status is in `FAILURE_STATUSES` (400 / 403 /
-404 / 405) is reported to the guard (`recordFailure`); any status below 400 —
-304 included — proves the path (`recordSuccess`). Every admitted read first
+404 / 405) is reported to the guard (`recordFailure`); a success (200–399, 304 included;
+an opaque status 0 is not) proves the path (`recordSuccess`). Every admitted read first
 takes an in-flight slot from `guard.acquire(url, signal)` (unproven paths
 only; it waits when none is free, up to `SLOT_WAIT_MAX_MS`) and releases it in
 `finally`, so in one tab a burst of unproven reads reaches the server at most
-`EDGE_FAIL_SAFE` at a time. Only statuses 200–399 prove a path (an opaque
-status 0 does not). Refusals
+`EDGE_FAIL_SAFE` at a time. Refusals
 by a page budget throw at once; per-URL refusals wait `LOOP_BLOCK_DELAY_MS`
 first.
 

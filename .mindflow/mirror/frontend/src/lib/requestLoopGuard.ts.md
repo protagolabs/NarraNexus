@@ -41,7 +41,7 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   loop on a deleted agent's 404 leaks at most 3 failures per URL per ~70s.
   Across URLs (a loop whose query changes every call), the page may fail at
   most `PAGE_FAIL_MAX` (10) reads per minute. Past that, a read is refused
-  unless the last answer for its **path** was a 2xx (`recordSuccess`). The path
+  unless the last answer for its **path** was a success (200–399, `recordSuccess`). The path
   key is the URL path plus its `agent_id` query parameter if any (several
   endpoints take the agent there: `/api/jobs?agent_id=…`), with origin, other
   parameters and fragment dropped — so a 403 on someone else's agent does not
@@ -66,8 +66,11 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   **waits** for one instead of being refused, so a clean page's burst of first
   reads all goes out (at most 18 at a time), while a burst of failing reads can
   never put more than 18 failures on the wire. The queue is first come, first
-  served and is re-checked when a slot is released **and** when the oldest
-  landed failure leaves the window (a timer). A queued read is refused — never
+  served and is re-checked when a slot is released, when the oldest landed
+  failure leaves the window (a timer), and when a newcomer joins (capacity may
+  have freed before the timer fired). Each queued read is re-judged when it is
+  served: a path proven by another read meanwhile, or edge limits switched off
+  (mode resolved to local), needs no slot. A queued read is refused — never
   let through — when the failure budget fills (`fail_budget`), when its own URL
   got fail-blocked meanwhile (`failing`), or after `SLOT_WAIT_MAX_MS` (15s,
   `slot_wait`). The wait limit matters because a slot is held until response
@@ -76,7 +79,11 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   instead of spinning forever. The first time reads start queueing,
   guardedFetch logs one throttled warning. `guardedFetch` releases the slot in
   `finally`; a read aborted while waiting rejects with an AbortError and frees
-  nothing. Paths that last answered 2xx take no slot — so when an agent is
+  nothing. On a cold page nothing is proven yet: if a burst of foreign reads
+  (e.g. a crafted profile link to someone else's agent) spends the budget
+  first, every unproven read — even the user's own — is refused for up to a
+  minute. Accepted: the agent list and session are normally proven by the
+  first load, before any panel burst. Paths whose last answer was a success take no slot — so when an agent is
   deleted or changes owner, its 10–15 proven panel paths can all turn 404 at
   once, uncapped (held by the page budget only after they land). Slots are per
   tab (only landed failures are shared over the BroadcastChannel): two tabs
@@ -95,7 +102,7 @@ or `fail_budget` (so reports can say which limit was hit), for reads
   per-URL verdicts (a retry loop on one URL is slowed); a page-wide state does
   not change by retrying sooner, and delaying would stall callers that walk a
   list one read at a time (review I-2 on #434).
-- **Known limit.** A path whose answers alternate between 2xx and failure
+- **Known limit.** A path whose answers alternate between success and failure
   stays "proven"; only the per-URL failure block holds it.
 - **Rapid budget, shared across same-origin tabs** (`PAGE_WINDOW_MS` = 60s;
   `onSpend` reports each spend, `recordRemote` counts another tab's, because

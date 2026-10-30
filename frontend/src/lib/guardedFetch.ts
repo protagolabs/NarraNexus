@@ -23,7 +23,8 @@
  * which blocks a URL that keeps failing and, once the page (all tabs together)
  * has failed PAGE_FAIL_MAX reads in a minute, pauses reads of paths not known
  * to work; a loop on a deleted agent's 404 stays far below the edge's failure
- * line, while paths that answered 2xx (agent list, chat) keep working. Reads of
+ * line, while paths whose last answer was a success (agent list, chat) keep
+ * working. Reads of
  * unproven paths wait for one of the guard's in-flight slots (`acquire`), so in
  * one tab a burst of them reaches the server at most EDGE_FAIL_SAFE at a time
  * (slots are per tab; only landed failures are shared). A read that waits
@@ -159,7 +160,13 @@ async function refuse(verdict: LoopVerdict, url: string, init: RequestInit | und
     );
   }
   // Per-URL verdicts slow a retry loop on that URL; a page-wide state does not
-  // change by retrying sooner, so those refusals are immediate.
+  // change by retrying sooner, so those refusals are immediate. ('slot_wait'
+  // needs no delay either: a retry queues again and waits up to
+  // SLOT_WAIT_MAX_MS, which is what bounds such a loop.)
+  //
+  // A read refused here has already passed check(), so it counted toward its
+  // URL's window and, if a rapid repeat, the rapid budget — accepted: refusals
+  // are rare and only make the guard stricter.
   if (!pageWide) await delayUnlessAborted(LOOP_BLOCK_DELAY_MS, signalOf(input, init));
   throw new RequestLoopBlockedError();
 }

@@ -57,7 +57,11 @@ and never more than that in flight; a clean burst of 40 first reads all goes
 out, at most `EDGE_FAIL_SAFE` at a time; a page-budget refusal is immediate; a
 read waiting for a slot rejects on abort and leaks no slot; a read that finds
 no slot within `SLOT_WAIT_MAX_MS` behind a hung backend is refused (and never
-sent); queued reads go out in arrival order; a queued read is let through when
+sent); a newcomer never overtakes a queued read, even when capacity frees by failure
+expiry rather than a release; a queued read whose URL got fail-blocked meanwhile
+is refused unsent; a queued read is re-judged when served (a path proven
+meanwhile, or edge limits switched off, needs no slot); a status-0 answer does
+not prove a path; a queued read is let through when
 the oldest failure leaves the window even though no slot is ever released; a local backend
 (mode `local`, or no mode on a loopback origin) has no page-wide limits; an
 unknown mode with a non-loopback API keeps them (fail-closed). The file runs

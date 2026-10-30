@@ -19,8 +19,8 @@
  *    guardedFetch through `recordFailure`) blocks its URL for a minute, and the
  *    page as a whole may fail at most PAGE_FAIL_MAX reads a minute (shared by
  *    tabs). Past that, reads of paths not known to work (last answer a failure,
- *    or never answered 2xx) are refused until the window drains; paths whose
- *    last answer was a success (`recordSuccess`) keep working, so a burst of
+ *    or never answered with a success) are refused until the window drains; paths whose
+ *    last answer was a success (200–399, `recordSuccess`) keep working, so a burst of
  *    403s from one panel cannot freeze the agent list or the chat. Reads of
  *    unproven paths also hold a slot while in flight (`acquire`): landed
  *    failures plus slots held may not reach EDGE_FAIL_SAFE (18), and a read
@@ -35,7 +35,7 @@
  *    guardedFetch); the per-URL failure block stays. The edge monitor (sentinel,
  *    monitoring v2) bans an IP at 20 probing-like failures a minute
  *    (400/403/404/405), so a looping client must stay below that line on its
- *    own. Limit: a path whose answers alternate between 2xx and failure stays
+ *    own. Limit: a path whose answers alternate between success and failure stays
  *    "proven" and is held only by the per-URL failure block;
  *  - a page-wide "rapid" budget (the same URL again within LOOP_EXTEND_GAP_MS)
  *    shared by same-origin tabs (`recordRemote`, wired in guardedFetch.ts),
@@ -116,6 +116,8 @@ export type LoopVerdict = 'ok' | 'loop' | 'failing' | 'rapid_budget' | 'fail_bud
 export type BudgetKind = 'rapid' | 'fail';
 
 export interface RequestLoopGuardOptions {
+  /** The guard's clock. Must agree with the global timer source: the slot
+   * queue's wait limit and failure-expiry wake use setTimeout. */
   now?: Clock;
   /** Called when an admitted request spends a page budget (to tell other tabs). */
   onSpend?: (kind: BudgetKind) => void;
@@ -144,7 +146,7 @@ export class RequestLoopGuard {
   readonly #strikes = new Map<string, { count: number; releasedAt: number }>();
   readonly #failures = new Map<string, number[]>();
   readonly #failBlockedUntil = new Map<string, number>();
-  /** Last outcome per path (true = 2xx, false = failure status); insertion-ordered, capped. */
+  /** Last outcome per path (true = success 200–399, false = failure status); insertion-ordered, capped. */
   readonly #pathOk = new Map<string, boolean>();
   #inflightUnproven = 0;
   readonly #slotQueue: SlotWaiter[] = [];
@@ -246,10 +248,10 @@ export class RequestLoopGuard {
 
   /**
    * An admitted read of `key` is about to go out. Reads of paths not known to
-   * work (never answered 2xx, or last answered with a failure) hold one of a
+   * work (never answered with a success, or last answered with a failure) hold one of a
    * fixed number of slots while in flight: landed failures in the window plus
-   * slots held may not reach EDGE_FAIL_SAFE. A read that finds no slot WAITS
-   * for one (it is not refused) — so a burst of first reads, however large,
+   * slots held may not reach EDGE_FAIL_SAFE. A read that finds no slot waits
+   * for one (up to SLOT_WAIT_MAX_MS) instead of being refused at once — so a burst of first reads, however large,
    * reaches the server at most EDGE_FAIL_SAFE at a time, and even if every one
    * of them fails the page stays under the edge's line. Queued reads are served
    * first come, first served, re-checked when a slot is released and when the
@@ -258,7 +260,7 @@ export class RequestLoopGuard {
    * page's failure budget filled ('fail_budget'), the read's URL got
    * fail-blocked ('failing'), or no slot freed within SLOT_WAIT_MAX_MS
    * ('slot_wait').
-   * Paths that last answered 2xx, and every read when the edge limits are off
+   * Paths whose last answer was a success, and every read when the edge limits are off
    * (a known-local backend), take no slot.
    */
   acquire(key: string, signal?: AbortSignal | null): Promise<(() => void) | SlotRefusal> {
@@ -283,13 +285,23 @@ export class RequestLoopGuard {
         signal.addEventListener('abort', waiter.onAbort, { once: true });
       }
       this.#slotQueue.push(waiter);
-      this.#onSlotWait?.();
-      this.#scheduleExpiryWake();
+      // Capacity may already be free without anyone having woken the queue
+      // (failures that left the window before the expiry wake fired): serve
+      // it in order now, this newcomer last.
+      this.#drainQueue();
+      if (this.#slotQueue.includes(waiter)) this.#onSlotWait?.();
     });
   }
 
   /** Grant `waiter` a slot, refuse it, or leave it waiting (returns false). */
   #tryGrant(waiter: SlotWaiter): boolean {
+    // Re-judged on every attempt, not only on arrival: the path may have been
+    // proven by another read meanwhile, or the edge limits switched off (the
+    // mode resolved to local). Either way it needs no slot.
+    if (this.#pathOk.get(pathOf(waiter.key)) === true || !this.#edgeLimitsEnabled()) {
+      waiter.resolve(NOOP);
+      return true;
+    }
     const failed = this.#expireBudget('fail', this.#now()).length;
     if (failed >= PAGE_FAIL_MAX) {
       waiter.resolve('fail_budget');
@@ -348,13 +360,16 @@ export class RequestLoopGuard {
     this.#expiryTimer = null;
   }
 
-  /** Tests only: drop queued reads and timers. */
+  /** Tests only: refuse queued reads and drop timers. */
   dispose(): void {
-    for (const w of [...this.#slotQueue]) this.#dequeue(w);
+    for (const w of [...this.#slotQueue]) {
+      this.#dequeue(w);
+      w.resolve('slot_wait');
+    }
     this.#clearExpiryWake();
   }
 
-  /** A read of `key` came back 2xx: its path is known to work. */
+  /** A read of `key` came back with a success (200–399): its path is known to work. */
   recordSuccess(key: string): void {
     this.#setPathOk(pathOf(key), true);
   }
