@@ -154,6 +154,22 @@ def _ensure_audit_level() -> None:
         pass
 
 
+def _escape_line_breaks(record) -> None:
+    """One record = one physical line: escape CR/LF inside the message.
+
+    Several call sites log user text verbatim (chat input, agent names,
+    request fields). An embedded newline would let that text start a fresh
+    line with any head it likes — a forged entry indistinguishable from a
+    real one to anything that reads the log line by line (the sentinel's
+    boundary rule, the ship backfill, a human grep). Tracebacks are rendered
+    from ``record["exception"]`` by the sink, not from the message, so they
+    keep their lines.
+    """
+    message = record["message"]
+    if "\n" in message or "\r" in message:
+        record["message"] = message.replace("\r", "\\r").replace("\n", "\\n")
+
+
 def setup_logging(
     service_name: str,
     *,
@@ -208,7 +224,8 @@ def setup_logging(
         extra={
             "run_id": _RUN_ID_PLACEHOLDER,
             "event_id": _EVENT_ID_PLACEHOLDER,
-        }
+        },
+        patcher=_escape_line_breaks,
     )
 
     log_file = str(resolved_dir / f"{service_name}_{{time:YYYYMMDD}}.log")

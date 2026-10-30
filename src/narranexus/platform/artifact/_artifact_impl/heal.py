@@ -22,8 +22,6 @@ from typing import List, Optional
 
 from loguru import logger
 
-from narranexus.platform.utils.logging import log_boundary_violation
-
 from narranexus.platform.artifact._artifact_impl import registration
 from narranexus.platform.artifact._artifact_impl.errors import (
     ArtifactError,
@@ -33,6 +31,7 @@ from narranexus.platform.artifact._artifact_impl.notify import stage_artifact_ev
 from narranexus.platform.repository.artifact_repository import ArtifactRepository
 from narranexus.platform.schema.artifact_schema import Artifact, HealCandidate, HealResult
 from narranexus.platform.settings import settings
+from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.utils.workspace_paths import (
     resolve_inside_workspace,
     team_shared_dir,

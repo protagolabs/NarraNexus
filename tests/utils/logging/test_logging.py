@@ -288,6 +288,32 @@ class TestSetupLogging:
         c = setup_logging("svc_c", log_dir=tmp_path)
         assert c != a
 
+    def test_message_line_breaks_are_escaped(self, tmp_path: Path) -> None:
+        """User text logged verbatim (a chat message, an agent name) must not
+        start a new physical line: a log watcher matches lines from their
+        first character, and an embedded newline would let that text forge a
+        complete line with any head it likes (2026-10-30 sentinel review)."""
+        setup_logging("svc_nl", log_dir=tmp_path, level="INFO")
+        logger.info("Input content: hi\n2026-01-01 00:00:00.000 | WARNING  | forged\rx")
+        logger.complete()
+        files = list((tmp_path / "svc_nl").glob("svc_nl_*.log"))
+        lines = files[0].read_text(encoding="utf-8").splitlines()
+        hits = [line for line in lines if "Input content:" in line]
+        assert len(hits) == 1
+        assert "hi\\n2026-01-01" in hits[0] and "forged\\rx" in hits[0]
+        assert not any(line.startswith("2026-01-01") for line in lines)
+
+    def test_exceptions_keep_their_multiline_traceback(self, tmp_path: Path) -> None:
+        setup_logging("svc_exc", log_dir=tmp_path, level="INFO")
+        try:
+            raise RuntimeError("boom")
+        except RuntimeError:
+            logger.exception("failed")
+        logger.complete()
+        content = next((tmp_path / "svc_exc").glob("svc_exc_*.log")).read_text(encoding="utf-8")
+        assert "Traceback (most recent call last)" in content
+        assert "RuntimeError: boom" in content
+
     def test_writes_to_file(self, tmp_path: Path) -> None:
         setup_logging("svc_file", log_dir=tmp_path, level="INFO")
         logger.info("file probe message")

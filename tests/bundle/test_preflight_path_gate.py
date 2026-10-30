@@ -137,8 +137,14 @@ async def test_clean_bundle_still_passes(isolated_db, tmp_home, tmp_path, bounda
             {"artifact_id": "art_2", "file_path": "/reports/q3/index.html"},  # legacy leading slash
             {"artifact_id": "art_3"},  # pointer-less legacy row
         ],
-        skills=[{"name": "s1", "install_method": "zip", "agent_id": AID,
-                 "archive_ref": f"skills/{AID}/s1.zip"}],
+        skills=[
+            {"name": "s1", "install_method": "zip", "agent_id": AID,
+             "archive_ref": f"skills/{AID}/s1.zip", "skill_dir": "s1"},
+            # pre-2026-08-18 builds wrote an unsanitised skill_dir for non-archive
+            # skills; confirm ignores / per-skill-fails it, preflight must not refuse
+            {"name": "a/b", "install_method": "github", "agent_id": AID,
+             "skill_dir": "a/b", "source_url": "https://github.com/x/y"},
+        ],
     )
     pf = await preflight(bundle, "u_ok")
     assert pf["preflight_token"]
@@ -158,13 +164,14 @@ async def test_unreadable_artifacts_json_is_left_to_confirm(isolated_db, tmp_hom
     assert pf["preflight_token"]
 
 
+@pytest.mark.parametrize("method", ["zip", "full_copy"])
 @pytest.mark.parametrize("bad_dir", ["../../x", "a/b", "..", "nul\x00"])
 async def test_escaping_skill_dir_rejects_at_preflight(
-    isolated_db, tmp_home, tmp_path, boundary_lines, bad_dir
+    isolated_db, tmp_home, tmp_path, boundary_lines, bad_dir, method
 ):
     bundle = _bundle(tmp_path, skills=[{
-        "name": "s1", "install_method": "github", "agent_id": AID, "skill_dir": bad_dir,
-        "source_url": "https://github.com/x/y",
+        "name": "s1", "install_method": method, "agent_id": AID, "skill_dir": bad_dir,
+        "archive_ref": f"skills/{AID}/s1.zip",
     }])
     with pytest.raises(ValueError, match="skill_dir"):
         await preflight(bundle, "u_attacker")
@@ -182,3 +189,18 @@ async def test_malformed_bundle_is_refused_without_a_boundary_line(
         await preflight(bundle, "u_ok")
     assert list(_sessions_root(tmp_home).glob("nx-import-*")) == []
     assert boundary_lines() == []
+
+
+async def test_traversing_agent_id_logs_once_at_preflight(
+    isolated_db, tmp_home, tmp_path, boundary_lines
+):
+    """The 2026-10-28 entry shape, arriving through a bundle manifest."""
+    path = tmp_path / "upload.nxbundle"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("manifest.json", json.dumps({"bundle_format_version": "1.0", "agents": ["../x"]}))
+    with pytest.raises(ValueError, match="agent id"):
+        await preflight(path, "u_attacker")
+    assert list(_sessions_root(tmp_home).glob("nx-import-*")) == []
+    hits = boundary_lines()
+    assert len(hits) == 1
+    assert "surface=bundle_import.preflight" in hits[0] and "actor=u_attacker" in hits[0]

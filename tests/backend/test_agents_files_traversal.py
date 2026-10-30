@@ -19,6 +19,8 @@ Neuter ``require_owned_workspace_agent`` in ``backend/routes/_ownership.py`` and
 from __future__ import annotations
 
 import pytest
+
+from narranexus.platform.utils.logging._security import BOUNDARY_MARKER
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
@@ -368,7 +370,7 @@ def boundary_lines():
 
     captured: list[str] = []
     sink_id = logger.add(captured.append, level="WARNING", format="{message}")
-    yield lambda: [line for line in captured if "[security.boundary]" in line]
+    yield lambda: [line for line in captured if BOUNDARY_MARKER in line]
     logger.remove(sink_id)
 
 

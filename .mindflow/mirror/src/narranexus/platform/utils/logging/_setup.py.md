@@ -4,7 +4,14 @@ last_verified: 2026-10-30
 stub: false
 ---
 
-## 2026-10-30 — `_TEXT_FORMAT` 成为与部署侧哨兵的契约
+## 2026-10-30 — 消息里的换行一律转义；`_TEXT_FORMAT` 成为与部署侧哨兵的契约
+
+`logger.configure(patcher=_escape_line_breaks)`：消息里的 `\n`/`\r` 转成字面 `\\n`/`\\r`，
+一条记录永远一行。原因：多处会原样记录用户文本（聊天输入、agent 名），内嵌换行就能另起一
+行、伪造任意行头，按行读日志的东西（哨兵、ship 回填、人工 grep）分辨不出来。异常栈由 sink
+从 `record["exception"]` 渲染，不受影响。代价：本来就想打多行的消息现在显示为一行带 `\n`。
+
+### 契约
 
 部署仓哨兵的 `abuse.boundary_violation` 从行首匹配 `[security.boundary]` 行，依赖这里的
 行头格式（见 `_security.py.md`）。改格式要同步部署仓。

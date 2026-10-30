@@ -8,9 +8,12 @@ stub: false
 
 - `_reject_escaping_bundle_paths`：preflight 在迁移之后、发 token 之前，校验每个
   `artifacts.json` 行的 `file_path`（复用 `artifact_relpath_or_raise`）、zip/full_copy
-  技能的 `archive_ref`（`_bundle_member_path_or_raise`）、技能的 `skill_dir`（与 confirm 同一
-  条单段规则 `sanitize_filename`）。任一不合格即拒整份包、删解压目录。技能 `name` 不在这里查
-  （来自 SKILL.md，诚实包里也有怪名字，confirm 会逐个 sanitize）。越界抛 `BundlePathEscape`
+  技能的 `archive_ref`（`_bundle_member_path_or_raise`），以及 zip/full_copy 技能的
+  `skill_dir`（与 confirm 对这两种方式的同一条单段规则 `sanitize_filename`）。任一不合格即拒
+  整份包、删解压目录。其他安装方式的 `skill_dir` 交给 confirm：2026-08-18 前的 builder 对
+  url/builtin 技能会写未 sanitize 的 `skill_dir`（SKILL.md 名字带 `/`），confirm 忽略或单技能
+  失败，在这里拒就是对诚实包的误报。技能 `name` 也不在这里查。解析不了（含非 UTF-8）的
+  `artifacts.json` 不拦。越界抛 `BundlePathEscape`
   并记边界日志；结构错误抛普通 ValueError，只拒不记。
   confirm 里的两处校验保留为第二道。解析不了的 `artifacts.json` 不拦（confirm 本来就只记
   warning、不写行）；能解析但形状不对（非 list / 行非 dict / 字段非 str）则拒。

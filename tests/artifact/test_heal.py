@@ -18,6 +18,8 @@ import os
 
 import pytest
 
+from narranexus.platform.utils.logging._security import BOUNDARY_MARKER
+
 from narranexus.platform.artifact import (
     ArtifactNotFound,
     ArtifactPathEscape,
@@ -347,7 +349,7 @@ async def test_heal_symlinked_root_emits_one_boundary_line(env):
         )
     finally:
         logger.remove(sink_id)
-    hits = [line for line in lines if "[security.boundary]" in line]
+    hits = [line for line in lines if BOUNDARY_MARKER in line]
     assert len(hits) == 1
     assert "surface=artifact.heal_symlink" in hits[0] and "owner=user_y" in hits[0]
 

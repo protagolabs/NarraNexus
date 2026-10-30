@@ -54,3 +54,34 @@ def test_detail_is_bounded(lines):
     log_boundary_violation("s", detail="x" * 5000)
     assert len(lines[0]) < 500
     assert lines[0].rstrip().endswith("...(truncated)")
+
+
+# The deploy repo's sentinel (abuse.boundary_violation) matches this line FROM
+# ITS FIRST CHARACTER with the regex below — a copy, kept in step by hand with
+# nexus_sentinel/domain/signatures.py. Rendering through the real text format
+# pins the contract: renaming the module/function, wrapping the call, or
+# changing _TEXT_FORMAT turns this red instead of silently killing the alert.
+_SENTINEL_RE = __import__("re").compile(
+    r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} \| WARNING  \| [^|]* \| "
+    r"narranexus\.platform\.utils\.logging\._security:log_boundary_violation:\d+ - "
+    r"\[security\.boundary\] "
+    r"surface=(?P<surface>[a-z][a-z0-9_.]*) actor=(?P<actor>\S+) owner=(?P<owner>\S+) "
+)
+
+
+@pytest.mark.parametrize("actor", ["95e155e6088940aa897994a3074f9dff", "legacy user"])
+def test_real_text_format_matches_the_sentinel_contract(actor):
+    from narranexus.platform.utils.logging._setup import _TEXT_FORMAT
+
+    captured: list[str] = []
+    sink_id = logger.add(captured.append, level="WARNING", format=_TEXT_FORMAT)
+    try:
+        with logger.contextualize(run_id="--------", event_id="--------------"):
+            log_boundary_violation("agent_files.path", actor=actor, detail="../x\nforged")
+    finally:
+        logger.remove(sink_id)
+    line = captured[0].rstrip("\n")
+    m = _SENTINEL_RE.match(line)
+    assert m, line
+    assert m["surface"] == "agent_files.path"
+    assert m["owner"] == "-"

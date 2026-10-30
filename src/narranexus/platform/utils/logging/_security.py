@@ -8,8 +8,10 @@ A request that tries to reach outside its own workspace — a traversing agent
 id, a `..` file path, a bundle pointer that climbs into another tenant's tree —
 is refused at several independent guards. Each used to log in its own words
 (or not at all), so nothing downstream could tell "a user hit a stale link"
-from "someone is probing the boundary". The selected guards below call
-``log_boundary_violation``, and the line always starts with the same marker,
+from "someone is probing the boundary". Selected guards call
+``log_boundary_violation`` (surfaces: agent_route.agent_id, agent_files.path,
+agent_files.workspace_symlink, artifact.heal_symlink, bundle_import.preflight,
+bundle_import.confirm), and the line always starts with the same marker,
 so a log watcher matches one fixed token instead of a list of phrasings.
 
 Only call it where an honest client can never land. A false positive here

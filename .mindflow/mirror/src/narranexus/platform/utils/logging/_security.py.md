@@ -20,7 +20,12 @@ stub: false
 - 部署侧从**行首**匹配，连同 loguru 文本格式的行头（时间、级别、
   `..._security:log_boundary_violation:<行号> - `）。改模块名/函数名、包一层 logger、改
   `_setup._TEXT_FORMAT`，告警都会静默失效，必须同步改部署仓 `signatures.py`。JSON 日志模式不支持。
-- `surface` 由代码固定，不来自用户输入。
+- `surface` 由代码固定，不来自用户输入。当前 6 个：agent_route.agent_id、agent_files.path、
+  agent_files.workspace_symlink、artifact.heal_symlink、bundle_import.preflight、
+  bundle_import.confirm。
+- 其他日志行无法伪造本行：`_setup` 的 patcher 把所有消息里的换行转义，用户文本不可能出现在行首。
+- `tests/utils/test_security_boundary_log.py` 用真实 `_TEXT_FORMAT` 渲染并用哨兵正则的副本
+  匹配，契约漂移会变红。
 - actor/owner 含空白、`=` 或控制字符时做百分号编码，保证每个字段是一个 token。
 - `detail` 通常是攻击者可控的值：用 `repr()` 保证单行（换行被转义，伪造不出第二行），
   截断到 300 字符。真实字段总在前面，告警侧读第一个 `surface=` 即可。

@@ -41,11 +41,11 @@ from narranexus.platform.utils.db.db_factory import get_db_client
 from narranexus.platform.utils.db.dialect_errors import is_unique_violation
 from narranexus.platform.utils.deployment_mode import is_cloud_mode
 from narranexus.platform.utils.url_safety import is_obviously_non_public_url
-from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.utils.file_safety import (
     sanitize_filename,
     validate_zip_member_path,
 )
+from narranexus.platform.utils.logging import log_boundary_violation
 from narranexus.platform.schema.entity_schema import (
     AGENT_TEXT_MAX_LENGTH,
     normalize_agent_text,
@@ -472,17 +472,21 @@ def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> N
 
     The whole bundle is rejected, never a single row — same rule as the
     agent-id gate (a filtered list would desync id_map from the writes), and
-    no honest export ever produces such a path.
+    no honest export ever produces such a path for these fields.
 
     An `artifacts.json` that does not parse is left alone: confirm reports it
     as a warning and writes no artifact rows from it, so it carries no path to
     act on. One that parses into the wrong SHAPE is refused, because confirm
     would iterate it and fail mid-import.
 
-    A skill's `skill_dir` (the directory name confirm installs into) gets the
-    same single-segment rule confirm applies (`sanitize_filename`). The skill
-    `name` is not checked here: it comes from SKILL.md, honest bundles carry
-    odd names, and confirm sanitises it per skill.
+    For zip/full_copy skills, `skill_dir` (the directory confirm installs
+    into) gets the same single-segment rule confirm applies to those methods
+    (`sanitize_filename`). Other install methods are left to confirm: builds
+    before 2026-08-18 wrote an unsanitised `skill_dir` (a SKILL.md name with
+    `/` in it) for url/builtin skills, confirm ignores or per-skill-fails it,
+    and refusing those honest bundles here would be a false alarm. The skill
+    `name` is not checked here either: it comes from SKILL.md, honest bundles
+    carry odd names, and confirm sanitises it per skill.
 
     Raises:
         BundlePathEscape: a path string leaves its container (logged by the
@@ -495,7 +499,7 @@ def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> N
             continue
         try:
             rows = json.loads(art_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             continue
         if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
             raise ValueError(f"agent {aid}: artifacts.json must be a list of objects")
@@ -514,7 +518,7 @@ def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> N
                 ) from e
 
     for s in manifest.get("skills", []) or []:
-        if not isinstance(s, dict):
+        if not isinstance(s, dict) or s.get("install_method") not in _ARCHIVE_INSTALL_METHODS:
             continue
         skill_dir = s.get("skill_dir")
         if skill_dir:
@@ -524,8 +528,6 @@ def _reject_escaping_bundle_paths(work_dir: Path, manifest: Dict[str, Any]) -> N
                 sanitize_filename(skill_dir, label="skill_dir")
             except ValueError as e:
                 raise BundlePathEscape(f"skill {s.get('name')!r}: skill_dir is not one directory name ({e})") from e
-        if s.get("install_method") not in _ARCHIVE_INSTALL_METHODS:
-            continue
         ref = s.get("archive_ref")
         if not ref:
             continue  # confirm records "archive missing" for this skill
