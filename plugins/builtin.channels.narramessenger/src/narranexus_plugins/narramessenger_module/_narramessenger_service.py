@@ -111,11 +111,15 @@ _TOKENISH_RE = re.compile(r"syt_|://|=|[A-Za-z0-9]{16,}|(?:\D*\d){3}")
 # still be the previous state, so the re-fetch waits for the bearer instead of
 # reading the guide once. Delays in seconds between attempts.
 _REVEAL_DELAYS: Tuple[float, ...] = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
-# Hard ceiling, measured from the start of do_bind, after which the bearer wait
-# gives up (its fetches included). The cloud MCP bind reaches this code through
-# RemoteStore with a 20 s HTTP budget; the remaining ~6 s are for runtime-ready
-# and the upsert, so a bind that succeeds is not reported to the agent as a
-# timeout.
+# Ceiling on the bearer wait (its fetches included), measured from the start of
+# do_bind. The cloud MCP bind reaches this code through HttpStore
+# (narranexus/platform/module_system/data_access/channel_store.py), whose HTTP
+# call has a 20 s budget; 14 s keeps the wait itself well inside it. It bounds
+# the wait only: runtime-ready still runs under the session's 25 s timeout, so
+# a bearer that shows up late followed by a slow runtime-ready can still exceed
+# 20 s. runtime-ready is deliberately not cut short: cancelling it mid-request
+# can leave the remote side bound and ours not (the user's retry then finds the
+# bearer at once and completes).
 _REVEAL_DEADLINE_S = 14.0
 # Indirections so tests can run the wait without real sleeps or a real clock.
 _sleep = asyncio.sleep
@@ -320,10 +324,11 @@ async def _await_bearer(
     ended = "attempts"
     for delay in _REVEAL_DELAYS:
         remaining = deadline - _monotonic()
-        if remaining <= 0:
+        if remaining <= delay:
+            # Not enough time left to sleep and still read: give the time back.
             ended = "deadline"
             break
-        await _sleep(min(delay, remaining))
+        await _sleep(delay)
         remaining = deadline - _monotonic()
         if remaining <= 0:
             ended = "deadline"
@@ -416,9 +421,10 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                         f"HTTP {rp.get('status')}",
                     )
                 if not rp.get("ok"):
+                    # rp['error'] is text from the user-chosen host: bounded and repr'd.
                     logger.info(
                         f"[narramessenger:{agent_id}] report-profile answered "
-                        f"HTTP {rp.get('status')} {rp.get('error') or '(no code)'}; "
+                        f"HTTP {rp.get('status')} {str(rp.get('error') or '(no code)')[:100]!r}; "
                         "treating the session as past the profile step"
                     )
                 waited_guide, waited = await _await_bearer(
@@ -476,13 +482,15 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             agent_id, "connect-gate",
             "The bind link does not point at a public NarraMessenger "
             "host. Re-copy the bind link from My Agents → Bind Agents.",
-            str(e),
+            str(e).replace(token, "<token>")[:200],
         )
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        # Only the class name: aiohttp's messages embed the request URL, which
+        # carries the bind token (e.g. "Connection timeout to host <url>").
         return _fail(
             agent_id, "network",
             f"network error reaching NarraMessenger: {type(e).__name__}",
-            repr(e)[:200],
+            type(e).__name__,
         )
 
     matrix_user_id = rdata.get("matrixUserId") or parsed.get("matrix_user_id", "")

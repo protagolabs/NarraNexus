@@ -865,3 +865,30 @@ async def test_failure_log_names_step_without_secrets(stub_db, fake_manager, gui
     assert "bind failed at matrix-access-token" in joined
     for secret in ("deadbeef", "yGO3BL", "://"):
         assert secret not in joined
+
+
+@pytest.mark.asyncio
+async def test_network_failure_log_never_carries_the_bind_token(stub_db, fake_manager, monkeypatch):
+    """aiohttp's timeout message embeds the request URL, and the URL carries
+    the bind token: the log must keep only the exception class."""
+    import aiohttp
+    from loguru import logger
+
+    async def _timeout(_session, url):
+        raise aiohttp.ConnectionTimeoutError(f"Connection timeout to host {url}")
+
+    monkeypatch.setattr(svc, "_get_text", _timeout)
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="DEBUG")
+    try:
+        result = await svc.do_bind(
+            stub_db, agent_id="agent_x",
+            bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+        )
+    finally:
+        logger.remove(sink)
+
+    assert result == {"success": False, "error": "network error reaching NarraMessenger: ConnectionTimeoutError"}
+    joined = "\n".join(lines)
+    assert "bind failed at network: ConnectionTimeoutError" in joined
+    assert "yGO3BL" not in joined

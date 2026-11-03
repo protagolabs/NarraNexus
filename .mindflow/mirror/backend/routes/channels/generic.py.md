@@ -8,7 +8,7 @@ stub: false
 
 ## 2026-11-02 — failed binds are logged
 
-A bind that fails answers HTTP 200 with `success: false`, so the access log alone reads it as a success — a user's NarraMessenger bind failed for days with no server-side trace. Every refusal before the channel is reached (ownership, no bind flow, invalid fields) now goes through `_bind_refused`, which logs channel / agent / reason / the exact text the user saw; a manager-backed channel's failed envelope is logged the same way (truncated to 300 chars — lark's error is raw CLI output). An ownership refusal is logged at info, not warning: it is what unauthenticated probes and scans produce, and they must not be able to flood the warning stream. Logging only — the envelope and status are unchanged.
+A bind that fails answers HTTP 200 with `success: false`, so the access log alone reads it as a success — a user's NarraMessenger bind failed for days with no server-side trace. Every refusal before the channel is reached (ownership, no bind flow, invalid fields) now goes through `_bind_refused`, which logs channel / agent / reason / the exact text the user saw (bounded to 300 chars — the invalid-fields text echoes request field names); a manager-backed channel's failed envelope is logged the same way (truncated to 300 chars — lark's error is raw CLI output). An ownership refusal is logged at info, not warning: it is what unauthenticated probes and scans produce, and they must not be able to flood the warning stream. Logging only — the envelope and status are unchanged.
 
 ## Intent
 

@@ -107,7 +107,8 @@ def _bind_refused(channel: str, agent_id: str, reason: str, error: str) -> dict[
     # An ownership refusal is what an unauthenticated probe or a scan produces;
     # it is logged at info so scanners cannot flood the warning stream.
     log = logger.info if reason == "ownership" else logger.warning
-    log(f"[channels] {channel} bind refused ({reason}): agent={agent_id} error={error!r}")
+    # `error` can echo request input (unknown field names): bounded.
+    log(f"[channels] {channel} bind refused ({reason}): agent={agent_id} error={error[:300]!r}")
     return {"success": False, "error": error}
 
 

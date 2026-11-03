@@ -331,3 +331,27 @@ def test_failed_binds_are_logged_server_side(client, monkeypatch):
         logger.remove(sink)
     assert any("narramessenger bind failed" in ln and "a1" in ln and "service said no" in ln for ln in lines)
     assert any("lark bind refused (fields)" in ln and "a1" in ln for ln in lines)
+
+
+def test_ownership_refusals_log_at_info_and_no_bind_at_warning(client):
+    """Unauthenticated / foreign-agent binds are what scanners produce: they log
+    at info so they cannot flood the warning stream. A channel without a bind
+    flow is a real client mistake and stays a warning."""
+    from loguru import logger
+
+    info: list[str] = []
+    warn: list[str] = []
+    s_info = logger.add(lambda m: info.append(str(m)), level="INFO")
+    s_warn = logger.add(lambda m: warn.append(str(m)), level="WARNING")
+    try:
+        r = client.post("/api/channels/lark/bind", json={"agent_id": "a1", "fields": {}}, headers={"X-User-Id": "outsider"})
+        assert r.json()["success"] is False
+        r = client.post("/api/channels/wechat/bind", json={"agent_id": "a1", "fields": {"bot_token": "t"}}, headers={"X-User-Id": "u1"})
+        assert r.json()["success"] is False
+    finally:
+        logger.remove(s_info)
+        logger.remove(s_warn)
+    assert any("lark bind refused (ownership)" in ln for ln in info)
+    assert not any("bind refused (ownership)" in ln for ln in warn)
+    assert any("wechat bind refused (no-bind)" in ln for ln in warn)
+
