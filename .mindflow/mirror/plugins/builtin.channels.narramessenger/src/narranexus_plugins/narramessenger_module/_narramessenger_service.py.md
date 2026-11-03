@@ -16,7 +16,13 @@ last_verified: 2026-11-03
 - `_parse_claim` requires all four fields as non-empty strings; anything less fails at step `claim-credentials` before runtime-ready, so the remote side is never completed with a credential we cannot use. A refused claim (non-2xx) tells the user the link can be claimed only once and to generate a new one.
 - The claim response is parsed in memory and **never logged**; the incomplete-claim log names which fields arrived, never their values.
 - The homeserver gate now checks the claim's `homeserver_url` (same threat: it comes from the user-chosen link host).
+- The wait constants are now `_STATUS_DELAYS` / `_STATUS_DEADLINE_S` (they time a status wait, not a reveal), and the deadline dropped from 14 s to 12 s: the claim adds a round trip inside the cloud HttpStore's 20 s budget, so ~8 s is left for claim + runtime-ready + upsert.
+- Failure steps are now `parse-link`, `egress-gate`, `setup-guide`, `report-profile`, `await-connection`, `claim-credentials`, `homeserver-gate`, `runtime-ready`, `connect-gate`, `network` (`reveal-bearer` and `matrix-access-token` are gone). `_guide_shape` no longer reports `bearer_word`.
+- `_claim_hint` picks the advice after a failed claim: a 4xx other than 429 means NarraMessenger refused this link, so only a new link helps; a 5xx / 429 / no response / malformed body may be transient, so the user is told to paste the same link again within 10 minutes.
+- **Recovery path.** If runtime-ready landed remotely but our side failed (HttpStore timeout, upsert error), a re-paste finds the guide at `connected`: report-profile and the wait are skipped and the claim is retried inside its 10-minute window. That is why `connected` is in `_CLAIMABLE_STATUSES`.
 - The success envelope's `connection_mode` now says `matrix` (it said `gateway`, left over from the Gateway era); the MCP setup text says "Direct Matrix transport" for the same reason.
+
+**Gotcha.** Re-pasting an already-claimed link into a *different* agent within the 10-minute window hands that agent the same Matrix identity. This is NarraMessenger's retry design (the old guide-scraping had the same exposure); the link is the owner's own one-time secret.
 
 **Gotcha.** Do not claim before `waiting_connection`: the claim is one-time, and burning it on a session that then fails leaves the user only the 10-minute retry window. The status wait exists to make sure the claim happens once, at the right moment.
 
@@ -173,13 +179,14 @@ DB. Here WE always pick Direct Matrix and always write the row.
   `narra bind <token>` paste, defaulting the base to `api.netmind.chat`.
 - **Flow** (current, 2026-11-03): GET setup-guide → if its status is not yet
   `waiting_connection`, `report-profile` (the agent's name+bio from the `agents`
-  table, truncated to 30/200) → re-GET until `waiting_connection` → one-time
+  table, truncated to 30/200) → re-GET until `waiting_connection` (or
+  `connected`, a re-paste after a bind that landed) → one-time
   `claim-credentials` → `runtime-ready` → `upsert` the credential row.
 - **Identity from the runtime-ready response** — `matrixUserId` /
   `principalId` / `roomId` come back from runtime-ready (authoritative; the
   claim's `matrix_user_id` is the fallback); the credentials come from the claim.
   **These three ids describe the AGENT's own Matrix identity, not the
-  binder's** — `/connect` never returns who ran the bind flow. `roomId` is
+  binder's** — no bind call returns who ran the bind flow. `roomId` is
   stored as `bind_room_id` and is the only trace of "where the bind
   happened"; it's what `NarramessengerTrigger._maybe_claim_owner` later
   matches against to auto-claim an owner (see that trigger's mirror doc).
@@ -193,7 +200,8 @@ DB. Here WE always pick Direct Matrix and always write the row.
   NarraMessenger side before `waiting_connection`. If so, `do_bind` returns an
   error naming the status and asking the owner to confirm there and re-paste.
 - WRONG_STATE from `report-profile` is treated as "already past the profile step"
-  and ignored; whether the session can still bind is then up to the claim.
+  and ignored; the status wait still decides next (an unclaimable status fails
+  at `await-connection` and never reaches the claim).
 - **`do_bind` never writes `owner_matrix_user_id`/`owner_name`** (X2/X3 root
   cause, fixed 2026-07-02) — don't "fix" this here by trying to scrape an
   owner identity out of the setup-guide markdown; the guide describes the

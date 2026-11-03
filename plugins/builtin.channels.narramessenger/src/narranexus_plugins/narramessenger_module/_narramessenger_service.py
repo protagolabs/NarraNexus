@@ -107,17 +107,19 @@ _TOKENISH_RE = re.compile(r"syt_|://|=|[A-Za-z0-9]{16,}|(?:\D*\d){3}")
 # served right after it can still be the previous state, so the re-fetch waits
 # for a claimable status instead of reading the guide once. Delays in seconds
 # between attempts.
-_REVEAL_DELAYS: Tuple[float, ...] = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
+_STATUS_DELAYS: Tuple[float, ...] = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
 # Ceiling on the status wait (its fetches included), measured from the start of
 # do_bind. The cloud MCP bind reaches this code through HttpStore
 # (narranexus/platform/module_system/data_access/channel_store.py), whose HTTP
-# call has a 20 s budget; 14 s keeps the wait itself well inside it. It bounds
-# the wait only: the claim and runtime-ready still run under the session's
-# 25 s timeout, so a late status followed by slow calls can still exceed 20 s.
-# Neither call is cut short: cancelling runtime-ready mid-request can leave the
-# remote side bound and ours not (the user's retry, within the claim's
-# 10-minute retry window, then completes).
-_REVEAL_DEADLINE_S = 14.0
+# call has a 20 s budget; 12 s leaves ~8 s for the claim, runtime-ready and the
+# upsert. It bounds the wait only: the claim and runtime-ready still run under
+# the session's 25 s timeout, so a late status followed by slow calls can still
+# exceed 20 s and show the user a timeout for a bind that landed. Neither call is
+# cut short: cancelling runtime-ready mid-request can leave the remote side
+# bound and ours not. A re-paste recovers either way — the guide then says
+# `connected` (or still `waiting_connection`) and the claim is retried inside
+# its 10-minute window.
+_STATUS_DEADLINE_S = 12.0
 # Indirections so tests can run the wait without real sleeps or a real clock.
 _sleep = asyncio.sleep
 _monotonic = time.monotonic
@@ -304,7 +306,7 @@ async def _await_claimable(
     status = ""
     reads = 0
     ended = "attempts"
-    for delay in _REVEAL_DELAYS:
+    for delay in _STATUS_DELAYS:
         remaining = deadline - _monotonic()
         if remaining <= delay:
             # Not enough time left to sleep and still read: give the time back.
@@ -344,11 +346,23 @@ def _not_claimable_message(flow_status: str) -> str:
     )
 
 
-_CLAIM_REFUSED_HINT = (
-    " The credential for a bind link can be claimed only once (a retry is "
-    "accepted for 10 minutes). Generate a new bind link under My Agents → "
-    "Bind Agents and paste it here."
-)
+def _claim_hint(status: Optional[int]) -> str:
+    """What the user should do after a failed or incomplete claim.
+
+    A 4xx means NarraMessenger refused this link's claim (already used past
+    its retry window, expired, unknown): only a new link helps. Anything else
+    (5xx, 429, no response, a malformed body) may be transient, and the same
+    link can be claimed again for 10 minutes.
+    """
+    if status is not None and 400 <= status < 500 and status != 429:
+        return (
+            " The credential for a bind link can be claimed only once. Generate "
+            "a new bind link under My Agents → Bind Agents and paste it here."
+        )
+    return (
+        " Paste the same link again within 10 minutes; after that, generate a "
+        "new bind link under My Agents → Bind Agents."
+    )
 
 
 async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
@@ -417,7 +431,7 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                         "treating the session as past the profile step"
                     )
                 waited_guide, waited_status = await _await_claimable(
-                    session, guide_url, started + _REVEAL_DEADLINE_S, agent_id
+                    session, guide_url, started + _STATUS_DEADLINE_S, agent_id
                 )
                 if waited_guide:
                     guide, status = waited_guide, waited_status
@@ -437,7 +451,7 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             if not claim.get("ok"):
                 return _fail(
                     agent_id, "claim-credentials",
-                    _step_failure("claim-credentials", claim) + "." + _CLAIM_REFUSED_HINT,
+                    _step_failure("claim-credentials", claim) + "." + _claim_hint(claim.get("status")),
                     f"HTTP {claim.get('status')} flow_status={status}",
                 )
             creds = _parse_claim(claim.get("data") or {})
@@ -445,7 +459,7 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                 present = sorted(k for k in _CLAIM_FIELDS if (claim.get("data") or {}).get(k))
                 return _fail(
                     agent_id, "claim-credentials",
-                    "NarraMessenger returned an incomplete agent credential." + _CLAIM_REFUSED_HINT,
+                    "NarraMessenger returned an incomplete agent credential." + _claim_hint(None),
                     f"fields present={present}",
                 )
 

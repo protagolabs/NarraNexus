@@ -297,8 +297,63 @@ async def test_incomplete_claim_is_refused_before_runtime_ready(
 
     assert result["success"] is False
     assert "incomplete" in result["error"]
-    assert "new bind link" in result["error"]
+    assert "same link again within 10 minutes" in result["error"]
     assert READY_URL not in _urls(guide_scripts)
+    assert fake_manager.upserts == []
+
+
+CONNECTED_GUIDE = CONNECTION_GUIDE.replace("`waiting_connection`", "`connected`")
+
+
+@pytest.mark.asyncio
+async def test_re_paste_after_a_landed_bind_claims_again_without_report_profile(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    """runtime-ready landed remotely but our side failed (HttpStore timeout,
+    upsert error): the re-pasted link's guide says `connected`, and the claim
+    is retried inside its window — no report-profile, no status wait."""
+    guide_scripts["guides"] = [CONNECTED_GUIDE]
+    guide_scripts["post_responses"] = [_ok(CLAIM), _ok(READY)]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is True
+    assert _urls(guide_scripts) == [CLAIM_URL, READY_URL]
+    assert recorded_sleeps == []
+    assert fake_manager.upserts[0].bearer_token == SECRET
+
+
+@pytest.mark.asyncio
+async def test_re_paste_after_the_claim_window_asks_for_a_new_link(
+    stub_db, fake_manager, guide_scripts
+):
+    guide_scripts["guides"] = [CONNECTED_GUIDE]
+    guide_scripts["post_responses"] = [{"ok": False, "status": 409, "error": ""}]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "only once" in result["error"] and "new bind link" in result["error"]
+    assert READY_URL not in _urls(guide_scripts)
+    assert fake_manager.upserts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [500, 503, 429, None])
+async def test_transient_claim_failure_says_retry_the_same_link(
+    stub_db, fake_manager, guide_scripts, status
+):
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    failure = {"ok": False, "error": ""}
+    if status is not None:
+        failure["status"] = status
+    guide_scripts["post_responses"] = [failure]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "same link again within 10 minutes" in result["error"]
+    assert "only once" not in result["error"]
     assert fake_manager.upserts == []
 
 
@@ -365,7 +420,7 @@ async def test_do_bind_names_flow_status_when_never_claimable(
         "> **Bind Flow Status**: `awaiting_creator_confirmation`\n"
         "## Next Step\nAsk the creator to confirm.\n"
     )
-    guide_scripts["guides"] = [PROFILE_GUIDE] + [waiting] * len(svc._REVEAL_DELAYS)
+    guide_scripts["guides"] = [PROFILE_GUIDE] + [waiting] * len(svc._STATUS_DELAYS)
     guide_scripts["post_responses"] = [_ok({})]
 
     result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
@@ -373,7 +428,7 @@ async def test_do_bind_names_flow_status_when_never_claimable(
     assert result["success"] is False
     assert "awaiting_creator_confirmation" in result["error"]
     assert "confirm" in result["error"]
-    assert recorded_sleeps == list(svc._REVEAL_DELAYS)
+    assert recorded_sleeps == list(svc._STATUS_DELAYS)
     assert fake_manager.upserts == []
     # Neither the one-time claim nor the remote completion was attempted.
     assert CLAIM_URL not in _urls(guide_scripts)
@@ -400,7 +455,7 @@ async def test_wrong_state_report_profile_still_waits(
 @pytest.mark.asyncio
 async def test_empty_refetch_keeps_last_status(stub_db, fake_manager, guide_scripts, recorded_sleeps):
     waiting = "> **Bind Flow Status**: `awaiting_creator_confirmation`\n"
-    guide_scripts["guides"] = [PROFILE_GUIDE, waiting] + [""] * (len(svc._REVEAL_DELAYS) - 1)
+    guide_scripts["guides"] = [PROFILE_GUIDE, waiting] + [""] * (len(svc._STATUS_DELAYS) - 1)
     guide_scripts["post_responses"] = [_ok({})]
 
     result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
@@ -748,7 +803,7 @@ async def test_do_bind_timeout_returns_network_error(stub_db, fake_manager, monk
 @pytest.mark.asyncio
 async def test_status_wait_stops_at_its_deadline(stub_db, fake_manager, guide_scripts, monkeypatch):
     """The cloud MCP bind reaches do_bind through a 20 s HTTP call: the wait
-    must give up at _REVEAL_DEADLINE_S even when every read is slow."""
+    must give up at _STATUS_DEADLINE_S even when every read is slow."""
     clock = {"t": 0.0}
     reads = {"n": 0}
     GET_COST = 2.0  # a slow upstream: every guide read takes 2 s
@@ -774,9 +829,9 @@ async def test_status_wait_stops_at_its_deadline(stub_db, fake_manager, guide_sc
 
     assert result["success"] is False
     # Overshoot is at most the read in flight (bounded by wait_for in real runs).
-    assert clock["t"] <= svc._REVEAL_DEADLINE_S + GET_COST
+    assert clock["t"] <= svc._STATUS_DEADLINE_S + GET_COST
     # Stopped early: fewer re-reads than scheduled delays.
-    assert reads["n"] - 1 < len(svc._REVEAL_DELAYS)
+    assert reads["n"] - 1 < len(svc._STATUS_DELAYS)
 
 
 @pytest.fixture
@@ -824,7 +879,7 @@ async def test_incomplete_claim_log_names_fields_not_values(
 async def test_unclaimable_log_names_step_without_secrets(
     stub_db, fake_manager, guide_scripts, recorded_sleeps, log_lines
 ):
-    guide_scripts["guides"] = [PROFILE_GUIDE] * (len(svc._REVEAL_DELAYS) + 1)
+    guide_scripts["guides"] = [PROFILE_GUIDE] * (len(svc._STATUS_DELAYS) + 1)
     guide_scripts["post_responses"] = [_ok({})]
 
     result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)

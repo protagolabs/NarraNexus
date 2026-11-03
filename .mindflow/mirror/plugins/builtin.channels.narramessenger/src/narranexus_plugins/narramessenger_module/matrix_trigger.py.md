@@ -1,7 +1,7 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-10-16
+last_verified: 2026-11-03
 ---
 
 ## 2026-10-16（二）— 托管 DM 有三个成员：先认 `ai.netmind.room_creation.v1`，计数时排除精确的 `@hybrid-im-bot`
@@ -239,8 +239,8 @@ atomic 路径走基类方法，闸门随之生效（拒绝文案不由 atomic �
 
 ## 2026-08-26 — `is_agent_peer` 覆写：从 MXID 读出来
 
-平台把 agent 身份铸成 `@agent-<id>:<homeserver>`（见
-[[_narramessenger_service.py]] 的 `_MATRIX_USER_RE`），所以在这个渠道
+平台把 agent 身份铸成 `@agent-<id>:<homeserver>`（bind 时由
+[[_narramessenger_service.py]] 的 claim 返回的 `matrix_user_id`），所以在这个渠道
 「对面是不是机器」是**前缀判断**而不是猜测。新增模块级常量
 `AGENT_MXID_PREFIX` 承载这个拼法。
 
@@ -250,8 +250,8 @@ atomic 路径走基类方法，闸门随之生效（拒绝文案不由 atomic �
 ## 2026-08-24 — `is_agent_peer` + silent 分支补熔断
 
 **`is_agent_peer` 覆写**：平台把 agent 身份铸成
-`@agent-<id>:<homeserver>`（见 [[_narramessenger_service.py]] 的
-`_MATRIX_USER_RE`），所以「对面是不是机器」在这个渠道是前缀判断而不是猜测。
+`@agent-<id>:<homeserver>`（bind 时由 [[_narramessenger_service.py]] 的
+claim 返回的 `matrix_user_id`），所以「对面是不是机器」在这个渠道是前缀判断而不是猜测。
 新增模块级常量 `AGENT_MXID_PREFIX` 承载这个拼法。
 
 这是最需要它的渠道：8/14 那 70 小时的乒乓就是两个 agent 在
