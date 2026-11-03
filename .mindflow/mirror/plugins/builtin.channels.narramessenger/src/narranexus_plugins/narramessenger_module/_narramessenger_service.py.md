@@ -1,8 +1,31 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_narramessenger_service.py
 stub: false
-last_verified: 2026-11-02
+last_verified: 2026-11-03
 ---
+
+## 2026-11-03 — credentials come from a one-time claim, not the guide
+
+**Symptom (prod, v1.21.16).** Binds still failed, now with the new log line: `bind failed at reveal-bearer: flow_status=waiting_connection bearer_word=True`. The session had reached `waiting_connection` (where the bearer used to appear), yet `_BEARER_RE` found nothing.
+
+**Why.** NarraMessenger changed the connected guide: it no longer prints any credential ("This guide never prints the bearer"). Its "Narra CLI Local Handoff" section instead has the agent `POST /bind-agent/claim-credentials?token=<bind_token>` (no body), whose JSON carries `secret_token` (the Narra bearer), `matrix_user_id`, `matrix_access_token` and `homeserver_url`. The claim is accepted **once** per bind link; a retry is accepted for 10 minutes. Probed against the live api.netmind.chat on 2026-11-03 with a real bind link.
+
+**What changed.**
+- All regex credential scraping is gone (`_BEARER_RE`, `_MATRIX_ACCESS_TOKEN_RE`, `_HOMESERVER_RE`, `_MATRIX_USER_RE`, `_parse_setup_guide`). The guide is read only for its status (`_flow_status`). `_FLOW_STATUS_RE` matches both layouts — the pre-profile `- **Status**: `waiting_profile`` and the connected `> **Bind Flow Status**: `waiting_connection`` — and `_flow_status` skips fenced blocks and prefers the `Bind Flow Status` label over a bare `Status` wherever each appears, so block order never decides (the live connected guide has only the banner, but a layout that keeps the Bind Session block above it must not read as `waiting_profile`).
+- `do_bind` drives the state machine by status: not in `_CLAIMABLE_STATUSES` (`waiting_connection`, `connected`) → report-profile → `_await_claimable` (the same bounded re-read as before, now waiting for the status instead of a bearer) → claim → homeserver egress gate → runtime-ready → upsert.
+- `_parse_claim` requires all four fields as non-empty strings; anything less fails at step `claim-credentials` before runtime-ready, so the remote side is never completed with a credential we cannot use. The log names the fields that arrived as non-empty strings (never values).
+- The claim response is parsed in memory and **never logged**; the incomplete-claim log names which fields arrived, never their values.
+- The homeserver gate now checks the claim's `homeserver_url` (same threat: it comes from the user-chosen link host).
+- The wait constants are now `_STATUS_DELAYS` / `_STATUS_DEADLINE_S` (they time a status wait, not a reveal), and the deadline dropped from 14 s to 12 s: the claim adds a round trip inside the cloud HttpStore's 20 s budget, so ~8 s is left for claim + runtime-ready + upsert.
+- Failure steps are now `parse-link`, `egress-gate`, `setup-guide`, `report-profile`, `await-connection`, `claim-credentials`, `homeserver-gate`, `runtime-ready`, `persist`, `connect-gate`, `network` (`reveal-bearer` and `matrix-access-token` are gone). `_guide_shape` no longer reports `bearer_word`.
+- One rule decides retry advice: `_is_transient(status)` — no status (no response / malformed body), 429 and 5xx may pass if repeated; any other 4xx is NarraMessenger refusing the link. A failed claim gets `_RETRY_SAME_LINK_HINT` (paste the same link again within 10 minutes) when transient, `_NEW_LINK_HINT` otherwise; an incomplete claim gets the retry hint.
+- runtime-ready failures (the claim is already spent): transient → the retry hint; a 4xx on a link whose guide already said `connected` → `_ALREADY_BOUND_HINT` (this link already completed a bind; make a new one); any other 4xx and a refused homeserver get no retry hint, since repeating does not fix them. A failed upsert after runtime-ready no longer escapes as an exception: it fails at step `persist` with the already-bound hint.
+- **Recovery path (scope).** A re-paste whose guide says `connected` skips report-profile and the wait and re-claims inside the 10-minute window — that is why `connected` is in `_CLAIMABLE_STATUSES`. Whether NarraMessenger then accepts a **second** runtime-ready is not documented and was not verified when this landed, so a refused one is reported as "already completed a bind, generate a new link" rather than treated as success (runtime-ready's response carries `roomId`, which becomes `bind_room_id`, which `_maybe_claim_owner` needs to recognise the owner). What is covered for sure: a claim that fails or comes back incomplete, and any failure before runtime-ready.
+- The success envelope's `connection_mode` now says `matrix` (it said `gateway`, left over from the Gateway era); the MCP setup text says "Direct Matrix transport" for the same reason.
+
+**Gotcha.** Re-pasting an already-claimed link into a *different* agent within the 10-minute window hands that agent the same Matrix identity. This is NarraMessenger's retry design (the old guide-scraping had the same exposure); the link is the owner's own one-time secret.
+
+**Gotcha.** Do not claim before `waiting_connection`: the claim is one-time, and burning it on a session that then fails leaves the user only the 10-minute retry window. The status wait exists to make sure the claim happens once, at the right moment.
 
 ## 2026-11-02 — wait for the bearer after report-profile; every failure is logged
 
@@ -155,31 +178,31 @@ DB. Here WE always pick Direct Matrix and always write the row.
   the `<token>` from a `.../<token>/setup-guide.md` URL (and derives the base URL
   from the host), or falls back to the last token-looking word for a looser
   `narra bind <token>` paste, defaulting the base to `api.netmind.chat`.
-- **Flow**: GET setup-guide → if the bearer isn't revealed yet, `report-profile`
-  (the agent's name+bio from the `agents` table, truncated to 30/200) → re-GET
-  the guide → regex the bearer out of the `Authorization: Bearer <token>` line →
-  `POST /api/agent-gateway/connect` with that bearer to activate Gateway + finish
-  the bind → `upsert` the credential row.
-- **Identity from the connect response, not the markdown** — `matrixUserId` /
-  `principalId` / `roomId` come back from `/connect` (authoritative); only the
-  bearer (+ homeserver, best-effort) are scraped from the rendered guide.
+- **Flow** (current, 2026-11-03): GET setup-guide → if its status is not yet
+  `waiting_connection`, `report-profile` (the agent's name+bio from the `agents`
+  table, truncated to 30/200) → re-GET until `waiting_connection` (or
+  `connected`, a re-paste after a bind that landed) → one-time
+  `claim-credentials` → `runtime-ready` → `upsert` the credential row.
+- **Identity from the runtime-ready response** — `matrixUserId` /
+  `principalId` / `roomId` come back from runtime-ready (authoritative; the
+  claim's `matrix_user_id` is the fallback); the credentials come from the claim.
   **These three ids describe the AGENT's own Matrix identity, not the
-  binder's** — `/connect` never returns who ran the bind flow. `roomId` is
+  binder's** — no bind call returns who ran the bind flow. `roomId` is
   stored as `bind_room_id` and is the only trace of "where the bind
   happened"; it's what `NarramessengerTrigger._maybe_claim_owner` later
   matches against to auto-claim an owner (see that trigger's mirror doc).
 
 ## Gotchas
 
-- **Bearer extraction is regex-over-markdown** (`_BEARER_RE`) — fragile if the
-  platform changes the setup-guide layout, or if a placeholder `Bearer` appears
-  before the real one. First match wins (Authentication section renders first).
-- **The bind state machine may require human confirmation** (`creator_confirmed`)
-  on the NarraMessenger side before the bearer is revealed. If so, `do_bind`
-  returns a clear "not connected yet — confirm on NarraMessenger" error rather
-  than guessing; the owner confirms there and re-pastes.
+- **The status label is the only thing still read from the markdown**
+  (`_FLOW_STATUS_RE`) — if NarraMessenger renames it, binds fail at
+  `await-connection` and the log's `_guide_shape` shows the new layout.
+- **The bind state machine may require human confirmation** on the
+  NarraMessenger side before `waiting_connection`. If so, `do_bind` returns an
+  error naming the status and asking the owner to confirm there and re-paste.
 - WRONG_STATE from `report-profile` is treated as "already past the profile step"
-  and ignored, so re-binding an already-connected session still works.
+  and ignored; the status wait still decides next (an unclaimable status fails
+  at `await-connection` and never reaches the claim).
 - **`do_bind` never writes `owner_matrix_user_id`/`owner_name`** (X2/X3 root
   cause, fixed 2026-07-02) — don't "fix" this here by trying to scrape an
   owner identity out of the setup-guide markdown; the guide describes the

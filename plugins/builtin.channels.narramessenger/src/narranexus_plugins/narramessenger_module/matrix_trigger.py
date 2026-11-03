@@ -779,7 +779,7 @@ class MatrixTrigger(ChannelTriggerBase):
         """NarraMessenger encodes the answer in the MXID.
 
         The platform mints agent identities as ``@agent-<id>:<homeserver>``
-        (see ``_narramessenger_service._MATRIX_USER_RE``), so "am I talking
+        (the bind claim's ``matrix_user_id``), so "am I talking
         to a machine?" is a prefix check rather than a guess. Humans on the
         same homeserver get ordinary localparts.
 

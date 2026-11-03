@@ -1,96 +1,140 @@
 """
 @file_name: test_matrix_bind_service.py
 @date: 2026-07-02
-@description: NarraMessenger Direct Matrix bind flow (Commit 6).
+@description: NarraMessenger Direct Matrix bind flow.
 
-Locks the contract discovered from the 2026-07-02 setup-guide probe:
+Locks the contract of the live setup guide (re-probed 2026-11-03):
 
-- The setup guide's ``Matrix Connection Details`` table row reveals the
-  Matrix access token (``syt_...``); ``_parse_setup_guide`` MUST extract it
-  in addition to bearer / homeserver / user_id.
-- ``do_bind`` calls ``POST /bind-agent/runtime-ready?token=<bind_token>``
-  (NOT the old ``POST /api/agent-gateway/connect``) and stores the response
-  ``roomId`` as ``bind_room_id``.
-- The stored credential row has ``connection_mode='matrix'`` and populates
-  ``matrix_access_token`` from the guide, so MatrixTrigger's credential
-  watcher picks it up.
-- If the guide reveals bearer but not matrix_access_token,
-  ``do_bind`` returns a clean error rather than persisting a half-provisioned
-  Matrix-mode row (which MatrixTrigger.connect would reject with
-  ValueError anyway, only more noisily).
+- The pre-profile guide renders ``- **Status**: `waiting_profile```; after
+  ``report-profile`` it renders ``> **Bind Flow Status**: `waiting_connection```.
+- The guide never prints the runtime credentials. ``do_bind`` claims them once
+  with ``POST /bind-agent/claim-credentials?token=<bind_token>``, whose JSON
+  carries ``secret_token`` / ``matrix_user_id`` / ``matrix_access_token`` /
+  ``homeserver_url``.
+- ``do_bind`` then calls ``POST /bind-agent/runtime-ready?token=<bind_token>``
+  and stores the response ``roomId`` as ``bind_room_id``, with
+  ``connection_mode='matrix'`` so MatrixTrigger's credential watcher picks the
+  row up.
+- An incomplete or refused claim returns a clean error and persists nothing.
 """
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
 from narranexus_plugins.narramessenger_module import (
     _narramessenger_service as svc,
 )
-from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
-    NarramessengerCredentialManager,
-)
 
 
 # ────────────────────────────────────────────────────────────────────
-# _parse_setup_guide — regex extraction
+# Guides and claim payloads, shaped like the live ones (secrets are fakes)
 # ────────────────────────────────────────────────────────────────────
 
 
-CONNECTED_GUIDE_FRAGMENT = """
-# Narra Messenger Agent Integration
+PROFILE_GUIDE = """# Narra Messenger Bind Agent Guide
+
+## Bind Session
+- **Mode**: Matrix
+- **Status**: `waiting_profile`
+- **Guide Revision**: 0
+
+## Current Action
+- **Next Action**: Report profile
+"""
+
+CONNECTION_GUIDE = """# Narra Messenger Agent Integration
 
 > **Bind Flow Status**: `waiting_connection`
-
+> Runtime credentials are available.
 ## Your Agent Identity
 - **Agent ID (Principal ID)**: 00000000-0000-0000-0000-000000000000
 - **Matrix User ID**: @agent-testonly:matrix.netmind.chat
 
 ## Authentication
-All requests use the header:
-```
-Authorization: Bearer deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
-```
+Narra API requests use `Authorization: Bearer <your Narra runtime bearer>`. This guide never prints the bearer.
 
-## Matrix Connection Details
-| Field | Value |
-|-------|-------|
-| Homeserver URL | `https://matrix.netmind.chat` |
-| User ID | `@agent-testonly:matrix.netmind.chat` |
-| Access Token | `syt_FAKETESTtoken_do_not_use_00000000` |
+## Narra CLI Local Handoff
+```bash
+NARRA_CLAIM_URL="https://api.netmind.chat/bind-agent/claim-credentials?token=yGO3BL"
+```
 """
 
+SECRET = "nxs_FAKEsecret_do_not_use_0000000000"
+MATRIX_TOKEN = "syt_FAKETESTtoken_do_not_use_00000000"
 
-def test_parser_extracts_all_four_credential_fields():
-    out = svc._parse_setup_guide(CONNECTED_GUIDE_FRAGMENT)
-    assert out["bearer"] == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-    assert out["matrix_access_token"] == "syt_FAKETESTtoken_do_not_use_00000000"
-    assert out["homeserver"] == "https://matrix.netmind.chat"
-    assert out["matrix_user_id"] == "@agent-testonly:matrix.netmind.chat"
+CLAIM = {
+    "secret_token": SECRET,
+    "matrix_user_id": "@agent-testonly:matrix.netmind.chat",
+    "matrix_access_token": MATRIX_TOKEN,
+    "homeserver_url": "https://matrix.netmind.chat",
+}
+
+READY = {
+    "status": "connected",
+    "matrixUserId": "@agent-testonly:matrix.netmind.chat",
+    "principalId": "00000000-0000-0000-0000-000000000000",
+    "profileId": "prof-9",
+    "roomId": "!bindroom:matrix.netmind.chat",
+}
+
+LINK = "https://api.netmind.chat/yGO3BL/setup-guide.md"
+CLAIM_URL = "https://api.netmind.chat/bind-agent/claim-credentials?token=yGO3BL"
+READY_URL = "https://api.netmind.chat/bind-agent/runtime-ready?token=yGO3BL"
 
 
-def test_parser_returns_empty_when_bearer_not_yet_revealed():
-    """Pre-``waiting_connection`` guide has none of these fields — the
-    parser must return an empty-ish dict (no crashes, no fabricated
-    values)."""
-    early = """
-    # Narra Messenger Agent Integration
-    > **Bind Flow Status**: `awaiting_profile`
-    Post your agent profile to advance.
-    """
-    out = svc._parse_setup_guide(early)
-    assert "bearer" not in out
-    assert "matrix_access_token" not in out
+def _ok(data):
+    return {"ok": True, "data": data}
 
 
-def test_parser_skips_syt_lookalikes_that_are_too_short():
-    """The regex constrains to syt_ + 20+ alphanumerics. A stray
-    ``syt_abc`` example in prose must not be picked up."""
-    fragment = "Access Token: `syt_short`"
-    out = svc._parse_setup_guide(fragment)
-    assert "matrix_access_token" not in out
+# ────────────────────────────────────────────────────────────────────
+# Parsers
+# ────────────────────────────────────────────────────────────────────
+
+
+def test_flow_status_reads_both_guide_layouts():
+    assert svc._flow_status(PROFILE_GUIDE) == "waiting_profile"
+    assert svc._flow_status(CONNECTION_GUIDE) == "waiting_connection"
+    assert svc._flow_status("") == ""
+
+
+def test_flow_status_is_parsed_as_bare_identifier():
+    # Free text after the status never rides along (it may be shown to the user).
+    md = "> **Bind Flow Status**: `pending<script>alert(1)</script>`"
+    assert svc._flow_status(md) == "pending"
+    assert svc._flow_status("no status here") == ""
+
+
+def test_flow_status_ignores_prose_mentions():
+    assert svc._flow_status("The Bind Flow Status is shown below.") == ""
+
+
+def test_flow_status_prefers_the_bind_flow_label_over_an_earlier_bare_status():
+    """Order must not decide: a guide that keeps the `Bind Session` block above
+    the connected banner still reads as waiting_connection."""
+    md = (
+        "## Bind Session\n- **Status**: `profile_reported`\n\n"
+        "> **Bind Flow Status**: `waiting_connection`\n"
+    )
+    assert svc._flow_status(md) == "waiting_connection"
+
+
+def test_flow_status_skips_fenced_examples():
+    md = (
+        "```json\n**Status**: `example_only`\n```\n"
+        "## Bind Session\n- **Status**: `waiting_profile`\n"
+    )
+    assert svc._flow_status(md) == "waiting_profile"
+
+
+def test_parse_claim_requires_every_field():
+    assert svc._parse_claim(CLAIM) == CLAIM
+    for key in svc._CLAIM_FIELDS:
+        assert svc._parse_claim({**CLAIM, key: ""}) is None
+        assert svc._parse_claim({**CLAIM, key: None}) is None
+        assert svc._parse_claim({k: v for k, v in CLAIM.items() if k != key}) is None
+    assert svc._parse_claim({**CLAIM, "secret_token": 123}) is None
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -135,8 +179,8 @@ def guide_scripts(monkeypatch):
     """Sequence of responses for _get_text / _post_json.
 
     Each test writes into these lists in order — the first _get_text
-    call reads guide_scripts["guides"][0], etc. Failing to script
-    enough responses raises IndexError, which points at the test.
+    call reads guide_scripts["guides"][0], etc. An unscripted read returns
+    "" and an unscripted POST a failure, which points at the test.
     """
     state = {
         "guides": [],       # sequential responses to _get_text
@@ -156,118 +200,239 @@ def guide_scripts(monkeypatch):
     return state
 
 
+@pytest.fixture
+def recorded_sleeps(monkeypatch):
+    slept: list[float] = []
+
+    async def _fake_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(svc, "_sleep", _fake_sleep)
+    return slept
+
+
+def _urls(state):
+    return [url for url, _b, _t in state["post_calls"]]
+
+
 @pytest.mark.asyncio
-async def test_do_bind_calls_runtime_ready_and_stores_matrix_creds(
-    stub_db, fake_manager, guide_scripts
+async def test_do_bind_from_a_fresh_link_reports_profile_claims_then_completes(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
 ):
-    """Happy path: guide already reveals bearer + access_token; do_bind
-    calls /bind-agent/runtime-ready and stores connection_mode='matrix'."""
-    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
+    """The live flow: waiting_profile → report-profile → waiting_connection →
+    claim-credentials → runtime-ready → credential row from the claim."""
+    guide_scripts["guides"] = [PROFILE_GUIDE, CONNECTION_GUIDE]
     guide_scripts["post_responses"] = [
-        # runtime-ready succeeds
-        {"ok": True, "data": {
-            "status": "connected",
-            "matrixUserId": "@agent-testonly:matrix.netmind.chat",
-            "principalId": "00000000-0000-0000-0000-000000000000",
-            "profileId": "prof-9",
-            "roomId": "!bindroom:matrix.netmind.chat",
-        }},
+        _ok({"success": True, "status": "waiting_connection"}),  # report-profile
+        _ok(CLAIM),                                               # claim-credentials
+        _ok(READY),                                               # runtime-ready
     ]
 
-    result = await svc.do_bind(
-        stub_db,
-        agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
 
     assert result["success"] is True
-    # Runtime-ready endpoint URL exact match — locks the "not
-    # /api/agent-gateway/connect" contract.
-    assert len(guide_scripts["post_calls"]) == 1
-    url, body, _bearer = guide_scripts["post_calls"][0]
-    assert url == "https://api.netmind.chat/bind-agent/runtime-ready?token=yGO3BL"
-    # Platform tag: NarraMessenger marks the agent's origin from this call
-    # (their side defaults to "default" when it is absent). Locked here
-    # because a silently-dropped field looks identical to success on our
-    # end — the regression only shows up in THEIR agent list.
-    assert body == {"platform": svc.PLATFORM_TAG} == {"platform": "nexus"}
+    assert result["data"]["connection_mode"] == "matrix"
+    assert _urls(guide_scripts) == [
+        "https://api.netmind.chat/bind-agent/report-profile?token=yGO3BL",
+        CLAIM_URL,
+        READY_URL,
+    ]
+    calls = guide_scripts["post_calls"]
+    # report-profile keeps its own contract (name+bio only).
+    assert set(calls[0][1]) == {"name", "bio"}
+    # The claim posts no body and no bearer (the token rides in the URL).
+    assert calls[1][1] is None and calls[1][2] == ""
+    # Platform tag: NarraMessenger marks the agent's origin from runtime-ready
+    # (their side defaults to "default" when it is absent).
+    assert calls[2][1] == {"platform": svc.PLATFORM_TAG} == {"platform": "nexus"}
+    assert len(recorded_sleeps) == 1  # stopped waiting at the first claimable guide
 
-    # Credential upserted with Matrix-mode fields populated.
     assert len(fake_manager.upserts) == 1
     cred = fake_manager.upserts[0]
     assert cred.connection_mode == "matrix"
-    assert cred.bearer_token == "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-    assert cred.matrix_access_token == "syt_FAKETESTtoken_do_not_use_00000000"
+    assert cred.bearer_token == SECRET
+    assert cred.matrix_access_token == MATRIX_TOKEN
     assert cred.matrix_user_id == "@agent-testonly:matrix.netmind.chat"
     assert cred.matrix_homeserver_url == "https://matrix.netmind.chat"
+    assert cred.backend_base_url == "https://api.netmind.chat"
     assert cred.bind_room_id == "!bindroom:matrix.netmind.chat"
+    assert cred.nexus_principal_id == "00000000-0000-0000-0000-000000000000"
     assert cred.nexus_profile_id == "prof-9"
     assert cred.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_do_bind_skips_report_profile_when_already_claimable(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok(CLAIM), _ok(READY)]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is True
+    assert _urls(guide_scripts) == [CLAIM_URL, READY_URL]
+    assert recorded_sleeps == []
 
 
 @pytest.mark.asyncio
 async def test_do_bind_leaves_profile_id_empty_when_absent(
     stub_db, fake_manager, guide_scripts
 ):
-    """When the runtime-ready response has no ``profileId`` (current prod
-    behaviour — the platform doesn't return it yet), the stored credential
-    keeps ``nexus_profile_id`` as the empty-string default rather than
-    "None" or a KeyError."""
-    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
-    guide_scripts["post_responses"] = [
-        {"ok": True, "data": {
-            "status": "connected",
-            "matrixUserId": "@agent-testonly:matrix.netmind.chat",
-            "principalId": "00000000-0000-0000-0000-000000000000",
-            "roomId": "!bindroom:matrix.netmind.chat",
-        }},
-    ]
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    ready = {k: v for k, v in READY.items() if k != "profileId"}
+    guide_scripts["post_responses"] = [_ok(CLAIM), _ok(ready)]
 
-    result = await svc.do_bind(
-        stub_db,
-        agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
 
     assert result["success"] is True
-    assert len(fake_manager.upserts) == 1
-    cred = fake_manager.upserts[0]
-    assert cred.nexus_profile_id == ""
+    assert fake_manager.upserts[0].nexus_profile_id == ""
 
 
 @pytest.mark.asyncio
-async def test_do_bind_rejects_when_matrix_access_token_missing(
+async def test_matrix_user_id_falls_back_to_the_claim(stub_db, fake_manager, guide_scripts):
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok(CLAIM), _ok({"roomId": "!r:matrix.netmind.chat"})]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is True
+    assert fake_manager.upserts[0].matrix_user_id == "@agent-testonly:matrix.netmind.chat"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", list(svc._CLAIM_FIELDS))
+async def test_incomplete_claim_is_refused_before_runtime_ready(
+    stub_db, fake_manager, guide_scripts, missing
+):
+    """A claim without, e.g., the Matrix token must not complete the bind:
+    MatrixTrigger.connect would reject the half-provisioned row and the base
+    would disable the credential — worse than telling the owner to re-bind."""
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok({**CLAIM, missing: ""}), _ok(READY)]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "incomplete" in result["error"]
+    assert "same link again within 10 minutes" in result["error"]
+    assert READY_URL not in _urls(guide_scripts)
+    assert fake_manager.upserts == []
+
+
+CONNECTED_GUIDE = CONNECTION_GUIDE.replace("`waiting_connection`", "`connected`")
+
+
+@pytest.mark.asyncio
+async def test_re_paste_after_a_landed_bind_claims_again_without_report_profile(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    """runtime-ready landed remotely but our side failed (HttpStore timeout,
+    upsert error): the re-pasted link's guide says `connected`, and the claim
+    is retried inside its window — no report-profile, no status wait."""
+    guide_scripts["guides"] = [CONNECTED_GUIDE]
+    guide_scripts["post_responses"] = [_ok(CLAIM), _ok(READY)]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is True
+    assert _urls(guide_scripts) == [CLAIM_URL, READY_URL]
+    assert recorded_sleeps == []
+    assert fake_manager.upserts[0].bearer_token == SECRET
+
+
+@pytest.mark.asyncio
+async def test_re_paste_whose_runtime_ready_is_refused_says_already_bound(
     stub_db, fake_manager, guide_scripts
 ):
-    """If the guide has bearer + homeserver + user_id but no
-    Matrix access token, refuse to persist a half-provisioned row —
-    MatrixTrigger.connect would raise ValueError on empty access_token
-    and the base would disable the credential, which is a worse UX
-    than telling the owner to re-bind."""
-    fragment_missing_access = """
-    ## Authentication
-    ```
-    Authorization: Bearer deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
-    ```
-
-    ## Matrix Connection Details
-    | Field | Value |
-    |-------|-------|
-    | Homeserver URL | `https://matrix.netmind.chat` |
-    | User ID | `@agent-testonly:matrix.netmind.chat` |
-    """
-    guide_scripts["guides"] = [fragment_missing_access]
+    """A `connected` link re-claims fine, but a refused second runtime-ready is
+    not success: the room the owner is recognised by comes from its response.
+    The user is told the link already completed a bind; nothing is stored."""
+    guide_scripts["guides"] = [CONNECTED_GUIDE]
     guide_scripts["post_responses"] = [
-        {"ok": True, "data": {"status": "connected", "roomId": "!x:h"}},
+        _ok(CLAIM),
+        {"ok": False, "status": 409, "error": "TOKEN_ALREADY_USED"},
     ]
-    result = await svc.do_bind(
-        stub_db,
-        agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
     assert result["success"] is False
-    assert "Matrix access token missing" in result["error"]
-    # No credential written.
+    assert "already completed a bind" in result["error"]
+    assert "new bind link" in result["error"]
+    assert fake_manager.upserts == []
+
+
+@pytest.mark.asyncio
+async def test_persist_failure_returns_a_user_message_not_an_exception(
+    stub_db, guide_scripts, monkeypatch, log_lines
+):
+    class _Boom:
+        async def upsert(self, _cred):
+            raise RuntimeError("db down " + SECRET)
+
+    monkeypatch.setattr(svc, "NarramessengerCredentialManager", lambda _db: _Boom())
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok(CLAIM), _ok(READY)]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "could not be saved" in result["error"] and "new bind link" in result["error"]
+    joined = "\n".join(log_lines)
+    assert "bind failed at persist: RuntimeError" in joined
+    assert SECRET not in joined
+
+
+@pytest.mark.asyncio
+async def test_re_paste_after_the_claim_window_asks_for_a_new_link(
+    stub_db, fake_manager, guide_scripts
+):
+    guide_scripts["guides"] = [CONNECTED_GUIDE]
+    guide_scripts["post_responses"] = [{"ok": False, "status": 409, "error": ""}]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "only once" in result["error"] and "new bind link" in result["error"]
+    assert READY_URL not in _urls(guide_scripts)
+    assert fake_manager.upserts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [500, 503, 429, None])
+async def test_transient_claim_failure_says_retry_the_same_link(
+    stub_db, fake_manager, guide_scripts, status
+):
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    failure = {"ok": False, "error": ""}
+    if status is not None:
+        failure["status"] = status
+    guide_scripts["post_responses"] = [failure]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "same link again within 10 minutes" in result["error"]
+    assert "only once" not in result["error"]
+    assert fake_manager.upserts == []
+
+
+@pytest.mark.asyncio
+async def test_refused_claim_tells_the_user_to_make_a_new_link(
+    stub_db, fake_manager, guide_scripts
+):
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [
+        {"ok": False, "status": 409, "error": "free text from 10.0.0.1"},
+    ]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "claim-credentials failed (HTTP 409)" in result["error"]
+    assert "only once" in result["error"] and "new bind link" in result["error"]
+    assert "10.0.0.1" not in result["error"]
+    assert READY_URL not in _urls(guide_scripts)
     assert fake_manager.upserts == []
 
 
@@ -278,60 +443,112 @@ async def test_do_bind_surfaces_runtime_ready_failure(
     """A 4xx from runtime-ready must return a user-visible error rather
     than persisting anything. Nothing worse than showing a green
     "bound!" toast while the backend has no live binding."""
-    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
     guide_scripts["post_responses"] = [
+        _ok(CLAIM),
         {"ok": False, "status": 409, "error": "TOKEN_ALREADY_USED"},
     ]
-    result = await svc.do_bind(
-        stub_db,
-        agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
     assert result["success"] is False
     assert "runtime-ready failed" in result["error"]
+    assert "within 10 minutes" not in result["error"]  # a 4xx is not a transient failure
     assert fake_manager.upserts == []
 
 
 @pytest.mark.asyncio
-async def test_do_bind_first_call_reports_profile_before_runtime_ready(
-    stub_db, fake_manager, guide_scripts
+@pytest.mark.parametrize("status", [500, 502, 503, 429, None])
+async def test_transient_runtime_ready_failure_says_retry_the_same_link(
+    stub_db, fake_manager, guide_scripts, status
 ):
-    """If the initial guide fetch shows no bearer yet, do_bind should
-    POST report-profile, refetch the guide, then call runtime-ready.
-    This locks the "advance the state machine before demanding creds"
-    behaviour so the bind flow doesn't fail on a fresh session."""
-    early = "# Narra Messenger Agent Integration\n> **Bind Flow Status**: `awaiting_profile`\n"
-    guide_scripts["guides"] = [early, CONNECTED_GUIDE_FRAGMENT]
+    """The claim is already spent: a transient runtime-ready failure must tell
+    the user that re-pasting the same link recovers, not to make a new one."""
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    failure = {"ok": False, "error": ""}
+    if status is not None:
+        failure["status"] = status
+    guide_scripts["post_responses"] = [_ok(CLAIM), failure]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "runtime-ready failed" in result["error"]
+    assert "same link again within 10 minutes" in result["error"]
+    assert fake_manager.upserts == []
+
+
+@pytest.mark.asyncio
+async def test_do_bind_waits_for_the_connection_status_after_report_profile(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    # Two re-fetches still lag behind report-profile; the third is claimable.
+    guide_scripts["guides"] = [PROFILE_GUIDE, PROFILE_GUIDE, PROFILE_GUIDE, CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok({}), _ok(CLAIM), _ok(READY)]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is True
+    assert len(recorded_sleeps) == 3
+    assert _urls(guide_scripts)[-2:] == [CLAIM_URL, READY_URL]
+
+
+@pytest.mark.asyncio
+async def test_do_bind_names_flow_status_when_never_claimable(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    waiting = (
+        "# Narra Messenger Agent Integration\n"
+        "> **Bind Flow Status**: `awaiting_creator_confirmation`\n"
+        "## Next Step\nAsk the creator to confirm.\n"
+    )
+    guide_scripts["guides"] = [PROFILE_GUIDE] + [waiting] * len(svc._STATUS_DELAYS)
+    guide_scripts["post_responses"] = [_ok({})]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "awaiting_creator_confirmation" in result["error"]
+    assert "confirm" in result["error"]
+    assert recorded_sleeps == list(svc._STATUS_DELAYS)
+    assert fake_manager.upserts == []
+    # Neither the one-time claim nor the remote completion was attempted.
+    assert CLAIM_URL not in _urls(guide_scripts)
+    assert READY_URL not in _urls(guide_scripts)
+
+
+@pytest.mark.asyncio
+async def test_wrong_state_report_profile_still_waits(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    guide_scripts["guides"] = [PROFILE_GUIDE, PROFILE_GUIDE, CONNECTION_GUIDE]
     guide_scripts["post_responses"] = [
-        # report-profile
-        {"ok": True, "data": {}},
-        # runtime-ready
-        {"ok": True, "data": {
-            "status": "connected",
-            "roomId": "!bindroom:matrix.netmind.chat",
-        }},
+        {"ok": False, "status": 409, "error": "WRONG_STATE"},
+        _ok(CLAIM),
+        _ok(READY),
     ]
 
-    result = await svc.do_bind(
-        stub_db,
-        agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
     assert result["success"] is True
-    assert len(guide_scripts["post_calls"]) == 2
-    # First call = report-profile, second = runtime-ready.
-    assert "/bind-agent/report-profile" in guide_scripts["post_calls"][0][0]
-    assert "/bind-agent/runtime-ready" in guide_scripts["post_calls"][1][0]
-    # report-profile keeps its own contract (name+bio only); the platform
-    # tag rides on runtime-ready, which is the one call every bind makes —
-    # report-profile is skipped whenever the bearer is already revealed.
-    assert set(guide_scripts["post_calls"][0][1]) == {"name", "bio"}
-    assert guide_scripts["post_calls"][1][1] == {"platform": "nexus"}
+    assert len(recorded_sleeps) == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_refetch_keeps_last_status(stub_db, fake_manager, guide_scripts, recorded_sleeps):
+    waiting = "> **Bind Flow Status**: `awaiting_creator_confirmation`\n"
+    guide_scripts["guides"] = [PROFILE_GUIDE, waiting] + [""] * (len(svc._STATUS_DELAYS) - 1)
+    guide_scripts["post_responses"] = [_ok({})]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "awaiting_creator_confirmation" in result["error"]
 
 
 # ────────────────────────────────────────────────────────────────────
 # SSRF egress gate at bind time (cloud): the pasted link's host and the
-# homeserver parsed from the guide are both attacker-influenced.
+# homeserver returned by that host's claim are both attacker-influenced.
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -387,17 +604,15 @@ async def test_cloud_internal_bind_link_refused_before_any_request(
     assert fake_manager.upserts == []
 
 
-INTERNAL_HOMESERVER_GUIDE = CONNECTED_GUIDE_FRAGMENT.replace(
-    "https://matrix.netmind.chat`", "https://evil-homeserver.example`"
-)
+INTERNAL_HOMESERVER_CLAIM = {**CLAIM, "homeserver_url": "https://evil-homeserver.example"}
 
 
 @pytest.mark.asyncio
-async def test_cloud_internal_homeserver_from_guide_refused_before_runtime_ready(
+async def test_cloud_internal_homeserver_from_claim_refused_before_runtime_ready(
     stub_db, fake_manager, guide_scripts, cloud_gate
 ):
-    guide_scripts["guides"] = [INTERNAL_HOMESERVER_GUIDE]
-    guide_scripts["post_responses"] = [{"ok": True, "data": {"roomId": "!r:x"}}]
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok(INTERNAL_HOMESERVER_CLAIM), _ok(READY)]
 
     result = await svc.do_bind(
         stub_db, agent_id="agent_x",
@@ -407,7 +622,7 @@ async def test_cloud_internal_homeserver_from_guide_refused_before_runtime_ready
     assert result["success"] is False
     assert "172.20" not in result["error"]
     # The remote bind is never completed and nothing is persisted.
-    assert guide_scripts["post_calls"] == []
+    assert all("runtime-ready" not in url for url in _urls(guide_scripts))
     assert fake_manager.upserts == []
 
 
@@ -415,8 +630,8 @@ async def test_cloud_internal_homeserver_from_guide_refused_before_runtime_ready
 async def test_cloud_public_link_and_homeserver_still_bind(
     stub_db, fake_manager, guide_scripts, cloud_gate
 ):
-    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
-    guide_scripts["post_responses"] = [{"ok": True, "data": {"roomId": "!r:x"}}]
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok(CLAIM), _ok(READY)]
 
     result = await svc.do_bind(
         stub_db, agent_id="agent_x",
@@ -425,6 +640,32 @@ async def test_cloud_public_link_and_homeserver_still_bind(
 
     assert result["success"] is True
     assert fake_manager.upserts[0].matrix_homeserver_url == "https://matrix.netmind.chat"
+
+
+@pytest.mark.asyncio
+async def test_local_mode_skips_the_bind_gate(
+    stub_db, fake_manager, guide_scripts, monkeypatch
+):
+    """Local/desktop: a single trusted user — the gate is skipped, so even a
+    LAN-looking link and homeserver proceed (and the resolver is never asked)."""
+    from narranexus.platform.utils import url_safety
+
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
+
+    async def _resolver_must_not_run(host, port):
+        raise AssertionError("egress gate must not run in local mode")
+
+    monkeypatch.setattr(url_safety, "_default_resolver", _resolver_must_not_run)
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok(INTERNAL_HOMESERVER_CLAIM), _ok(READY)]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://quota-api/tok123/setup-guide.md",
+    )
+
+    assert result["success"] is True
+    assert fake_manager.upserts[0].matrix_homeserver_url == "https://evil-homeserver.example"
 
 
 class _RecordingSession:
@@ -473,6 +714,17 @@ async def test_bind_http_helpers_do_not_follow_redirects():
 
 
 @pytest.mark.asyncio
+async def test_claim_post_sends_no_body():
+    """The claim endpoint is called like the guide's `curl -X POST <url>`."""
+    session = _RecordingSession(status=200)
+
+    await svc._post_json(session, CLAIM_URL, None)
+
+    _m, _u, kw = session.calls[0]
+    assert "json" not in kw and "data" not in kw
+
+
+@pytest.mark.asyncio
 async def test_refused_redirect_is_logged_by_status_without_location():
     """An upstream redirect collapses to "" (→ "token not found" for the user);
     the log must say it was a redirect so on-call is not sent after the token."""
@@ -490,45 +742,16 @@ async def test_refused_redirect_is_logged_by_status_without_location():
 
 
 @pytest.mark.asyncio
-async def test_local_mode_skips_the_bind_gate(
-    stub_db, fake_manager, guide_scripts, monkeypatch
-):
-    """Local/desktop: a single trusted user — the gate is skipped, so even a
-    LAN-looking link proceeds to fetch the guide (and the cloud fixture's
-    resolver is not consulted at all)."""
-    from narranexus.platform.utils import url_safety
-
-    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
-
-    async def _resolver_must_not_run(host, port):
-        raise AssertionError("egress gate must not run in local mode")
-
-    monkeypatch.setattr(url_safety, "_default_resolver", _resolver_must_not_run)
-    guide_scripts["guides"] = [INTERNAL_HOMESERVER_GUIDE]
-    guide_scripts["post_responses"] = [{"ok": True, "data": {"roomId": "!r:x"}}]
-
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://quota-api/tok123/setup-guide.md",
-    )
-
-    assert result["success"] is True
-    assert fake_manager.upserts[0].matrix_homeserver_url == "https://evil-homeserver.example"
-
-
-@pytest.mark.asyncio
 async def test_bind_errors_never_echo_upstream_error_text(stub_db, fake_manager, guide_scripts):
     """Upstream JSON error/message strings are not concatenated into the
     user-facing error — status code plus a whitelisted code only."""
-    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
     guide_scripts["post_responses"] = [
+        _ok(CLAIM),
         {"ok": False, "status": 500, "error": "SECRET upstream message from 172.20.0.7"},
     ]
 
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
 
     assert result["success"] is False
     assert "500" in result["error"]
@@ -537,16 +760,12 @@ async def test_bind_errors_never_echo_upstream_error_text(stub_db, fake_manager,
 
 @pytest.mark.asyncio
 async def test_report_profile_error_never_echoes_upstream_text(stub_db, fake_manager, guide_scripts):
-    early = "# guide\n> **Bind Flow Status**: `awaiting_profile`\n"
-    guide_scripts["guides"] = [early]
+    guide_scripts["guides"] = [PROFILE_GUIDE]
     guide_scripts["post_responses"] = [
         {"ok": False, "status": 400, "error": "SECRET internal detail"},
     ]
 
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
 
     assert result["success"] is False
     assert "400" in result["error"]
@@ -589,8 +808,6 @@ async def test_post_json_reports_whitelisted_code_only():
 async def test_cloud_rebinding_bind_link_is_refused_at_connect(stub_db, fake_manager, monkeypatch):
     # The gate sees a public answer, the session's dial would see the metadata
     # IP: the pinned connector refuses before any socket opens.
-    import asyncio
-
     from narranexus.platform.utils import url_safety
 
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
@@ -622,202 +839,16 @@ async def test_cloud_rebinding_bind_link_is_refused_at_connect(stub_db, fake_man
 
 
 # ────────────────────────────────────────────────────────────────────
-# Bearer reveal wait (2026-11-02): report-profile advances the session, but
-# the guide served right after it can still render the previous state. The
-# bind used to read the guide once and fail ("credential isn't revealed
-# yet") — every prod narramessenger bind after 10-30 failed this way.
+# Wait bounds, logging, and secret hygiene
 # ────────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def recorded_sleeps(monkeypatch):
-    slept: list[float] = []
-
-    async def _fake_sleep(seconds):
-        slept.append(seconds)
-
-    monkeypatch.setattr(svc, "_sleep", _fake_sleep)
-    return slept
-
-
-_PENDING_GUIDE = "# Narra Messenger Agent Integration\n> **Bind Flow Status**: `profile_reported`\n"
-
-
-@pytest.mark.asyncio
-async def test_do_bind_waits_for_bearer_after_report_profile(
-    stub_db, fake_manager, guide_scripts, recorded_sleeps
-):
-    early = "# Narra Messenger Agent Integration\n> **Bind Flow Status**: `awaiting_profile`\n"
-    # First guide: pre-profile. Two re-fetches still lag, the third is connected.
-    guide_scripts["guides"] = [early, _PENDING_GUIDE, _PENDING_GUIDE, CONNECTED_GUIDE_FRAGMENT]
-    guide_scripts["post_responses"] = [
-        {"ok": True, "data": {}},
-        {"ok": True, "data": {"status": "connected", "roomId": "!bindroom:matrix.netmind.chat"}},
-    ]
-
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
-
-    assert result["success"] is True
-    assert len(fake_manager.upserts) == 1
-    assert len(recorded_sleeps) == 3  # stopped waiting as soon as the bearer showed up
-    assert "/bind-agent/runtime-ready" in guide_scripts["post_calls"][-1][0]
-
-
-@pytest.mark.asyncio
-async def test_do_bind_names_flow_status_when_bearer_never_revealed(
-    stub_db, fake_manager, guide_scripts, recorded_sleeps
-):
-    waiting = (
-        "# Narra Messenger Agent Integration\n"
-        "> **Bind Flow Status**: `awaiting_creator_confirmation`\n"
-        "## Next Step\nAsk the creator to confirm.\n"
-    )
-    guide_scripts["guides"] = [_PENDING_GUIDE] + [waiting] * len(svc._REVEAL_DELAYS)
-    guide_scripts["post_responses"] = [{"ok": True, "data": {}}]
-
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
-
-    assert result["success"] is False
-    assert "awaiting_creator_confirmation" in result["error"]
-    assert "confirm" in result["error"]
-    assert recorded_sleeps == list(svc._REVEAL_DELAYS)
-    assert fake_manager.upserts == []
-    # Never completed on the NarraMessenger side: runtime-ready not called.
-    assert all("runtime-ready" not in url for url, _b, _t in guide_scripts["post_calls"])
-
-
-@pytest.mark.asyncio
-async def test_do_bind_skips_wait_when_first_guide_has_bearer(
-    stub_db, fake_manager, guide_scripts, recorded_sleeps
-):
-    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
-    guide_scripts["post_responses"] = [
-        {"ok": True, "data": {"status": "connected", "roomId": "!r:matrix.netmind.chat"}},
-    ]
-
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
-
-    assert result["success"] is True
-    assert recorded_sleeps == []
-
-
-def test_flow_status_is_parsed_as_bare_identifier():
-    assert svc._parse_setup_guide(CONNECTED_GUIDE_FRAGMENT)["flow_status"] == "waiting_connection"
-    # Free text after the status never rides along (it may be shown to the user).
-    md = "> **Bind Flow Status**: `pending<script>alert(1)</script>`"
-    assert svc._parse_setup_guide(md)["flow_status"] == "pending"
-    assert "flow_status" not in svc._parse_setup_guide("no status here")
-
-
 def test_guide_shape_carries_no_secret_values():
-    shape = svc._guide_shape(CONNECTED_GUIDE_FRAGMENT)
-    assert "deadbeef" not in shape
-    assert "syt_" not in shape
+    shape = svc._guide_shape(CONNECTION_GUIDE)
+    assert "yGO3BL" not in shape and "://" not in shape
     assert "flow_status=waiting_connection" in shape
-    assert "bearer_word=True" in shape
     assert "Authentication" in shape
     assert svc._guide_shape("") == "empty"
-
-
-@pytest.mark.asyncio
-async def test_do_bind_timeout_returns_network_error(stub_db, fake_manager, monkeypatch):
-    import asyncio
-
-    async def _timeout(_session, _url):
-        raise asyncio.TimeoutError()
-
-    monkeypatch.setattr(svc, "_get_text", _timeout)
-
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
-
-    assert result == {"success": False, "error": "network error reaching NarraMessenger: TimeoutError"}
-
-
-@pytest.mark.asyncio
-async def test_reveal_wait_stops_at_its_deadline(stub_db, fake_manager, guide_scripts, monkeypatch):
-    """The cloud MCP bind reaches do_bind through a 20 s HTTP call: the wait
-    must give up at _REVEAL_DEADLINE_S even when every sleep is slow."""
-    clock = {"t": 0.0}
-    reads = {"n": 0}
-    GET_COST = 2.0  # a slow upstream: every guide read takes 2 s
-
-    async def _sleep(seconds):
-        clock["t"] += seconds
-
-    async def _slow_get(_session, _url):
-        reads["n"] += 1
-        if reads["n"] > 1:  # the first read happens before the wait starts
-            clock["t"] += GET_COST
-        return _PENDING_GUIDE
-
-    async def _post(_session, url, body, bearer=""):
-        return {"ok": True, "data": {}}
-
-    monkeypatch.setattr(svc, "_sleep", _sleep)
-    monkeypatch.setattr(svc, "_monotonic", lambda: clock["t"])
-    monkeypatch.setattr(svc, "_get_text", _slow_get)
-    monkeypatch.setattr(svc, "_post_json", _post)
-
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
-
-    assert result["success"] is False
-    # Overshoot is at most the read in flight (bounded by wait_for in real runs).
-    assert clock["t"] <= svc._REVEAL_DEADLINE_S + GET_COST
-    # Stopped early: fewer re-reads than scheduled delays.
-    assert reads["n"] - 1 < len(svc._REVEAL_DELAYS)
-
-
-@pytest.mark.asyncio
-async def test_wrong_state_report_profile_still_waits_for_bearer(
-    stub_db, fake_manager, guide_scripts, recorded_sleeps
-):
-    guide_scripts["guides"] = [_PENDING_GUIDE, _PENDING_GUIDE, CONNECTED_GUIDE_FRAGMENT]
-    guide_scripts["post_responses"] = [
-        {"ok": False, "status": 409, "error": "WRONG_STATE"},
-        {"ok": True, "data": {"status": "connected", "roomId": "!r:matrix.netmind.chat"}},
-    ]
-
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
-
-    assert result["success"] is True
-    assert len(recorded_sleeps) == 2
-
-
-@pytest.mark.asyncio
-async def test_empty_refetch_keeps_last_status(stub_db, fake_manager, guide_scripts, recorded_sleeps):
-    waiting = "> **Bind Flow Status**: `awaiting_creator_confirmation`\n"
-    guide_scripts["guides"] = [_PENDING_GUIDE, waiting] + [""] * (len(svc._REVEAL_DELAYS) - 1)
-    guide_scripts["post_responses"] = [{"ok": True, "data": {}}]
-
-    result = await svc.do_bind(
-        stub_db, agent_id="agent_x",
-        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-    )
-
-    assert result["success"] is False
-    assert "awaiting_creator_confirmation" in result["error"]
-
-
-def test_flow_status_ignores_prose_mentions():
-    assert "flow_status" not in svc._parse_setup_guide("The Bind Flow Status is shown below.")
 
 
 def test_guide_shape_drops_fenced_comments_and_token_shaped_headings():
@@ -838,57 +869,139 @@ def test_guide_shape_drops_fenced_comments_and_token_shaped_headings():
 
 
 @pytest.mark.asyncio
-async def test_failure_log_names_step_without_secrets(stub_db, fake_manager, guide_scripts):
-    """The matrix-access-token branch logs the shape of a guide that DOES show
-    the bearer: the log line must carry the step and none of the secrets."""
-    from loguru import logger
+async def test_do_bind_timeout_returns_network_error(stub_db, fake_manager, monkeypatch):
+    import asyncio
 
-    guide = (
-        "> **Bind Flow Status**: `waiting_connection`\n"
-        "## Authentication\n```\nAuthorization: Bearer deadbeefdeadbeefdeadbeefdeadbeef\n```\n"
-        "```bash\n# curl https://api.netmind.chat/yGO3BL/setup-guide.md\n```\n"
-    )
-    guide_scripts["guides"] = [guide]
-    guide_scripts["post_responses"] = [{"ok": True, "data": {"roomId": "!r:m"}}]
-    lines: list[str] = []
-    sink = logger.add(lambda m: lines.append(str(m)), level="WARNING")
-    try:
-        result = await svc.do_bind(
-            stub_db, agent_id="agent_x",
-            bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-        )
-    finally:
-        logger.remove(sink)
+    async def _timeout(_session, _url):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(svc, "_get_text", _timeout)
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result == {"success": False, "error": "network error reaching NarraMessenger: TimeoutError"}
+
+
+@pytest.mark.asyncio
+async def test_status_wait_stops_at_its_deadline(stub_db, fake_manager, guide_scripts, monkeypatch):
+    """The cloud MCP bind reaches do_bind through a 20 s HTTP call: the wait
+    must give up at _STATUS_DEADLINE_S even when every read is slow."""
+    clock = {"t": 0.0}
+    reads = {"n": 0}
+    GET_COST = 2.0  # a slow upstream: every guide read takes 2 s
+
+    async def _sleep(seconds):
+        clock["t"] += seconds
+
+    async def _slow_get(_session, _url):
+        reads["n"] += 1
+        if reads["n"] > 1:  # the first read happens before the wait starts
+            clock["t"] += GET_COST
+        return PROFILE_GUIDE
+
+    async def _post(_session, url, body, bearer=""):
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(svc, "_sleep", _sleep)
+    monkeypatch.setattr(svc, "_monotonic", lambda: clock["t"])
+    monkeypatch.setattr(svc, "_get_text", _slow_get)
+    monkeypatch.setattr(svc, "_post_json", _post)
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
 
     assert result["success"] is False
-    joined = "\n".join(lines)
-    assert "bind failed at matrix-access-token" in joined
-    for secret in ("deadbeef", "yGO3BL", "://"):
+    # Overshoot is at most the read in flight (bounded by wait_for in real runs).
+    assert clock["t"] <= svc._STATUS_DEADLINE_S + GET_COST
+    # Stopped early: fewer re-reads than scheduled delays.
+    assert reads["n"] - 1 < len(svc._STATUS_DELAYS)
+
+
+@pytest.fixture
+def log_lines():
+    from loguru import logger
+
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="DEBUG")
+    yield lines
+    logger.remove(sink)
+
+
+@pytest.mark.asyncio
+async def test_successful_bind_never_logs_the_claimed_credentials(
+    stub_db, fake_manager, guide_scripts, log_lines
+):
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok(CLAIM), _ok(READY)]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is True
+    joined = "\n".join(log_lines)
+    assert "bound via Direct Matrix" in joined
+    for secret in (SECRET, MATRIX_TOKEN, "yGO3BL"):
         assert secret not in joined
 
 
 @pytest.mark.asyncio
-async def test_network_failure_log_never_carries_the_bind_token(stub_db, fake_manager, monkeypatch):
+async def test_incomplete_claim_log_names_fields_not_values(
+    stub_db, fake_manager, guide_scripts, log_lines
+):
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok({**CLAIM, "matrix_access_token": ""})]
+
+    await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    joined = "\n".join(log_lines)
+    assert "bind failed at claim-credentials" in joined
+    assert "secret_token" in joined  # names what arrived
+    assert "matrix_access_token" not in joined.split("present=")[-1]
+    assert SECRET not in joined and "yGO3BL" not in joined
+
+
+@pytest.mark.asyncio
+async def test_incomplete_claim_log_does_not_count_non_string_values(
+    stub_db, fake_manager, guide_scripts, log_lines
+):
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok({**CLAIM, "secret_token": 123})]
+
+    await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    present = "\n".join(log_lines).split("present=")[-1]
+    assert "secret_token" not in present
+    assert "matrix_access_token" in present
+
+
+@pytest.mark.asyncio
+async def test_unclaimable_log_names_step_without_secrets(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps, log_lines
+):
+    guide_scripts["guides"] = [PROFILE_GUIDE] * (len(svc._STATUS_DELAYS) + 1)
+    guide_scripts["post_responses"] = [_ok({})]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "waiting_profile" in result["error"]
+    joined = "\n".join(log_lines)
+    assert "bind failed at await-connection" in joined
+    assert "yGO3BL" not in joined and "://" not in joined
+
+
+@pytest.mark.asyncio
+async def test_network_failure_log_never_carries_the_bind_token(stub_db, fake_manager, monkeypatch, log_lines):
     """aiohttp's timeout message embeds the request URL, and the URL carries
     the bind token: the log must keep only the exception class."""
     import aiohttp
-    from loguru import logger
 
     async def _timeout(_session, url):
         raise aiohttp.ConnectionTimeoutError(f"Connection timeout to host {url}")
 
     monkeypatch.setattr(svc, "_get_text", _timeout)
-    lines: list[str] = []
-    sink = logger.add(lambda m: lines.append(str(m)), level="DEBUG")
-    try:
-        result = await svc.do_bind(
-            stub_db, agent_id="agent_x",
-            bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
-        )
-    finally:
-        logger.remove(sink)
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
 
     assert result == {"success": False, "error": "network error reaching NarraMessenger: ConnectionTimeoutError"}
-    joined = "\n".join(lines)
+    joined = "\n".join(log_lines)
     assert "bind failed at network: ConnectionTimeoutError" in joined
     assert "yGO3BL" not in joined

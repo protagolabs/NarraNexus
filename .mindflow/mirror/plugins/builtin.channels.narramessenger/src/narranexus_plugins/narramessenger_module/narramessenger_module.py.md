@@ -1,8 +1,16 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-09-09
+last_verified: 2026-11-03
 ---
+
+## 2026-11-03 — setup text names the Direct Matrix transport
+
+`_SETUP_INSTRUCTION` said `narra_bind` binds over "Gateway transport", left over
+from before the bind moved to Direct Matrix (2026-07-02). It now says "Direct
+Matrix transport", matching what [[_narramessenger_service]] `do_bind` actually
+does (claim credentials → runtime-ready, `connection_mode='matrix'`). Wording
+only; no behavior change.
 
 
 ## 2026-09-09 — `_CLI_CAPABILITY`：端点归平台 + 错误保守口径
