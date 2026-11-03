@@ -96,7 +96,7 @@ through these steps, then bind for them:
 4. Paste that command/link into this chat.
 
 When the owner pastes it, call `narra_bind(bind_command="<the pasted text>")`.
-That drives the binding (Gateway transport) and saves the credential; once it
+That drives the binding (Direct Matrix transport) and saves the credential; once it
 returns success, real-time receiving starts automatically — no further action.
 
 Do NOT ask the owner to read or type raw tokens by hand — just have them paste
