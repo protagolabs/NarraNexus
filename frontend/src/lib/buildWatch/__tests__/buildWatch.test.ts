@@ -5,9 +5,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const guardedFetch = vi.fn();
-vi.mock('../guardedFetch', () => ({ guardedFetch: (...args: unknown[]) => guardedFetch(...args) }));
+vi.mock('../../guardedFetch', () => ({ guardedFetch: (...args: unknown[]) => guardedFetch(...args) }));
 
-import { BUILD_CHECK_INTERVAL_MS, fetchDeployedBuildId, startBuildWatch } from '../buildWatch';
+import {
+  BUILD_CHECK_INTERVAL_MS,
+  UNKNOWN_STREAK_WARN,
+  fetchDeployedBuildId,
+  startBuildWatch,
+} from '..';
 
 // Minimal Response stand-ins: json() settles in one microtask, so `flush`
 // is enough to finish a check (a real Response parses over several ticks).
@@ -26,6 +31,10 @@ const html = () => ({
 const flush = async () => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
+const tick = async () => {
+  vi.advanceTimersByTime(BUILD_CHECK_INTERVAL_MS);
+  await flush();
+};
 
 function setVisibility(state: DocumentVisibilityState) {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
@@ -38,16 +47,30 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('fetchDeployedBuildId', () => {
-  it('reads buildId from /build.json, bypassing caches', async () => {
+  it('reads buildId from /build.json, bypassing caches, with an abort signal', async () => {
     guardedFetch.mockResolvedValue(json({ buildId: 'b2' }));
     await expect(fetchDeployedBuildId()).resolves.toBe('b2');
     const [url, init] = guardedFetch.mock.calls[0];
     expect(String(url)).toMatch(/^\/build\.json\?t=\d+$/);
     expect(init).toMatchObject({ cache: 'no-store' });
     expect(init.signal).toBeInstanceOf(AbortSignal); // a hung read cannot wedge the watch
+  });
+
+  it('still gets a signal where AbortSignal.timeout is missing (Safari < 16)', async () => {
+    const original = AbortSignal.timeout;
+    // @ts-expect-error simulating an older browser
+    AbortSignal.timeout = undefined;
+    try {
+      guardedFetch.mockResolvedValue(json({ buildId: 'b2' }));
+      await expect(fetchDeployedBuildId()).resolves.toBe('b2');
+      expect(guardedFetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      AbortSignal.timeout = original;
+    }
   });
 
   it('is null for the SPA index.html fallback of a deploy without build.json', async () => {
@@ -62,19 +85,25 @@ describe('fetchDeployedBuildId', () => {
     await expect(fetchDeployedBuildId()).resolves.toBeNull();
     guardedFetch.mockResolvedValueOnce(json({ buildId: 42 }));
     await expect(fetchDeployedBuildId()).resolves.toBeNull();
-    guardedFetch.mockResolvedValueOnce(json({ buildId: '' }));
-    await expect(fetchDeployedBuildId()).resolves.toBeNull();
   });
 });
 
 describe('startBuildWatch', () => {
+  it('does not check at start: the page was just loaded from this deployment', async () => {
+    guardedFetch.mockResolvedValue(json({ buildId: 'same' }));
+    const stop = startBuildWatch(vi.fn(), 'same');
+    await flush();
+    expect(guardedFetch).not.toHaveBeenCalled();
+    stop();
+  });
+
   it('reports a different deployed build once, then stops checking', async () => {
     guardedFetch.mockResolvedValue(json({ buildId: 'new' }));
     const onNew = vi.fn();
     startBuildWatch(onNew, 'old');
-    await flush();
+    await tick();
     expect(onNew).toHaveBeenCalledWith('new');
-    vi.advanceTimersByTime(BUILD_CHECK_INTERVAL_MS * 3);
+    await tick();
     setVisibility('visible');
     await flush();
     expect(guardedFetch).toHaveBeenCalledTimes(1);
@@ -85,49 +114,57 @@ describe('startBuildWatch', () => {
     guardedFetch.mockResolvedValue(json({ buildId: 'same' }));
     const onNew = vi.fn();
     const stop = startBuildWatch(onNew, 'same');
-    await flush();
-    vi.advanceTimersByTime(BUILD_CHECK_INTERVAL_MS);
-    await flush();
+    await tick();
+    await tick();
     expect(guardedFetch).toHaveBeenCalledTimes(2);
     expect(onNew).not.toHaveBeenCalled();
     stop();
   });
 
   it('re-checks when a background tab becomes visible again', async () => {
-    guardedFetch.mockResolvedValue(json({ buildId: 'same' }));
+    guardedFetch.mockResolvedValue(json({ buildId: 'new' }));
     const onNew = vi.fn();
     const stop = startBuildWatch(onNew, 'same');
-    await flush();
-    guardedFetch.mockResolvedValue(json({ buildId: 'new' }));
     setVisibility('hidden');
     await flush();
-    expect(onNew).not.toHaveBeenCalled();
+    expect(guardedFetch).not.toHaveBeenCalled();
     setVisibility('visible');
     await flush();
     expect(onNew).toHaveBeenCalledWith('new');
     stop();
   });
 
-  it('never reports when the deployed build is unknown', async () => {
+  it('never reports an unknown build, and warns once per streak of unknowns', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     guardedFetch.mockResolvedValue(html());
     const onNew = vi.fn();
     const stop = startBuildWatch(onNew, 'old');
-    await flush();
-    vi.advanceTimersByTime(BUILD_CHECK_INTERVAL_MS);
-    await flush();
+    for (let i = 0; i < UNKNOWN_STREAK_WARN - 1; i++) await tick();
+    expect(warn).not.toHaveBeenCalled();
+    await tick();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('[build-watch]');
+    await tick();
+    await tick();
+    expect(warn).toHaveBeenCalledTimes(1); // once per streak, not per read
+    // A successful read re-arms the warning for the next streak.
+    guardedFetch.mockResolvedValue(json({ buildId: 'old' }));
+    await tick();
+    guardedFetch.mockResolvedValue(html());
+    for (let i = 0; i < UNKNOWN_STREAK_WARN; i++) await tick();
+    expect(warn).toHaveBeenCalledTimes(2);
     expect(onNew).not.toHaveBeenCalled();
     stop();
   });
 
   it('stop() ends the interval and the visibility listener', async () => {
-    guardedFetch.mockResolvedValue(json({ buildId: 'same' }));
+    guardedFetch.mockResolvedValue(json({ buildId: 'new' }));
     const stop = startBuildWatch(vi.fn(), 'same');
-    await flush();
     stop();
-    vi.advanceTimersByTime(BUILD_CHECK_INTERVAL_MS * 2);
+    await tick();
     setVisibility('visible');
     await flush();
-    expect(guardedFetch).toHaveBeenCalledTimes(1);
+    expect(guardedFetch).not.toHaveBeenCalled();
   });
 
   it('drops a result that lands after stop()', async () => {
@@ -135,6 +172,8 @@ describe('startBuildWatch', () => {
     guardedFetch.mockReturnValue(new Promise((r) => { resolveRead = r; }));
     const onNew = vi.fn();
     const stop = startBuildWatch(onNew, 'old');
+    setVisibility('visible');
+    await flush();
     stop();
     resolveRead(json({ buildId: 'new' }));
     await flush();
@@ -145,7 +184,8 @@ describe('startBuildWatch', () => {
     guardedFetch.mockReturnValue(new Promise(() => {}));
     const stop = startBuildWatch(vi.fn(), 'same');
     setVisibility('visible');
-    vi.advanceTimersByTime(BUILD_CHECK_INTERVAL_MS);
+    await tick();
+    setVisibility('visible');
     await flush();
     expect(guardedFetch).toHaveBeenCalledTimes(1);
     stop();

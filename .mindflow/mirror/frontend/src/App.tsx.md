@@ -247,11 +247,11 @@ from Settings (the onboarding checklist + quota panel point them there).
 
 ## 2026-11-02 — WebUpdateBanner (cloud web only, lazy)
 
-Next to `UpdateBanner`, App mounts [[WebUpdateBanner.tsx]] — lazily and only
+App mounts [[UpdateBanner.tsx]] and [[WebUpdateBanner.tsx]] together **after the amber top banners and before `<ChunkErrorBoundary>`/routes**: the floating pills share the `z-50` layer and stack by DOM order, so they show over the amber banners and under full-screen dialogs (see [[FloatingPill.tsx]]). WebUpdateBanner is mounted lazily and only
 when `isForcedCloud() && !isTauri()` (checked at render, not at module scope,
 so it never depends on `/config.js` having run before the entry evaluated). It
 offers a reload once the deployed frontend differs from the running bundle
-([[buildWatch.ts]]); the trigger was a stale tab still running the pre-10-30
+([[index.ts]] (lib/buildWatch)); the trigger was a stale tab still running the pre-10-30
 channel-panel loop. Lazy keeps its code out of the entry chunk, which an eager
 import had pushed past `budget.json`.
 

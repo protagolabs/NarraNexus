@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import { readFileSync } from 'fs'
-import { emitBuildIdPlugin } from './src/lib/buildIdContract'
+import { emitBuildIdPlugin } from './src/lib/buildWatch/contract'
 
 // Read version from package.json at build time so the sidebar footer always
 // reflects the actual release. Avoids the previous footgun of a hardcoded
@@ -14,7 +14,7 @@ const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'ut
 // `--no-cache` rebuild of unchanged source — harmless: open tabs are offered a
 // reload they did not strictly need). Stamped
 // into the bundle and emitted as /build.json: an open cloud tab compares the
-// two and offers a reload once the deployment moved on (src/lib/buildWatch.ts).
+// two and offers a reload once the deployment moved on (src/lib/buildWatch/).
 const BUILD_ID = `${pkg.version}+${Date.now().toString(36)}`
 
 // https://vite.dev/config/

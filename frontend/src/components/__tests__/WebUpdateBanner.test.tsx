@@ -3,7 +3,7 @@
  * @description: The cloud "new version" pill: shown on a new deployed build, cloud web only.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let reportNewBuild: ((id: string) => void) | null = null;
 const startBuildWatch = vi.fn((onNew: (id: string) => void) => {
@@ -19,6 +19,13 @@ vi.mock('@/lib/tauri', () => ({ isTauri: () => tauri.value }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
 
 import WebUpdateBanner from '../WebUpdateBanner';
+
+const originalLocation = window.location;
+
+afterEach(() => {
+  // The reload test swaps window.location; later tests must see the real one.
+  Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+});
 
 beforeEach(() => {
   reportNewBuild = null;

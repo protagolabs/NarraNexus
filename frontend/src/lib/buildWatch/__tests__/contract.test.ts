@@ -1,10 +1,10 @@
 /**
- * @file_name: buildIdContract.test.ts
+ * @file_name: contract.test.ts
  * @description: What the build emits is exactly what an open tab reads back.
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { BUILD_JSON_FILE, emitBuildIdPlugin, readBuildId } from '../buildIdContract';
+import { BUILD_JSON_FILE, emitBuildIdPlugin, readBuildId } from '../contract';
 
 describe('build id contract', () => {
   it('the emitted /build.json round-trips through readBuildId', () => {

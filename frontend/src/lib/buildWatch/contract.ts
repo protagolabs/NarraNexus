@@ -1,12 +1,12 @@
 /**
- * @file_name: buildIdContract.ts
+ * @file_name: contract.ts (lib/buildWatch)
  * @date: 2026-11-02
- * @description: The /build.json contract shared by the build (vite.config.ts) and the tab (buildWatch.ts).
+ * @description: The /build.json contract shared by the build (vite.config.ts) and the tab (./index.ts).
  *
  * One file name, one field, written by the build and read by every open tab.
  * Both sides import it from here so renaming either cannot silently break the
  * "new version" banner. Pure: no DOM or Node APIs (vite.config.ts compiles
- * under tsconfig.node, buildWatch under tsconfig.app).
+ * under tsconfig.node, ./index.ts under tsconfig.app).
  */
 import type { Plugin } from 'vite';
 

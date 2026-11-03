@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/UpdateBanner.tsx
-last_verified: 2026-05-27
+last_verified: 2026-11-02
 stub: false
 ---
 
@@ -13,6 +13,15 @@ One of three UI surfaces for the unified auto-updater (see
 the mirror). This is the **least-intrusive** surface: a small
 floating pill at the top-center of the app, visible from every
 screen, surfaced only when there is an action the user can take.
+
+## 2026-11-02 — pill chrome moved to FloatingPill; mount moved
+
+The pill's markup now lives in [[FloatingPill.tsx]], shared with
+[[WebUpdateBanner.tsx]] (the cloud-web redeploy notice) — previously the two
+carried hand-copied class strings. App now mounts it after the amber top
+banners and before the routes: same `z-50` layer, stacking by DOM order, so the
+pill shows over the amber banners and under full-screen dialogs. Behaviour and
+text are unchanged (still hard-coded English, as before).
 
 ## Render gate
 

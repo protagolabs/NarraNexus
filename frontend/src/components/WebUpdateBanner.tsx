@@ -15,9 +15,10 @@
  */
 
 import { useEffect, useState } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { FloatingPill } from '@/components/FloatingPill';
 import { startBuildWatch } from '@/lib/buildWatch';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { isTauri } from '@/lib/tauri';
@@ -37,33 +38,14 @@ export default function WebUpdateBanner() {
   if (!available || dismissed) return null;
 
   return (
-    <div
-      // Same floating pill as UpdateBanner (clicks outside pass through), one
-      // layer above the amber top banners so a suspended / expired notice
-      // cannot hide it.
-      className="fixed top-3 left-0 right-0 z-[55] flex justify-center pointer-events-none font-[family-name:var(--font-sans)]"
-      role="status"
-      aria-live="polite"
+    <FloatingPill
+      icon={RefreshCw}
+      actionLabel={t('appBanners.reloadNow')}
+      onAction={() => window.location.reload()}
+      onDismiss={() => setDismissed(true)}
+      dismissLabel={t('appBanners.dismiss')}
     >
-      <div className="pointer-events-auto flex items-center gap-3 px-4 py-2 rounded-full shadow-lg border border-[var(--nm-line)] bg-[var(--bg-elev)] text-[var(--nm-ink)] text-sm">
-        <RefreshCw className="w-4 h-4 text-[var(--accent-primary)]" aria-hidden="true" />
-        <span>{t('appBanners.newWebVersion')}</span>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="px-3 py-1 rounded-full text-xs font-medium bg-[var(--accent-primary)] text-white hover:opacity-90 transition"
-        >
-          {t('appBanners.reloadNow')}
-        </button>
-        <button
-          type="button"
-          onClick={() => setDismissed(true)}
-          aria-label={t('appBanners.dismiss')}
-          className="p-1 rounded-full text-[var(--nm-ink50)] hover:text-[var(--nm-ink)] hover:bg-[var(--nm-line)]/40 transition"
-        >
-          <X className="w-3.5 h-3.5" aria-hidden="true" />
-        </button>
-      </div>
-    </div>
+      {t('appBanners.newWebVersion')}
+    </FloatingPill>
   );
 }

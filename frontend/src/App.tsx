@@ -494,12 +494,6 @@ function App() {
   return (
     <>
       <MockBanner />
-      <UpdateBanner />
-      {isForcedCloud() && !isTauri() && (
-        <Suspense fallback={null}>
-          <WebUpdateBanner />
-        </Suspense>
-      )}
       <ArenaProvisioningModal />
       {accountSuspended && (
         <div
@@ -570,6 +564,15 @@ function App() {
         >
           {t('appBanners.freeTierSwitched')}
         </div>
+      )}
+      {/* Floating update pills share the z-50 layer: mounted after the amber
+          banners so they stay readable over them, and before the routes so
+          full-screen dialogs cover them (see FloatingPill). */}
+      <UpdateBanner />
+      {isForcedCloud() && !isTauri() && (
+        <Suspense fallback={null}>
+          <WebUpdateBanner />
+        </Suspense>
       )}
       <ChunkErrorBoundary>
       <Suspense fallback={<PageFallback />}>

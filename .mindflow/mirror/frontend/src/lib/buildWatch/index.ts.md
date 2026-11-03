@@ -1,10 +1,10 @@
 ---
-code_file: frontend/src/lib/buildWatch.ts
+code_file: frontend/src/lib/buildWatch/index.ts
 last_verified: 2026-11-02
 stub: false
 ---
 
-# buildWatch.ts — has the cloud frontend been redeployed under this tab?
+# lib/buildWatch/index.ts — has the cloud frontend been redeployed under this tab?
 
 ## Why it exists
 
@@ -22,17 +22,20 @@ user a reload would fix it. This module is the detection half; the UI half is
 - Each build gets a unique id (`version+timestamp`) stamped into the bundle as
   `__APP_BUILD_ID__` and emitted as `dist/build.json` (`vite.config.ts`
   `emitBuildId` plugin). Two builds of the same version still differ.
-- `startBuildWatch` reads `/build.json` now, every 5 minutes, and whenever the
-  tab becomes visible again (a tab parked in the background for days is the
-  stale case). On the first id that differs from the running one it calls
+- `startBuildWatch` reads `/build.json` every 5 minutes and whenever the tab
+  becomes visible again (a tab parked in the background for days is the stale
+  case). Not at start: the page was just loaded from the current deployment,
+  so that read would only ever match — and it would take one of the loop
+  guard's in-flight slots during the cold-start burst. On the first id that differs from the running one it calls
   back once and stops — the tab cannot become "more stale", and polling on
   would only be traffic.
 - Overlapping checks are dropped (`inFlight`), so a visibility flip during a
-  slow read does not stack requests. Every read carries
-  `AbortSignal.timeout(15 s)`: the underlying fetch has no timeout of its own,
+  slow read does not stack requests. Every read carries a 15 s abort signal
+  (`AbortSignal.timeout`, or a timer-backed controller where it is missing —
+  Safari < 16): the underlying fetch has no timeout of its own,
   and one hung read would otherwise leave `inFlight` set and the tab never
   checking again. A result that lands after `stop()` is dropped.
-- The file name and field come from [[buildIdContract.ts]], shared with the
+- The file name and field come from [[contract.ts]] (same package), shared with the
   emitting Vite plugin.
 - The id is `version+build-time`, not content-derived, so a `--no-cache`
   rebuild of unchanged source (deploy repo `app-rebuild*` targets) offers open
@@ -41,7 +44,12 @@ user a reload would fix it. This module is the detection half; the UI half is
 
 ## Gotchas
 
-- **Unknown is never "new".** A deploy without `build.json` (older image) gets
+- **Unknown is never "new" — but never silent either.** After 3 unknown reads
+  in a row (~15 min) the watch warns once in the console (`[build-watch]`),
+  once per streak; a successful read re-arms it. Otherwise a deployment path
+  that cannot serve the file (another nginx, a CDN returning 404) would leave
+  the feature dead with no trace.
+- **What reads as unknown.** A deploy without `build.json` (older image) gets
   the SPA's `index.html` back from nginx's catch-all `try_files`; that fails to
   parse and reads as `null`. Same for HTTP errors, network errors and a
   non-string id. Only a real, different id raises the banner.
