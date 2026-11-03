@@ -2607,7 +2607,9 @@
     "resumeAgent": "Reanudar agente",
     "resuming": "Reanudando…",
     "dismiss": "Descartar",
-    "freeTierSwitched": "Se agotó la cuota gratuita — se cambió a tu propio proveedor. Las nuevas ejecuciones usarán tu propia clave de API. (haz clic para cerrar)"
+    "freeTierSwitched": "Se agotó la cuota gratuita — se cambió a tu propio proveedor. Las nuevas ejecuciones usarán tu propia clave de API. (haz clic para cerrar)",
+    "newWebVersion": "Hay una nueva versión de NarraNexus. Recarga para obtener las últimas correcciones.",
+    "reloadNow": "Recargar"
   },
   "browser": {
     "notices": {

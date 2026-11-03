@@ -35,6 +35,9 @@ import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary';
 import { useAccountSuspendedSignOut } from '@/hooks/useAccountSuspendedSignOut';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
+// Cloud web only, so its code (and the build watch) stays out of the entry
+// chunk; desktop / local never load it.
+const WebUpdateBanner = lazy(() => import('@/components/WebUpdateBanner'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -492,6 +495,11 @@ function App() {
     <>
       <MockBanner />
       <UpdateBanner />
+      {isForcedCloud() && !isTauri() && (
+        <Suspense fallback={null}>
+          <WebUpdateBanner />
+        </Suspense>
+      )}
       <ArenaProvisioningModal />
       {accountSuspended && (
         <div

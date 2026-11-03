@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-10-30
+last_verified: 2026-11-02
 stub: false
 ---
 
@@ -244,6 +244,16 @@ confused users who had no API key to paste. Local installs have no system
 provider, so they still must configure one — the gate keeps `/setup` for
 `mode === 'local'` only. Cloud users can still add a personal provider later
 from Settings (the onboarding checklist + quota panel point them there).
+
+## 2026-11-02 — WebUpdateBanner (cloud web only, lazy)
+
+Next to `UpdateBanner`, App mounts [[WebUpdateBanner.tsx]] — lazily and only
+when `isForcedCloud() && !isTauri()` (checked at render, not at module scope,
+so it never depends on `/config.js` having run before the entry evaluated). It
+offers a reload once the deployed frontend differs from the running bundle
+([[buildWatch.ts]]); the trigger was a stale tab still running the pre-10-30
+channel-panel loop. Lazy keeps its code out of the entry chunk, which an eager
+import had pushed past `budget.json`.
 
 ## 2026-05-27 — UpdateBanner mount + updaterStore init
 

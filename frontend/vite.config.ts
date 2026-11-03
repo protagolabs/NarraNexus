@@ -3,17 +3,26 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import { readFileSync } from 'fs'
+import { emitBuildIdPlugin } from './src/lib/buildIdContract'
 
 // Read version from package.json at build time so the sidebar footer always
 // reflects the actual release. Avoids the previous footgun of a hardcoded
 // "v1.0.0" that drifted away from the real Tauri/Cargo/pyproject versions.
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'))
 
+// Unique per build, so two builds of the same version still differ (also a
+// `--no-cache` rebuild of unchanged source — harmless: open tabs are offered a
+// reload they did not strictly need). Stamped
+// into the bundle and emitted as /build.json: an open cloud tab compares the
+// two and offers a reload once the deployment moved on (src/lib/buildWatch.ts).
+const BUILD_ID = `${pkg.version}+${Date.now().toString(36)}`
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), emitBuildIdPlugin(BUILD_ID)],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_BUILD_ID__: JSON.stringify(BUILD_ID),
   },
   resolve: {
     alias: {

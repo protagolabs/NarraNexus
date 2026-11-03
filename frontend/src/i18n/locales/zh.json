@@ -3122,7 +3122,9 @@
     "resumeAgent": "恢复运行",
     "resuming": "恢复中…",
     "dismiss": "关闭",
-    "freeTierSwitched": "免费额度已用完，已切换到你自己的服务商。之后的运行将使用你自己的 API key。（点击关闭）"
+    "freeTierSwitched": "免费额度已用完，已切换到你自己的服务商。之后的运行将使用你自己的 API key。（点击关闭）",
+    "newWebVersion": "NarraNexus 有新版本，刷新页面即可获得最新修复。",
+    "reloadNow": "刷新"
   },
   "browser": {
     "notices": {

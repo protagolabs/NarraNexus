@@ -2607,7 +2607,9 @@
     "resumeAgent": "Retomar agente",
     "resuming": "Retomando…",
     "dismiss": "Dispensar",
-    "freeTierSwitched": "Cota gratuita esgotada — mudado para seu próprio provedor. As novas execuções usarão sua própria chave de API. (clique para dispensar)"
+    "freeTierSwitched": "Cota gratuita esgotada — mudado para seu próprio provedor. As novas execuções usarão sua própria chave de API. (clique para dispensar)",
+    "newWebVersion": "Uma nova versão do NarraNexus está disponível. Recarregue para obter as correções mais recentes.",
+    "reloadNow": "Recarregar"
   },
   "browser": {
     "notices": {
