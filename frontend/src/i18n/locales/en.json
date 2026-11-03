@@ -3122,7 +3122,9 @@
     "resumeAgent": "Resume agent",
     "resuming": "Resuming…",
     "dismiss": "Dismiss",
-    "freeTierSwitched": "Free-tier quota used up — switched to your own provider. New runs use your own API key. (click to dismiss)"
+    "freeTierSwitched": "Free-tier quota used up — switched to your own provider. New runs use your own API key. (click to dismiss)",
+    "newWebVersion": "A new version of NarraNexus is available. Reload to get the latest fixes.",
+    "reloadNow": "Reload"
   },
   "browser": {
     "notices": {

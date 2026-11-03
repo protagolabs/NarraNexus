@@ -22,7 +22,8 @@
  */
 
 import { useState } from 'react';
-import { X, Download } from 'lucide-react';
+import { Download } from 'lucide-react';
+import { FloatingPill } from '@/components/FloatingPill';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { restartForUpdate } from '@/lib/tauri';
 
@@ -39,39 +40,15 @@ export default function UpdateBanner() {
   if (dismissedKey === key) return null;
 
   return (
-    <div
-      // Centered floating pill at the very top, above the app chrome.
-      // pointer-events-none on the wrapper + auto on the pill so clicks
-      // outside the pill pass through to the underlying UI (no
-      // accidental blocking of the workspace).
-      className="fixed top-3 left-0 right-0 z-50 flex justify-center pointer-events-none font-[family-name:var(--font-sans)]"
-      role="status"
-      aria-live="polite"
+    <FloatingPill
+      icon={Download}
+      actionLabel="Restart now"
+      onAction={() => restartForUpdate()}
+      onDismiss={() => setDismissedKey(key)}
+      dismissLabel="Dismiss update notification"
+      dismissTitle="Dismiss (we'll wait — restart later from Settings)"
     >
-      <div
-        className="pointer-events-auto flex items-center gap-3 px-4 py-2 rounded-full shadow-lg border border-[var(--nm-line)] bg-[var(--bg-elev)] text-[var(--nm-ink)] text-sm"
-      >
-        <Download className="w-4 h-4 text-[var(--accent-primary)]" aria-hidden="true" />
-        <span>
-          NarraNexus <b>{state.version}</b> downloaded and ready
-        </span>
-        <button
-          type="button"
-          onClick={() => restartForUpdate()}
-          className="px-3 py-1 rounded-full text-xs font-medium bg-[var(--accent-primary)] text-white hover:opacity-90 transition"
-        >
-          Restart now
-        </button>
-        <button
-          type="button"
-          onClick={() => setDismissedKey(key)}
-          aria-label="Dismiss update notification"
-          title="Dismiss (we'll wait — restart later from Settings)"
-          className="p-1 rounded-full text-[var(--nm-ink50)] hover:text-[var(--nm-ink)] hover:bg-[var(--nm-line)]/40 transition"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    </div>
+      NarraNexus <b>{state.version}</b> downloaded and ready
+    </FloatingPill>
   );
 }
