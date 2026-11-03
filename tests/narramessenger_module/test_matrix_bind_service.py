@@ -619,3 +619,249 @@ async def test_cloud_rebinding_bind_link_is_refused_at_connect(stub_db, fake_man
     assert "public NarraMessenger host" in result["error"]
     assert "169.254" not in result["error"]
     assert dials == [] and fake_manager.upserts == []
+
+
+# ────────────────────────────────────────────────────────────────────
+# Bearer reveal wait (2026-11-02): report-profile advances the session, but
+# the guide served right after it can still render the previous state. The
+# bind used to read the guide once and fail ("credential isn't revealed
+# yet") — every prod narramessenger bind after 10-30 failed this way.
+# ────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def recorded_sleeps(monkeypatch):
+    slept: list[float] = []
+
+    async def _fake_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(svc, "_sleep", _fake_sleep)
+    return slept
+
+
+_PENDING_GUIDE = "# Narra Messenger Agent Integration\n> **Bind Flow Status**: `profile_reported`\n"
+
+
+@pytest.mark.asyncio
+async def test_do_bind_waits_for_bearer_after_report_profile(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    early = "# Narra Messenger Agent Integration\n> **Bind Flow Status**: `awaiting_profile`\n"
+    # First guide: pre-profile. Two re-fetches still lag, the third is connected.
+    guide_scripts["guides"] = [early, _PENDING_GUIDE, _PENDING_GUIDE, CONNECTED_GUIDE_FRAGMENT]
+    guide_scripts["post_responses"] = [
+        {"ok": True, "data": {}},
+        {"ok": True, "data": {"status": "connected", "roomId": "!bindroom:matrix.netmind.chat"}},
+    ]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result["success"] is True
+    assert len(fake_manager.upserts) == 1
+    assert len(recorded_sleeps) == 3  # stopped waiting as soon as the bearer showed up
+    assert "/bind-agent/runtime-ready" in guide_scripts["post_calls"][-1][0]
+
+
+@pytest.mark.asyncio
+async def test_do_bind_names_flow_status_when_bearer_never_revealed(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    waiting = (
+        "# Narra Messenger Agent Integration\n"
+        "> **Bind Flow Status**: `awaiting_creator_confirmation`\n"
+        "## Next Step\nAsk the creator to confirm.\n"
+    )
+    guide_scripts["guides"] = [_PENDING_GUIDE] + [waiting] * len(svc._REVEAL_DELAYS)
+    guide_scripts["post_responses"] = [{"ok": True, "data": {}}]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result["success"] is False
+    assert "awaiting_creator_confirmation" in result["error"]
+    assert "confirm" in result["error"]
+    assert recorded_sleeps == list(svc._REVEAL_DELAYS)
+    assert fake_manager.upserts == []
+    # Never completed on the NarraMessenger side: runtime-ready not called.
+    assert all("runtime-ready" not in url for url, _b, _t in guide_scripts["post_calls"])
+
+
+@pytest.mark.asyncio
+async def test_do_bind_skips_wait_when_first_guide_has_bearer(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    guide_scripts["guides"] = [CONNECTED_GUIDE_FRAGMENT]
+    guide_scripts["post_responses"] = [
+        {"ok": True, "data": {"status": "connected", "roomId": "!r:matrix.netmind.chat"}},
+    ]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result["success"] is True
+    assert recorded_sleeps == []
+
+
+def test_flow_status_is_parsed_as_bare_identifier():
+    assert svc._parse_setup_guide(CONNECTED_GUIDE_FRAGMENT)["flow_status"] == "waiting_connection"
+    # Free text after the status never rides along (it may be shown to the user).
+    md = "> **Bind Flow Status**: `pending<script>alert(1)</script>`"
+    assert svc._parse_setup_guide(md)["flow_status"] == "pending"
+    assert "flow_status" not in svc._parse_setup_guide("no status here")
+
+
+def test_guide_shape_carries_no_secret_values():
+    shape = svc._guide_shape(CONNECTED_GUIDE_FRAGMENT)
+    assert "deadbeef" not in shape
+    assert "syt_" not in shape
+    assert "flow_status=waiting_connection" in shape
+    assert "bearer_word=True" in shape
+    assert "Authentication" in shape
+    assert svc._guide_shape("") == "empty"
+
+
+@pytest.mark.asyncio
+async def test_do_bind_timeout_returns_network_error(stub_db, fake_manager, monkeypatch):
+    import asyncio
+
+    async def _timeout(_session, _url):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(svc, "_get_text", _timeout)
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result == {"success": False, "error": "network error reaching NarraMessenger: TimeoutError"}
+
+
+@pytest.mark.asyncio
+async def test_reveal_wait_stops_at_its_deadline(stub_db, fake_manager, guide_scripts, monkeypatch):
+    """The cloud MCP bind reaches do_bind through a 20 s HTTP call: the wait
+    must give up at _REVEAL_DEADLINE_S even when every sleep is slow."""
+    clock = {"t": 0.0}
+    reads = {"n": 0}
+    GET_COST = 2.0  # a slow upstream: every guide read takes 2 s
+
+    async def _sleep(seconds):
+        clock["t"] += seconds
+
+    async def _slow_get(_session, _url):
+        reads["n"] += 1
+        if reads["n"] > 1:  # the first read happens before the wait starts
+            clock["t"] += GET_COST
+        return _PENDING_GUIDE
+
+    async def _post(_session, url, body, bearer=""):
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(svc, "_sleep", _sleep)
+    monkeypatch.setattr(svc, "_monotonic", lambda: clock["t"])
+    monkeypatch.setattr(svc, "_get_text", _slow_get)
+    monkeypatch.setattr(svc, "_post_json", _post)
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result["success"] is False
+    # Overshoot is at most the read in flight (bounded by wait_for in real runs).
+    assert clock["t"] <= svc._REVEAL_DEADLINE_S + GET_COST
+    # Stopped early: fewer re-reads than scheduled delays.
+    assert reads["n"] - 1 < len(svc._REVEAL_DELAYS)
+
+
+@pytest.mark.asyncio
+async def test_wrong_state_report_profile_still_waits_for_bearer(
+    stub_db, fake_manager, guide_scripts, recorded_sleeps
+):
+    guide_scripts["guides"] = [_PENDING_GUIDE, _PENDING_GUIDE, CONNECTED_GUIDE_FRAGMENT]
+    guide_scripts["post_responses"] = [
+        {"ok": False, "status": 409, "error": "WRONG_STATE"},
+        {"ok": True, "data": {"status": "connected", "roomId": "!r:matrix.netmind.chat"}},
+    ]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result["success"] is True
+    assert len(recorded_sleeps) == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_refetch_keeps_last_status(stub_db, fake_manager, guide_scripts, recorded_sleeps):
+    waiting = "> **Bind Flow Status**: `awaiting_creator_confirmation`\n"
+    guide_scripts["guides"] = [_PENDING_GUIDE, waiting] + [""] * (len(svc._REVEAL_DELAYS) - 1)
+    guide_scripts["post_responses"] = [{"ok": True, "data": {}}]
+
+    result = await svc.do_bind(
+        stub_db, agent_id="agent_x",
+        bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+    )
+
+    assert result["success"] is False
+    assert "awaiting_creator_confirmation" in result["error"]
+
+
+def test_flow_status_ignores_prose_mentions():
+    assert "flow_status" not in svc._parse_setup_guide("The Bind Flow Status is shown below.")
+
+
+def test_guide_shape_drops_fenced_comments_and_token_shaped_headings():
+    md = (
+        "# Narra Messenger Agent Integration\n"
+        "## Authentication\n"
+        "```bash\n"
+        "# export MATRIX_TOKEN=syt_FAKETESTtoken_do_not_use_00000000\n"
+        "# curl https://api.netmind.chat/yGO3BL/setup-guide.md\n"
+        "```\n"
+        "## Token deadbeefdeadbeefdeadbeef\n"
+    )
+    shape = svc._guide_shape(md)
+    assert "syt_" not in shape
+    assert "yGO3BL" not in shape and "://" not in shape
+    assert "deadbeef" not in shape
+    assert "Authentication" in shape and "Narra Messenger Agent Integration" in shape
+
+
+@pytest.mark.asyncio
+async def test_failure_log_names_step_without_secrets(stub_db, fake_manager, guide_scripts):
+    """The matrix-access-token branch logs the shape of a guide that DOES show
+    the bearer: the log line must carry the step and none of the secrets."""
+    from loguru import logger
+
+    guide = (
+        "> **Bind Flow Status**: `waiting_connection`\n"
+        "## Authentication\n```\nAuthorization: Bearer deadbeefdeadbeefdeadbeefdeadbeef\n```\n"
+        "```bash\n# curl https://api.netmind.chat/yGO3BL/setup-guide.md\n```\n"
+    )
+    guide_scripts["guides"] = [guide]
+    guide_scripts["post_responses"] = [{"ok": True, "data": {"roomId": "!r:m"}}]
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="WARNING")
+    try:
+        result = await svc.do_bind(
+            stub_db, agent_id="agent_x",
+            bind_command="https://api.netmind.chat/yGO3BL/setup-guide.md",
+        )
+    finally:
+        logger.remove(sink)
+
+    assert result["success"] is False
+    joined = "\n".join(lines)
+    assert "bind failed at matrix-access-token" in joined
+    for secret in ("deadbeef", "yGO3BL", "://"):
+        assert secret not in joined

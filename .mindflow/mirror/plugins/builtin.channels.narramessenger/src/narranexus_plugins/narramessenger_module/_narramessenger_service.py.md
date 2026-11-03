@@ -1,8 +1,20 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_narramessenger_service.py
 stub: false
-last_verified: 2026-10-29
+last_verified: 2026-11-02
 ---
+
+## 2026-11-02 — wait for the bearer after report-profile; every failure is logged
+
+**Symptom (prod).** Every NarraMessenger bind after 10-30 failed with "Profile reported, but the runtime credential isn't revealed yet". The response size (213 bytes) was the only clue: that branch, like most `do_bind` failures, logged nothing.
+
+**Why.** The bearer appears in the setup guide once the bind session reaches `waiting_connection`. `do_bind` POSTed report-profile and re-read the guide **once, immediately** (the whole bind took 128–239 ms), so a guide still rendering the previous state turned into a failed bind. `_await_bearer` now re-reads it with growing delays (`_REVEAL_DELAYS`) and stops as soon as the bearer shows up; a guide that already has the bearer skips the wait entirely. The wait gives up at `_REVEAL_DEADLINE_S` (14 s measured from the start of `do_bind`, fetches included, leaving ~6 s for runtime-ready and the upsert; it logs at info why it ended — each re-read runs under `wait_for` with the remaining time, which is safe because a read has no side effects): the cloud `narra_bind` MCP tool reaches this through `RemoteStore` with a 20 s HTTP budget, and a wait that outlived it would report a bind that actually succeeded as a timeout. Do NOT put a timeout around all of `do_bind` instead — cancelling between runtime-ready and the upsert leaves the remote side bound and ours not. An empty re-read (404/5xx) keeps the last guide that did arrive, so the status the user is told is not lost. runtime-ready is still only called once the bearer is in hand, so a session that never releases it is never completed remotely and nothing is persisted.
+
+**What the user sees when it still fails.** `_not_revealed_message` names the guide's `Bind Flow Status` (parsed by `_FLOW_STATUS_RE`, anchored to the rendered `**Bind Flow Status**` label, as a bare identifier — at most 40 `[A-Za-z0-9_]` chars, so upstream free text can never ride along) and tells them to confirm on the NarraMessenger side or generate a new link.
+
+**Logging.** Every failure returns through `_fail(agent_id, step, message, detail)`, which logs the step (`parse-link`, `egress-gate`, `setup-guide`, `report-profile`, `reveal-bearer`, `homeserver-gate`, `runtime-ready`, `connect-gate`, `network`, `matrix-access-token`). When the bearer or the Matrix token is missing, the detail is `_guide_shape(guide)`: length, flow status, whether the word `Bearer` occurs, and the prose section headings. Fenced code blocks (``` and ~~~) are stripped first (their `# comment` lines look like headings and the guide's examples carry the bind token / Matrix token), headings must fit a plain-text alphabet, and anything token-shaped (`syt_`, `://`, `=`, 16+ alphanumerics, 3+ digits — catches a UUID-style token) is dropped — so an upstream format change shows up in the log instead of having to be guessed. A non-OK report-profile that is let through (WRONG_STATE / no code) is logged at info with its status.
+
+**Timeouts.** `aiohttp.ClientTimeout` raises `asyncio.TimeoutError`, which is not an `aiohttp.ClientError`; it used to escape `do_bind` as a 500. It now maps to the same "network error reaching NarraMessenger" envelope.
 
 ## 2026-10-29 — bind session pinned in cloud
 

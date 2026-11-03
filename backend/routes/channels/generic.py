@@ -98,18 +98,31 @@ async def channel_schema(channel: str) -> dict[str, Any]:
     return {"success": True, "data": _schema_view(_descriptor(channel))}
 
 
+def _bind_refused(channel: str, agent_id: str, reason: str, error: str) -> dict[str, Any]:
+    """Log a bind refused before it reached the channel, then return the envelope.
+
+    A refused bind answers HTTP 200 with ``success: False``, so without this
+    the access log is the only trace and it reads as a success.
+    """
+    # An ownership refusal is what an unauthenticated probe or a scan produces;
+    # it is logged at info so scanners cannot flood the warning stream.
+    log = logger.info if reason == "ownership" else logger.warning
+    log(f"[channels] {channel} bind refused ({reason}): agent={agent_id} error={error!r}")
+    return {"success": False, "error": error}
+
+
 @router.post("/{channel}/bind")
 @structured_envelope("channels")
 async def channel_bind(request: Request, channel: str, body: BindBody) -> dict[str, Any]:
     d = _descriptor(channel)
     auth_err = await check_owned(request, body.agent_id)
     if auth_err:
-        return {"success": False, "error": auth_err}
+        return _bind_refused(channel, body.agent_id, "ownership", auth_err)
     if not d.has_bind:
-        return {"success": False, "error": f"{d.display_name} binds through its own flow"}
+        return _bind_refused(channel, body.agent_id, "no-bind", f"{d.display_name} binds through its own flow")
     invalid = validate_bind_fields(d, body.fields)
     if invalid:
-        return {"success": False, "error": invalid}
+        return _bind_refused(channel, body.agent_id, "fields", invalid)
     db = await _db()
     if d.credential_manager_ref:
         # The channel's own service validates with the external platform and persists
@@ -119,6 +132,10 @@ async def channel_bind(request: Request, channel: str, body: BindBody) -> dict[s
         result = await DirectStore().bind(channel, body.agent_id, body.fields)
         if result.get("success"):
             logger.info(f"[channels] {channel} bound: agent={body.agent_id}")
+        else:
+            # A failed bind still answers HTTP 200; log the exact text the user
+            # was shown so the failure is visible server-side.
+            logger.warning(f"[channels] {channel} bind failed: agent={body.agent_id} error={str(result.get('error') or '')[:300]!r}")
         return result
     fields = dict(body.fields)
     issued_secret: Optional[str] = None

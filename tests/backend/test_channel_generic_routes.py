@@ -304,3 +304,30 @@ def test_the_webhook_is_deliberately_not_enveloped(client_surfacing_server_error
     monkeypatch.setattr(generic_mod, "_descriptor", lambda channel: (_ for _ in ()).throw(RuntimeError("unexpected boom")))
     r = client.post("/api/channels/acme_chat/webhook/a1", json={"x": 1}, headers={"X-Webhook-Token": "wrong"})
     assert r.status_code == 500 and "trace_id" not in r.text
+
+
+def test_failed_binds_are_logged_server_side(client, monkeypatch):
+    """A failed bind answers HTTP 200 + success:false, so the access log reads it
+    as a success. Both a refusal before the channel (invalid fields) and a failed
+    service envelope must leave a warning naming channel, agent and the error —
+    a NarraMessenger bind failed for days with no trace before this (2026-11-02)."""
+    from loguru import logger
+
+    from narranexus.platform.module_system.data_access import channel_store
+
+    async def _bind(self, channel, agent_id, fields):
+        return {"success": False, "error": "service said no"}
+
+    monkeypatch.setattr(channel_store.DirectStore, "bind", _bind)
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="WARNING")
+    try:
+        H = {"X-User-Id": "u1"}
+        r = client.post("/api/channels/narramessenger/bind", json={"agent_id": "a1", "fields": {"bind_command": "x"}}, headers=H)
+        assert r.json() == {"success": False, "error": "service said no"}
+        r = client.post("/api/channels/lark/bind", json={"agent_id": "a1", "fields": {"app_id": "cli_1"}}, headers=H)
+        assert r.json()["success"] is False
+    finally:
+        logger.remove(sink)
+    assert any("narramessenger bind failed" in ln and "a1" in ln and "service said no" in ln for ln in lines)
+    assert any("lark bind refused (fields)" in ln and "a1" in ln for ln in lines)

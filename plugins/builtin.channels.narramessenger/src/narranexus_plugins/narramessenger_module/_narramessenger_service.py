@@ -9,9 +9,10 @@ bind token (the public token inside a link like
 ``https://api.netmind.chat/<token>/setup-guide.md``):
 
   1. ``report-profile`` (the agent's name + bio) to advance the bind session.
-  2. Re-fetch the setup-guide (now at ``waiting_connection`` / ``connected``)
-     and regex out the runtime **bearer** token, the **Matrix access token**,
-     the Matrix user id, and the homeserver URL.
+  2. Re-fetch the setup-guide until it reaches ``waiting_connection`` /
+     ``connected`` (a bounded poll — the guide served right after
+     report-profile can lag) and regex out the runtime **bearer** token, the
+     **Matrix access token**, the Matrix user id, and the homeserver URL.
   3. ``POST /bind-agent/runtime-ready?token=<bind_token>`` with
      ``{"platform": "nexus"}`` — completes the Direct Matrix bind, tags the
      agent's origin platform on the NarraMessenger side, and returns the
@@ -42,12 +43,15 @@ trusted user).
 Caveat: extracting the bearer relies on regexing the rendered markdown, and the
 bind state machine may require a human confirmation step on the NarraMessenger
 side (``creator_confirmed``) before the bearer is revealed — in which case
-``do_bind`` returns a clear "not connected yet" error rather than guessing.
+``do_bind`` returns an error naming the guide's bind status (and asking the
+owner to confirm on the NarraMessenger side) rather than guessing.
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from typing import Any, Optional, Tuple
 
 import aiohttp
@@ -89,6 +93,34 @@ _HOMESERVER_RE = re.compile(r"Homeserver URL[^\n]*?(https?://[A-Za-z0-9_.\-:]+)"
 # unrelated syt-lookalike inside the guide's OpenClaw JSON5 example isn't
 # picked up ahead of the canonical Matrix Connection Details table row.
 _MATRIX_ACCESS_TOKEN_RE = re.compile(r"(syt_[A-Za-z0-9_\-]{20,})")
+# `> **Bind Flow Status**: `waiting_connection`` — the bind state machine's
+# position as the guide renders it. Constrained to a bare identifier so the
+# value can be logged and named to the user without reflecting free text.
+_FLOW_STATUS_RE = re.compile(r"\*\*Bind Flow Status\*\*\W{0,4}`?([A-Za-z][A-Za-z0-9_]{0,39})")
+# `## Heading` lines — the guide's section layout, logged when the bearer
+# cannot be found so an upstream format change is visible in logs. Fenced code
+# blocks are stripped first (their `# comment` lines would match, and the
+# guide's examples carry tokens), and only plain-prose headings are kept.
+_FENCE_RE = re.compile(r"(```|~~~).*?(\1|\Z)", re.DOTALL)
+_HEADING_RE = re.compile(r"^#{1,3}\s+(.+?)\s*$", re.MULTILINE)
+_SAFE_HEADING_RE = re.compile(r"[A-Za-z][A-Za-z0-9 ()&'/,.-]{0,59}")
+_TOKENISH_RE = re.compile(r"syt_|://|=|[A-Za-z0-9]{16,}|(?:\D*\d){3}")
+
+# The bearer appears once the bind session reaches ``waiting_connection``.
+# report-profile advances the session, but the guide served right after it can
+# still be the previous state, so the re-fetch waits for the bearer instead of
+# reading the guide once. Delays in seconds between attempts.
+_REVEAL_DELAYS: Tuple[float, ...] = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
+# Hard ceiling, measured from the start of do_bind, after which the bearer wait
+# gives up (its fetches included). The cloud MCP bind reaches this code through
+# RemoteStore with a 20 s HTTP budget; the remaining ~6 s are for runtime-ready
+# and the upsert, so a bind that succeeds is not reported to the agent as a
+# timeout.
+_REVEAL_DEADLINE_S = 14.0
+# Indirections so tests can run the wait without real sleeps or a real clock.
+_sleep = asyncio.sleep
+_monotonic = time.monotonic
+
 # `.../<token>/setup-guide...` inside a pasted link
 _URL_TOKEN_RE = re.compile(
     r"https?://([A-Za-z0-9_.\-]+)/([A-Za-z0-9_\-]+)/setup-guide", re.IGNORECASE
@@ -164,7 +196,46 @@ def _parse_setup_guide(md: str) -> dict[str, str]:
     am = _MATRIX_ACCESS_TOKEN_RE.search(md)
     if am:
         out["matrix_access_token"] = am.group(1)
+    fm = _FLOW_STATUS_RE.search(md)
+    if fm:
+        out["flow_status"] = fm.group(1)
     return out
+
+
+def _guide_shape(md: str) -> str:
+    """A secret-free description of a guide for the log: size, status, sections.
+
+    Never includes a value from the guide body — only the length, the
+    identifier-shaped flow status, whether the literal word ``Bearer`` occurs,
+    and the prose section headings (fenced blocks stripped, headings limited to
+    a plain-text alphabet, anything token-shaped dropped).
+    """
+    if not md:
+        return "empty"
+    status = _parse_setup_guide(md).get("flow_status", "?")
+    prose = _FENCE_RE.sub("", md)
+    headings = [
+        h for h in _HEADING_RE.findall(prose)
+        if _SAFE_HEADING_RE.fullmatch(h) and not _TOKENISH_RE.search(h)
+    ][:12]
+    return (
+        f"len={len(md)} flow_status={status} "
+        f"bearer_word={'Bearer' in md} headings={headings}"
+    )
+
+
+def _fail(agent_id: str, step: str, message: str, detail: str = "") -> dict[str, Any]:
+    """Log a bind failure with its step, then return the user-facing envelope.
+
+    Every ``do_bind`` failure goes through here so the server log says which
+    step failed and why; before, most branches returned silently and a failed
+    bind left only an HTTP 200 in the access log.
+    """
+    logger.warning(
+        f"[narramessenger:{agent_id}] bind failed at {step}"
+        + (f": {detail}" if detail else "")
+    )
+    return {"success": False, "error": message}
 
 
 async def _is_allowed_target(url: str) -> bool:
@@ -233,27 +304,83 @@ def _step_failure(step: str, result: dict) -> str:
     return f"{step} failed ({detail}{', ' + code if code else ''})"
 
 
+async def _await_bearer(
+    session: aiohttp.ClientSession, guide_url: str, deadline: float, agent_id: str
+) -> Tuple[str, dict[str, str]]:
+    """Re-fetch the setup guide until it reveals the bearer, or the wait runs out.
+
+    report-profile advances the bind session, but the guide served right after
+    it may still render the previous state; reading it once turned that lag
+    into a failed bind. Stops at ``deadline`` (a ``_monotonic`` time). Returns the
+    last non-empty guide and its parse (empty if every re-fetch came back empty).
+    """
+    guide = ""
+    parsed: dict[str, str] = {}
+    reads = 0
+    ended = "attempts"
+    for delay in _REVEAL_DELAYS:
+        remaining = deadline - _monotonic()
+        if remaining <= 0:
+            ended = "deadline"
+            break
+        await _sleep(min(delay, remaining))
+        remaining = deadline - _monotonic()
+        if remaining <= 0:
+            ended = "deadline"
+            break
+        reads += 1
+        try:
+            # A read is side-effect free, so cutting it off at the deadline is safe.
+            text = await asyncio.wait_for(_get_text(session, guide_url), remaining)
+        except asyncio.TimeoutError:
+            ended = "read timeout"
+            break
+        if not text:
+            # Keep the last guide we did get: its status is what the user is told.
+            continue
+        guide = text
+        parsed = _parse_setup_guide(guide)
+        if parsed.get("bearer"):
+            return guide, parsed
+    logger.info(f"[narramessenger:{agent_id}] bearer wait ended after {reads} re-read(s): {ended}")
+    return guide, parsed
+
+
+def _not_revealed_message(flow_status: str) -> str:
+    """User text for a bind session that never released the runtime credential."""
+    where = f" (bind status: {flow_status})" if flow_status else ""
+    return (
+        "NarraMessenger has not released the agent credential yet"
+        f"{where}. If NarraMessenger asks you to confirm the bind, confirm it "
+        "there, then paste the same link again; otherwise generate a new bind "
+        "link under My Agents → Bind Agents."
+    )
+
+
 async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
-    """Drive the Gateway bind from a pasted bind command/link.
+    """Drive the Direct Matrix bind from a pasted bind command/link.
 
     Returns ``{"success": True, "data": {...}}`` or
-    ``{"success": False, "error": <message>}``. See module docstring.
+    ``{"success": False, "error": <message>}``. See module docstring. Every
+    failure is logged with the step it happened at (``_fail``).
     """
+    started = _monotonic()
     token, base_url = _parse_bind_command(bind_command)
     if not token:
-        return {
-            "success": False,
-            "error": "Could not find a bind token in the pasted text. Paste the "
+        return _fail(
+            agent_id, "parse-link",
+            "Could not find a bind token in the pasted text. Paste the "
             "full bind link shown under My Agents → Bind Agents.",
-        }
+        )
     name, bio = await _agent_profile(db, agent_id)
     base = base_url.rstrip("/")
     if not await _is_allowed_target(base):
-        return {
-            "success": False,
-            "error": "The bind link does not point at a public NarraMessenger "
+        return _fail(
+            agent_id, "egress-gate",
+            "The bind link does not point at a public NarraMessenger "
             "host. Re-copy the bind link from My Agents → Bind Agents.",
-        }
+        )
+    guide_url = f"{base}/{token}/setup-guide.md"
 
     try:
         # Cloud pins every dial (the gate above resolved the name separately —
@@ -265,13 +392,13 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             trust_env=not deployment_mode.is_cloud_mode(),
             timeout=aiohttp.ClientTimeout(total=25),
         ) as session:
-            guide = await _get_text(session, f"{base}/{token}/setup-guide.md")
+            guide = await _get_text(session, guide_url)
             if not guide:
-                return {
-                    "success": False,
-                    "error": "Bind token not found or expired (could not fetch the "
+                return _fail(
+                    agent_id, "setup-guide",
+                    "Bind token not found or expired (could not fetch the "
                     "setup guide). Re-copy the bind link from My Agents → Bind Agents.",
-                }
+                )
             parsed = _parse_setup_guide(guide)
 
             # Advance the session if the bearer hasn't been revealed yet.
@@ -283,22 +410,30 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                 )
                 # WRONG_STATE just means we're already past the profile step.
                 if not rp.get("ok") and rp.get("error") not in ("WRONG_STATE", ""):
-                    return {
-                        "success": False,
-                        "error": _step_failure("report-profile", rp),
-                    }
-                guide = await _get_text(session, f"{base}/{token}/setup-guide.md")
-                parsed = _parse_setup_guide(guide)
+                    return _fail(
+                        agent_id, "report-profile",
+                        _step_failure("report-profile", rp),
+                        f"HTTP {rp.get('status')}",
+                    )
+                if not rp.get("ok"):
+                    logger.info(
+                        f"[narramessenger:{agent_id}] report-profile answered "
+                        f"HTTP {rp.get('status')} {rp.get('error') or '(no code)'}; "
+                        "treating the session as past the profile step"
+                    )
+                waited_guide, waited = await _await_bearer(
+                    session, guide_url, started + _REVEAL_DEADLINE_S, agent_id
+                )
+                if waited_guide:
+                    guide, parsed = waited_guide, waited
 
             bearer = parsed.get("bearer", "")
             if not bearer:
-                return {
-                    "success": False,
-                    "error": "Profile reported, but the runtime credential isn't "
-                    "revealed yet — the bind session may still need confirmation on "
-                    "the NarraMessenger side. Confirm it there, then paste the link "
-                    "again.",
-                }
+                return _fail(
+                    agent_id, "reveal-bearer",
+                    _not_revealed_message(parsed.get("flow_status", "")),
+                    _guide_shape(guide),
+                )
 
             # The homeserver is scraped from content the link's host served;
             # gate it BEFORE runtime-ready so a refused bind is never completed
@@ -306,11 +441,11 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             # homeserver is left to the existing downstream handling.
             homeserver_url = parsed.get("homeserver", "")
             if homeserver_url and not await _is_allowed_target(homeserver_url):
-                return {
-                    "success": False,
-                    "error": "The setup guide names a Matrix homeserver that is "
+                return _fail(
+                    agent_id, "homeserver-gate",
+                    "The setup guide names a Matrix homeserver that is "
                     "not a public host; the bind was not completed.",
-                }
+                )
 
             # Direct Matrix bind. This is a bind-token URL (query param
             # ``?token=<bind_token>``), NOT a bearer-auth endpoint —
@@ -330,23 +465,25 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                 {"platform": PLATFORM_TAG},
             )
             if not ready.get("ok"):
-                return {
-                    "success": False,
-                    "error": _step_failure("runtime-ready", ready),
-                }
+                return _fail(
+                    agent_id, "runtime-ready",
+                    _step_failure("runtime-ready", ready),
+                    f"HTTP {ready.get('status')}",
+                )
             rdata = ready.get("data") or {}
     except UnsafeUrlError as e:
-        logger.warning(f"[narramessenger] bind target refused at connect time: {e}")
-        return {
-            "success": False,
-            "error": "The bind link does not point at a public NarraMessenger "
+        return _fail(
+            agent_id, "connect-gate",
+            "The bind link does not point at a public NarraMessenger "
             "host. Re-copy the bind link from My Agents → Bind Agents.",
-        }
-    except aiohttp.ClientError as e:
-        return {
-            "success": False,
-            "error": f"network error reaching NarraMessenger: {type(e).__name__}",
-        }
+            str(e),
+        )
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        return _fail(
+            agent_id, "network",
+            f"network error reaching NarraMessenger: {type(e).__name__}",
+            repr(e)[:200],
+        )
 
     matrix_user_id = rdata.get("matrixUserId") or parsed.get("matrix_user_id", "")
     principal_id = rdata.get("principalId", "") or ""
@@ -362,12 +499,13 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
         # on missing access_token, which the base then treats as a
         # permanent failure and disables the credential — worse UX
         # than telling the owner to retry the bind).
-        return {
-            "success": False,
-            "error": "Matrix access token missing from the setup guide. Re-copy "
+        return _fail(
+            agent_id, "matrix-access-token",
+            "Matrix access token missing from the setup guide. Re-copy "
             "the bind link and try again; if the problem persists, contact the "
             "NarraMessenger team.",
-        }
+            _guide_shape(guide),
+        )
 
     mgr = NarramessengerCredentialManager(db)
     await mgr.upsert(
