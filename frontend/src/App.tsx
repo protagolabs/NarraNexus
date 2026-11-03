@@ -35,6 +35,9 @@ import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary';
 import { useAccountSuspendedSignOut } from '@/hooks/useAccountSuspendedSignOut';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
+// Cloud web only, so its code (and the build watch) stays out of the entry
+// chunk; desktop / local never load it.
+const WebUpdateBanner = lazy(() => import('@/components/WebUpdateBanner'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -491,7 +494,6 @@ function App() {
   return (
     <>
       <MockBanner />
-      <UpdateBanner />
       <ArenaProvisioningModal />
       {accountSuspended && (
         <div
@@ -562,6 +564,15 @@ function App() {
         >
           {t('appBanners.freeTierSwitched')}
         </div>
+      )}
+      {/* Floating update pills share the z-50 layer: mounted after the amber
+          banners so they stay readable over them, and before the routes so
+          full-screen dialogs cover them (see FloatingPill). */}
+      <UpdateBanner />
+      {isForcedCloud() && !isTauri() && (
+        <Suspense fallback={null}>
+          <WebUpdateBanner />
+        </Suspense>
       )}
       <ChunkErrorBoundary>
       <Suspense fallback={<PageFallback />}>

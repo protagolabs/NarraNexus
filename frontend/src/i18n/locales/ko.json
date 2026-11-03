@@ -2606,7 +2606,9 @@
     "resumeAgent": "에이전트 재개",
     "resuming": "재개 중…",
     "dismiss": "닫기",
-    "freeTierSwitched": "무료 할당량을 모두 사용하여 사용자 지정 공급자로 전환되었습니다. 이후 실행은 사용자의 API 키를 사용합니다. (클릭하여 닫기)"
+    "freeTierSwitched": "무료 할당량을 모두 사용하여 사용자 지정 공급자로 전환되었습니다. 이후 실행은 사용자의 API 키를 사용합니다. (클릭하여 닫기)",
+    "newWebVersion": "NarraNexus 새 버전이 있습니다. 새로고침하면 최신 수정 사항이 적용됩니다.",
+    "reloadNow": "새로고침"
   },
   "browser": {
     "notices": {

@@ -2607,7 +2607,9 @@
     "resumeAgent": "Reprendre l'agent",
     "resuming": "Reprise…",
     "dismiss": "Fermer",
-    "freeTierSwitched": "Quota gratuit épuisé — basculé sur votre propre fournisseur. Les nouvelles exécutions utiliseront votre propre clé API. (cliquez pour fermer)"
+    "freeTierSwitched": "Quota gratuit épuisé — basculé sur votre propre fournisseur. Les nouvelles exécutions utiliseront votre propre clé API. (cliquez pour fermer)",
+    "newWebVersion": "Une nouvelle version de NarraNexus est disponible. Rechargez pour obtenir les derniers correctifs.",
+    "reloadNow": "Recharger"
   },
   "browser": {
     "notices": {

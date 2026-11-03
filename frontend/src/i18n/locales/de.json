@@ -2607,7 +2607,9 @@
     "resumeAgent": "Agent fortsetzen",
     "resuming": "Wird fortgesetzt…",
     "dismiss": "Schließen",
-    "freeTierSwitched": "Kostenloses Kontingent aufgebraucht — auf deinen eigenen Anbieter umgestellt. Neue Läufe verwenden deinen eigenen API-Schlüssel. (zum Schließen klicken)"
+    "freeTierSwitched": "Kostenloses Kontingent aufgebraucht — auf deinen eigenen Anbieter umgestellt. Neue Läufe verwenden deinen eigenen API-Schlüssel. (zum Schließen klicken)",
+    "newWebVersion": "Eine neue Version von NarraNexus ist verfügbar. Neu laden, um die neuesten Korrekturen zu erhalten.",
+    "reloadNow": "Neu laden"
   },
   "browser": {
     "notices": {
