@@ -8,7 +8,7 @@
  *
  * Unlike Lark/Slack/Telegram there is no token-typing — the owner copies a
  * one-time bind link from the NarraMessenger app and pastes it; the backend
- * drives the Gateway bind (report-profile → connect) and writes the credential.
+ * drives the Direct Matrix bind (report-profile → claim → runtime-ready) and writes the credential.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -180,7 +180,7 @@ export function NarramessengerConfig({ onBindStateChange }: ChannelConfigProps =
                     <li>Paste it below and click <strong className="text-[var(--text-primary)]">Bind</strong>.</li>
                   </ol>
                   <div className="text-[var(--text-secondary)] pt-1 border-t border-[var(--border-default)] mt-2">
-                    The link contains a one-time token — we use it to bind over Gateway transport and never store it after.
+                    The link contains a one-time token — we use it to bind over Direct Matrix and never store it after.
                   </div>
                 </div>
               )}

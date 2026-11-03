@@ -1,8 +1,16 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-10-16
+last_verified: 2026-11-03
 ---
+
+## 2026-11-03 — `_MATRIX_USER_RE` 已删除：MXID 现在来自 bind claim
+
+[[_narramessenger_service.py]] 不再从 setup guide 里用正则刮凭据（上游 guide 不再打印），
+`_MATRIX_USER_RE` 随之删除。`is_agent_peer` 依赖的 `@agent-<id>:<homeserver>` 拼法不变，
+来源换成 bind 时 `claim-credentials` 返回的 `matrix_user_id`（runtime-ready 的
+`matrixUserId` 优先）。`is_agent_peer` 的 docstring 已改为指向 claim。下面 2026-08-24 /
+2026-08-26 两条里提到的 `_MATRIX_USER_RE` 是当时的事实，按规则原样保留。
 
 ## 2026-10-16（二）— 托管 DM 有三个成员：先认 `ai.netmind.room_creation.v1`，计数时排除精确的 `@hybrid-im-bot`
 

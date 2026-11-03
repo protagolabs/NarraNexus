@@ -1,7 +1,7 @@
 ---
 code_file: frontend/src/components/awareness/NarramessengerConfig.tsx
 stub: false
-last_verified: 2026-09-07
+last_verified: 2026-11-03
 ---
 
 ## 2026-09-07 — import fixed to the registry, not a sibling component (I-8)
@@ -21,7 +21,7 @@ The per-agent NarraMessenger binding card in the right-side IM Channels panel
 - **No token typing — paste a bind link.** Unlike Lark/Slack/Telegram (which
   paste raw tokens), the owner copies a one-time bind command from the
   NarraMessenger app (My Space → My Agents → Bind Agents) and pastes it; the
-  backend `do_bind` drives the Gateway bind and stores the credential. So this
+  backend `do_bind` drives the Direct Matrix bind and stores the credential. So this
   card only needs one text input + Bind, plus Unbind when bound.
 - Bound-state view shows `matrix_user_id` + `connection_mode` + owner, keyed on
   the sanitised `/credential` response (no bearer ever reaches the frontend).
