@@ -393,6 +393,28 @@ async def test_do_bind_surfaces_runtime_ready_failure(
 
     assert result["success"] is False
     assert "runtime-ready failed" in result["error"]
+    assert "within 10 minutes" not in result["error"]  # a 4xx is not a transient failure
+    assert fake_manager.upserts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [502, None])
+async def test_transient_runtime_ready_failure_says_retry_the_same_link(
+    stub_db, fake_manager, guide_scripts, status
+):
+    """The claim is already spent: a transient runtime-ready failure must tell
+    the user that re-pasting the same link recovers, not to make a new one."""
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    failure = {"ok": False, "error": ""}
+    if status is not None:
+        failure["status"] = status
+    guide_scripts["post_responses"] = [_ok(CLAIM), failure]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "runtime-ready failed" in result["error"]
+    assert "same link again within 10 minutes" in result["error"]
     assert fake_manager.upserts == []
 
 

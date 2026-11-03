@@ -116,9 +116,9 @@ _STATUS_DELAYS: Tuple[float, ...] = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
 # the session's 25 s timeout, so a late status followed by slow calls can still
 # exceed 20 s and show the user a timeout for a bind that landed. Neither call is
 # cut short: cancelling runtime-ready mid-request can leave the remote side
-# bound and ours not. A re-paste recovers either way — the guide then says
-# `connected` (or still `waiting_connection`) and the claim is retried inside
-# its 10-minute window.
+# bound and ours not. A re-paste within the claim's 10-minute retry window
+# recovers either way — the guide then says `connected` (or still
+# `waiting_connection`) and the claim is retried.
 _STATUS_DEADLINE_S = 12.0
 # Indirections so tests can run the wait without real sleeps or a real clock.
 _sleep = asyncio.sleep
@@ -492,9 +492,14 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                 {"platform": PLATFORM_TAG},
             )
             if not ready.get("ok"):
+                # The claim is spent by now; a transient failure is recovered by
+                # re-pasting the same link inside the claim's retry window.
+                ready_status = ready.get("status")
+                transient = ready_status is None or ready_status >= 500
                 return _fail(
                     agent_id, "runtime-ready",
-                    _step_failure("runtime-ready", ready),
+                    _step_failure("runtime-ready", ready)
+                    + ("." + _claim_hint(None) if transient else ""),
                     f"HTTP {ready.get('status')}",
                 )
             rdata = ready.get("data") or {}
