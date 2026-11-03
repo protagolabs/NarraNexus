@@ -110,6 +110,24 @@ def test_flow_status_ignores_prose_mentions():
     assert svc._flow_status("The Bind Flow Status is shown below.") == ""
 
 
+def test_flow_status_prefers_the_bind_flow_label_over_an_earlier_bare_status():
+    """Order must not decide: a guide that keeps the `Bind Session` block above
+    the connected banner still reads as waiting_connection."""
+    md = (
+        "## Bind Session\n- **Status**: `profile_reported`\n\n"
+        "> **Bind Flow Status**: `waiting_connection`\n"
+    )
+    assert svc._flow_status(md) == "waiting_connection"
+
+
+def test_flow_status_skips_fenced_examples():
+    md = (
+        "```json\n**Status**: `example_only`\n```\n"
+        "## Bind Session\n- **Status**: `waiting_profile`\n"
+    )
+    assert svc._flow_status(md) == "waiting_profile"
+
+
 def test_parse_claim_requires_every_field():
     assert svc._parse_claim(CLAIM) == CLAIM
     for key in svc._CLAIM_FIELDS:
@@ -324,6 +342,48 @@ async def test_re_paste_after_a_landed_bind_claims_again_without_report_profile(
 
 
 @pytest.mark.asyncio
+async def test_re_paste_whose_runtime_ready_is_refused_says_already_bound(
+    stub_db, fake_manager, guide_scripts
+):
+    """A `connected` link re-claims fine, but a refused second runtime-ready is
+    not success: the room the owner is recognised by comes from its response.
+    The user is told the link already completed a bind; nothing is stored."""
+    guide_scripts["guides"] = [CONNECTED_GUIDE]
+    guide_scripts["post_responses"] = [
+        _ok(CLAIM),
+        {"ok": False, "status": 409, "error": "TOKEN_ALREADY_USED"},
+    ]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "already completed a bind" in result["error"]
+    assert "new bind link" in result["error"]
+    assert fake_manager.upserts == []
+
+
+@pytest.mark.asyncio
+async def test_persist_failure_returns_a_user_message_not_an_exception(
+    stub_db, guide_scripts, monkeypatch, log_lines
+):
+    class _Boom:
+        async def upsert(self, _cred):
+            raise RuntimeError("db down " + SECRET)
+
+    monkeypatch.setattr(svc, "NarramessengerCredentialManager", lambda _db: _Boom())
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok(CLAIM), _ok(READY)]
+
+    result = await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    assert result["success"] is False
+    assert "could not be saved" in result["error"] and "new bind link" in result["error"]
+    joined = "\n".join(log_lines)
+    assert "bind failed at persist: RuntimeError" in joined
+    assert SECRET not in joined
+
+
+@pytest.mark.asyncio
 async def test_re_paste_after_the_claim_window_asks_for_a_new_link(
     stub_db, fake_manager, guide_scripts
 ):
@@ -398,7 +458,7 @@ async def test_do_bind_surfaces_runtime_ready_failure(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", [502, None])
+@pytest.mark.parametrize("status", [500, 502, 503, 429, None])
 async def test_transient_runtime_ready_failure_says_retry_the_same_link(
     stub_db, fake_manager, guide_scripts, status
 ):
@@ -894,7 +954,22 @@ async def test_incomplete_claim_log_names_fields_not_values(
     joined = "\n".join(log_lines)
     assert "bind failed at claim-credentials" in joined
     assert "secret_token" in joined  # names what arrived
+    assert "matrix_access_token" not in joined.split("present=")[-1]
     assert SECRET not in joined and "yGO3BL" not in joined
+
+
+@pytest.mark.asyncio
+async def test_incomplete_claim_log_does_not_count_non_string_values(
+    stub_db, fake_manager, guide_scripts, log_lines
+):
+    guide_scripts["guides"] = [CONNECTION_GUIDE]
+    guide_scripts["post_responses"] = [_ok({**CLAIM, "secret_token": 123})]
+
+    await svc.do_bind(stub_db, agent_id="agent_x", bind_command=LINK)
+
+    present = "\n".join(log_lines).split("present=")[-1]
+    assert "secret_token" not in present
+    assert "matrix_access_token" in present
 
 
 @pytest.mark.asyncio

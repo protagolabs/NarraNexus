@@ -9,8 +9,9 @@ bind token (the public token inside a link like
 ``https://api.netmind.chat/<token>/setup-guide.md``):
 
   1. ``report-profile`` (the agent's name + bio) to advance the bind session.
-  2. Re-fetch the setup-guide until its status reaches ``waiting_connection``
-     (a bounded poll — the guide served right after report-profile can lag).
+  2. Re-fetch the setup-guide until its status is claimable
+     (``waiting_connection``, or ``connected`` on a re-paste; a bounded poll —
+     the guide served right after report-profile can lag).
   3. ``POST /bind-agent/claim-credentials?token=<bind_token>`` — the one-time
      claim that returns the runtime **bearer** (``secret_token``), the
      **Matrix access token**, the Matrix user id and the homeserver URL as
@@ -116,9 +117,10 @@ _STATUS_DELAYS: Tuple[float, ...] = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
 # the session's 25 s timeout, so a late status followed by slow calls can still
 # exceed 20 s and show the user a timeout for a bind that landed. Neither call is
 # cut short: cancelling runtime-ready mid-request can leave the remote side
-# bound and ours not. A re-paste within the claim's 10-minute retry window
-# recovers either way — the guide then says `connected` (or still
-# `waiting_connection`) and the claim is retried.
+# bound and ours not. A re-paste of the same link then finds `connected`; it
+# re-claims inside the 10-minute window, but completes only if NarraMessenger
+# accepts a second runtime-ready (undocumented) — otherwise the user is told
+# to generate a new link.
 _STATUS_DEADLINE_S = 12.0
 # Indirections so tests can run the wait without real sleeps or a real clock.
 _sleep = asyncio.sleep
@@ -168,9 +170,19 @@ async def _agent_profile(db, agent_id: str) -> Tuple[str, str]:
 
 
 def _flow_status(md: str) -> str:
-    """The guide's bind status as a bare identifier, or "" when it shows none."""
-    fm = _FLOW_STATUS_RE.search(md or "")
-    return fm.group(1) if fm else ""
+    """The guide's bind status as a bare identifier, or "" when it shows none.
+
+    Fenced code blocks are skipped (an example could carry a ``**Status**``
+    line), and the specific ``Bind Flow Status`` label wins over a bare
+    ``Status`` wherever each appears, so the result never depends on which
+    block NarraMessenger renders first.
+    """
+    prose = _FENCE_RE.sub("", md or "")
+    matches = list(_FLOW_STATUS_RE.finditer(prose))
+    for m in matches:
+        if m.group(0).startswith("**Bind Flow"):
+            return m.group(1)
+    return matches[0].group(1) if matches else ""
 
 
 def _parse_claim(data: dict) -> Optional[dict[str, str]]:
@@ -346,23 +358,33 @@ def _not_claimable_message(flow_status: str) -> str:
     )
 
 
-def _claim_hint(status: Optional[int]) -> str:
-    """What the user should do after a failed or incomplete claim.
+def _is_transient(status: Optional[int]) -> bool:
+    """Whether a failed bind-step response may succeed if simply repeated.
 
-    A 4xx means NarraMessenger refused this link's claim (already used past
-    its retry window, expired, unknown): only a new link helps. Anything else
-    (5xx, 429, no response, a malformed body) may be transient, and the same
-    link can be claimed again for 10 minutes.
+    No status (no response or a malformed body), 429 and 5xx may pass on
+    their own; any other 4xx is NarraMessenger refusing this link.
     """
-    if status is not None and 400 <= status < 500 and status != 429:
-        return (
-            " The credential for a bind link can be claimed only once. Generate "
-            "a new bind link under My Agents → Bind Agents and paste it here."
-        )
-    return (
-        " Paste the same link again within 10 minutes; after that, generate a "
-        "new bind link under My Agents → Bind Agents."
-    )
+    return status is None or status == 429 or status >= 500
+
+
+# After the claim has been tried: the claim (and its 10-minute retry window)
+# is either still usable or refused for good.
+_RETRY_SAME_LINK_HINT = (
+    " Paste the same link again within 10 minutes; after that, generate a "
+    "new bind link under My Agents → Bind Agents."
+)
+_NEW_LINK_HINT = (
+    " The credential for a bind link can be claimed only once. Generate "
+    "a new bind link under My Agents → Bind Agents and paste it here."
+)
+# runtime-ready refused a link whose guide already said `connected`: the bind
+# completed earlier. Whether a second runtime-ready is accepted is not
+# documented upstream, so this is not treated as success (its response is
+# what carries the bind room the owner is recognised by).
+_ALREADY_BOUND_HINT = (
+    " This bind link has already completed a bind. Generate a new bind link "
+    "under My Agents → Bind Agents and paste it here."
+)
 
 
 async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
@@ -451,15 +473,20 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             if not claim.get("ok"):
                 return _fail(
                     agent_id, "claim-credentials",
-                    _step_failure("claim-credentials", claim) + "." + _claim_hint(claim.get("status")),
+                    _step_failure("claim-credentials", claim) + "."
+                    + (_RETRY_SAME_LINK_HINT if _is_transient(claim.get("status")) else _NEW_LINK_HINT),
                     f"HTTP {claim.get('status')} flow_status={status}",
                 )
-            creds = _parse_claim(claim.get("data") or {})
+            claim_data = claim.get("data") or {}
+            creds = _parse_claim(claim_data)
             if creds is None:
-                present = sorted(k for k in _CLAIM_FIELDS if (claim.get("data") or {}).get(k))
+                present = sorted(
+                    k for k in _CLAIM_FIELDS
+                    if isinstance(claim_data.get(k), str) and claim_data[k].strip()
+                )
                 return _fail(
                     agent_id, "claim-credentials",
-                    "NarraMessenger returned an incomplete agent credential." + _claim_hint(None),
+                    "NarraMessenger returned an incomplete agent credential." + _RETRY_SAME_LINK_HINT,
                     f"fields present={present}",
                 )
 
@@ -495,11 +522,15 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                 # The claim is spent by now; a transient failure is recovered by
                 # re-pasting the same link inside the claim's retry window.
                 ready_status = ready.get("status")
-                transient = ready_status is None or ready_status >= 500
+                if _is_transient(ready_status):
+                    hint = _RETRY_SAME_LINK_HINT
+                elif status == "connected":
+                    hint = _ALREADY_BOUND_HINT
+                else:
+                    hint = ""
                 return _fail(
                     agent_id, "runtime-ready",
-                    _step_failure("runtime-ready", ready)
-                    + ("." + _claim_hint(None) if transient else ""),
+                    _step_failure("runtime-ready", ready) + ("." + hint if hint else ""),
                     f"HTTP {ready.get('status')}",
                 )
             rdata = ready.get("data") or {}
@@ -524,21 +555,31 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
     bind_room_id = rdata.get("roomId", "") or ""
 
     mgr = NarramessengerCredentialManager(db)
-    await mgr.upsert(
-        NarramessengerCredential(
-            agent_id=agent_id,
-            bearer_token=creds["secret_token"],
-            backend_base_url=base,
-            matrix_homeserver_url=homeserver,
-            matrix_user_id=matrix_user_id,
-            matrix_access_token=creds["matrix_access_token"],
-            nexus_principal_id=principal_id,
-            nexus_profile_id=rdata.get("profileId", "") or "",
-            bind_room_id=bind_room_id,
-            connection_mode="matrix",
-            enabled=True,
-        )
+    credential = NarramessengerCredential(
+        agent_id=agent_id,
+        bearer_token=creds["secret_token"],
+        backend_base_url=base,
+        matrix_homeserver_url=homeserver,
+        matrix_user_id=matrix_user_id,
+        matrix_access_token=creds["matrix_access_token"],
+        nexus_principal_id=principal_id,
+        nexus_profile_id=rdata.get("profileId", "") or "",
+        bind_room_id=bind_room_id,
+        connection_mode="matrix",
+        enabled=True,
     )
+    try:
+        await mgr.upsert(credential)
+    except Exception as e:  # noqa: BLE001 — persistence only; the remote bind already completed
+        # The claim is spent and the remote side is bound. Re-pasting this link
+        # would depend on a second runtime-ready being accepted (undocumented),
+        # so the user is sent to a fresh link, which always works.
+        return _fail(
+            agent_id, "persist",
+            "The bind completed on NarraMessenger but could not be saved here."
+            + _ALREADY_BOUND_HINT,
+            type(e).__name__,
+        )
     logger.info(
         f"[narramessenger:{agent_id}] bound via Direct Matrix "
         f"(matrix_user_id={matrix_user_id}, principal={principal_id}, "

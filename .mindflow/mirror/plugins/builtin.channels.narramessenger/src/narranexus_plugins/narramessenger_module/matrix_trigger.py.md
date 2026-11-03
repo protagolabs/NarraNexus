@@ -4,6 +4,14 @@ stub: false
 last_verified: 2026-11-03
 ---
 
+## 2026-11-03 — `_MATRIX_USER_RE` 已删除：MXID 现在来自 bind claim
+
+[[_narramessenger_service.py]] 不再从 setup guide 里用正则刮凭据（上游 guide 不再打印），
+`_MATRIX_USER_RE` 随之删除。`is_agent_peer` 依赖的 `@agent-<id>:<homeserver>` 拼法不变，
+来源换成 bind 时 `claim-credentials` 返回的 `matrix_user_id`（runtime-ready 的
+`matrixUserId` 优先）。`is_agent_peer` 的 docstring 已改为指向 claim。下面 2026-08-24 /
+2026-08-26 两条里提到的 `_MATRIX_USER_RE` 是当时的事实，按规则原样保留。
+
 ## 2026-10-16（二）— 托管 DM 有三个成员：先认 `ai.netmind.room_creation.v1`，计数时排除精确的 `@hybrid-im-bot`
 
 **现象（#415 上 prod 后）**：4/4 条消息（含 owner 房间）都是 `CLASSIFY target=group_silent`，agent 谁都不回。
@@ -239,8 +247,8 @@ atomic 路径走基类方法，闸门随之生效（拒绝文案不由 atomic �
 
 ## 2026-08-26 — `is_agent_peer` 覆写：从 MXID 读出来
 
-平台把 agent 身份铸成 `@agent-<id>:<homeserver>`（bind 时由
-[[_narramessenger_service.py]] 的 claim 返回的 `matrix_user_id`），所以在这个渠道
+平台把 agent 身份铸成 `@agent-<id>:<homeserver>`（见
+[[_narramessenger_service.py]] 的 `_MATRIX_USER_RE`），所以在这个渠道
 「对面是不是机器」是**前缀判断**而不是猜测。新增模块级常量
 `AGENT_MXID_PREFIX` 承载这个拼法。
 
@@ -250,8 +258,8 @@ atomic 路径走基类方法，闸门随之生效（拒绝文案不由 atomic �
 ## 2026-08-24 — `is_agent_peer` + silent 分支补熔断
 
 **`is_agent_peer` 覆写**：平台把 agent 身份铸成
-`@agent-<id>:<homeserver>`（bind 时由 [[_narramessenger_service.py]] 的
-claim 返回的 `matrix_user_id`），所以「对面是不是机器」在这个渠道是前缀判断而不是猜测。
+`@agent-<id>:<homeserver>`（见 [[_narramessenger_service.py]] 的
+`_MATRIX_USER_RE`），所以「对面是不是机器」在这个渠道是前缀判断而不是猜测。
 新增模块级常量 `AGENT_MXID_PREFIX` 承载这个拼法。
 
 这是最需要它的渠道：8/14 那 70 小时的乒乓就是两个 agent 在
