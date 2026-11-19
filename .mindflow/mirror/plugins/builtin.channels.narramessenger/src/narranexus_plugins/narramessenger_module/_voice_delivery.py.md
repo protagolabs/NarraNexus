@@ -1,8 +1,15 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_voice_delivery.py
 stub: false
-last_verified: 2026-08-13
+last_verified: 2026-11-19
 ---
+
+## 2026-11-19 — `base_event_id` + `replacement_content`：一轮只有一条可见回复
+
+语音契约 v15：一轮已有一条可见回复后，再发**新**消息会被 Narra 判 `visible_event_already_bound`。bridge 本身一直是
+「一条 base + 若干 edit」，漏的是 trigger 的兜底——最终 edit 失败时它会再发一条新消息。现在 bridge 暴露
+`base_event_id`，trigger 的兜底据此改为编辑同一条。`replacement_content` 是从 `_emit` 里抽出来的 `m.replace`
+content 构造，bridge 和 trigger 的 plain sender 共用同一份，避免两处各拼一遍走样。
 
 ## 2026-08-13 — 连续同文段去重（exact-equality only）
 

@@ -61,8 +61,22 @@ def _is_strict_int(value: Any, expected: int) -> bool:
     return type(value) is int and value == expected
 
 
+# Longest correlation id accepted anywhere in the voice contract. The ids are
+# opaque strings chosen by the far side (UUIDs today, 36 chars) and end up in
+# registries, audit rows and logs, so an unbounded one is a memory and log
+# amplifier. Over-long ids are REJECTED, never truncated: claim keys and ack
+# transaction ids are hashes of them, and truncation would make two different
+# turns collide.
+MAX_RTC_ID_LEN = 128
+
+
 def _non_blank_str(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def is_rtc_id(value: Any) -> bool:
+    """True for a usable correlation id: a non-blank string within the cap."""
+    return _non_blank_str(value) and len(value) <= MAX_RTC_ID_LEN
 
 
 def _voice_metadata(event: Any) -> Optional[dict]:
@@ -94,7 +108,7 @@ def parse_rtc_voice_input(event: Any) -> Optional[RtcVoiceInputV1]:
         return None
     if meta.get("transcript_final") is not True:
         return None
-    if not all(_non_blank_str(meta.get(field)) for field in _BINDING_ID_FIELDS):
+    if not all(is_rtc_id(meta.get(field)) for field in _BINDING_ID_FIELDS):
         return None
 
     instructions = meta.get("voice_instructions")
@@ -186,7 +200,7 @@ def voice_reply_binding(rtc_voice: Any) -> Optional[dict]:
         return None
     session_id = rtc_voice.get("rtc_session_id")
     turn_id = rtc_voice.get("turn_id")
-    if not (_non_blank_str(session_id) and _non_blank_str(turn_id)):
+    if not (is_rtc_id(session_id) and is_rtc_id(turn_id)):
         return None
     return {"rtc_session_id": session_id, "turn_id": turn_id}
 
