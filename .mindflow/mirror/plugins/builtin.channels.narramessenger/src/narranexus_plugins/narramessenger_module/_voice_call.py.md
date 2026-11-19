@@ -57,7 +57,10 @@ Narra 语音契约 v15 的**控制面**在 Nexus 侧的纯逻辑层：哪些 Mat
 - **大小都有界。** 当前通话数 ≤ 房间数；每房间退役列表 ≤ 32（远多于一个房间在 5 分钟「旧事件仍被接受」窗口内
   能打完的通话数，所以退役 session 不会在它的事件还可能到达时被挤出列表）；每通电话的 `cancelled_turns` ≤ 1024
   （满了 `mark_cancelled` 返回 False，trigger 丢弃该事件）；当前通话 7200 秒后被忘掉（Narra 端通话记录的最长寿命）。
-- **`VoiceRateLimiter`：按 (agent, room) 的滑动窗口。** 控制事件不走基类的 ingress breaker 和有界 worker 池，
+- **`VoiceRateLimiter`：按 (agent, scope) 的滑动窗口。** scope 通常是房间 id；trigger 里「每个 agent 每分钟一行」的
+  审计节流把原因名当 scope 传，让每种原因各有自己的窗口。每 256 次 `check` 清一遍状态已完全过期的 key，
+  所以表里只留最近活跃的房间，而不是进程见过的所有房间；拒绝时间戳要等自己也过了窗口才清，
+  否则一场还在持续的洪泛会被重新报成「第一次被拒」。 控制事件不走基类的 ingress breaker 和有界 worker 池，
   得自带限速。trigger 用两个实例：房间内**所有**控制事件（默认 120/分钟），以及**未知 session 的准入**
   （默认 6/分钟——每次准入要查房间形状 + 调一次 Narra `authorize-event`）。`check()` 区分「本窗口第一次被拒」
   和「之后的被拒」，让 trigger 对一场洪泛只写一行审计，而不是每个事件一行。阈值远高于一通正常电话的量

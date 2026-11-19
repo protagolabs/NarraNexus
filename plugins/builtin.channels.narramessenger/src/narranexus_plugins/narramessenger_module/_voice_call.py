@@ -351,7 +351,10 @@ class VoiceCallRegistry:
 
 
 class VoiceRateLimiter:
-    """Sliding-window cap per ``(agent_id, room_id)``.
+    """Sliding-window cap per ``(agent_id, scope)``.
+
+    ``scope`` is usually a room id; the per-agent audit throttles pass a
+    reason name instead, so each reason has its own window.
 
     Control events run outside the base pipeline's ingress breaker and its
     bounded worker pool, so they bring their own limits. Two instances are
@@ -380,21 +383,50 @@ class VoiceRateLimiter:
         self._clock = clock
         self._seen: dict[tuple[str, str], deque] = {}
         self._denied_at: dict[tuple[str, str], float] = {}
+        self._checks_since_sweep = 0
 
-    def check(self, agent_id: str, room_id: str) -> str:
+    # Every this many checks, keys whose state has fully aged out are
+    # collected, so the maps hold rooms active recently rather than every
+    # room the process has ever seen.
+    SWEEP_EVERY = 256
+
+    def check(self, agent_id: str, scope: str) -> str:
         now = self._clock()
-        key = (agent_id, room_id)
-        stamps = self._seen.setdefault(key, deque())
-        while stamps and stamps[0] <= now - self._window:
-            stamps.popleft()
+        cutoff = now - self._window
+        key = (agent_id, scope)
+        self._checks_since_sweep += 1
+        if self._checks_since_sweep >= self.SWEEP_EVERY:
+            self._checks_since_sweep = 0
+            self.sweep()
+        # The denial stamp is removed only once it is past the window:
+        # forgetting it sooner would report the same flood as a "first
+        # denial" again.
+        denied_at = self._denied_at.get(key)
+        if denied_at is not None and denied_at <= cutoff:
+            del self._denied_at[key]
+            denied_at = None
+        stamps = self._seen.get(key)
+        if stamps is not None:
+            while stamps and stamps[0] <= cutoff:
+                stamps.popleft()
+        if not stamps:
+            stamps = self._seen[key] = deque()
         if len(stamps) < self._limit:
             stamps.append(now)
             return self.OK
-        last = self._denied_at.get(key)
-        if last is None or last <= now - self._window:
+        if denied_at is None:
             self._denied_at[key] = now
             return self.DENIED_FIRST
         return self.DENIED
 
-    def allow(self, agent_id: str, room_id: str) -> bool:
-        return self.check(agent_id, room_id) == self.OK
+    def allow(self, agent_id: str, scope: str) -> bool:
+        return self.check(agent_id, scope) == self.OK
+
+    def sweep(self) -> None:
+        """Drop every key whose state has fully aged out (a room that went
+        quiet for good). Run by ``check`` every ``SWEEP_EVERY`` calls."""
+        cutoff = self._clock() - self._window
+        for key in [k for k, v in self._seen.items() if not v or v[-1] <= cutoff]:
+            del self._seen[key]
+        for key in [k for k, v in self._denied_at.items() if v <= cutoff]:
+            del self._denied_at[key]

@@ -2123,6 +2123,17 @@ class MatrixTrigger(ChannelTriggerBase):
     # Audit rows for dropped control events, per room per minute. Drops
     # past this are logged at debug only.
     VOICE_CONTROL_DROP_AUDITS_PER_MINUTE = 10
+    # Width of channel_trigger_audit.sender_id on MySQL (VARCHAR(128)). A
+    # longer value fails the insert there and the whole row is lost, so the
+    # sender written to an audit row is clipped to the column, not to the
+    # Matrix user-id limit (255).
+    VOICE_AUDIT_SENDER_MAX = 128
+    # Drop reasons that already come one-per-window from their own limiter.
+    # They bypass the per-room drop budget: that budget may be spent by the
+    # very flood these rows exist to report.
+    _VOICE_SELF_WINDOWED_DROPS = frozenset(
+        {"room_rate_limited", "new_session_rate_limited", "handler_cap", "live_voice_disabled"}
+    )
 
     @staticmethod
     def _is_voice_control_event(event: Any) -> bool:
@@ -2250,7 +2261,9 @@ class MatrixTrigger(ChannelTriggerBase):
         drop-audit budget. ``kind`` and ``sender`` come from the event and
         are clipped: a malformed event's type is whatever the sender wrote."""
         kind = kind[:80]
-        if not self._voice_drop_audits.allow(credential.agent_id, room_id):
+        if reason not in self._VOICE_SELF_WINDOWED_DROPS and not (
+            self._voice_drop_audits.allow(credential.agent_id, room_id)
+        ):
             logger.debug(
                 f"[matrix:{credential.agent_id}] voice control DROP: {kind} — "
                 f"{reason} (room={room_id}; audit budget spent)"
@@ -2265,7 +2278,7 @@ class MatrixTrigger(ChannelTriggerBase):
             agent_id=credential.agent_id,
             app_id=getattr(credential, "app_id", ""),
             chat_id=room_id,
-            sender_id=sender[:255],
+            sender_id=sender[: self.VOICE_AUDIT_SENDER_MAX],
             details={"kind": kind, "reason": reason, **extra},
         )
 
@@ -2310,14 +2323,13 @@ class MatrixTrigger(ChannelTriggerBase):
             if verdict == VoiceRateLimiter.DENIED_FIRST:
                 await _drop(reason)
 
-        # First gate: the room's event budget. It needs nothing from the
-        # payload, so every later gate — including the ones that reject a
-        # malformed or foreign event — sits behind it.
-        verdict = self._voice_events.check(agent_id, room_id)
-        if verdict != VoiceRateLimiter.OK:
-            await _drop_limited(verdict, "room_rate_limited")
-            return
-
+        # Gate order. The three cheap rejections come BEFORE the room's
+        # event budget: events that were never going to be honoured must not
+        # spend the budget of the call in progress — after a long disconnect
+        # the replayed backlog (all stale) would otherwise use it up and the
+        # live call's call.started would be dropped as rate-limited. Their
+        # audit volume does not need the budget: every drop is bounded by
+        # the per-room drop-audit budget in _audit_voice_control_drop.
         if ctl is None:
             await _drop("malformed")
             return
@@ -2334,6 +2346,11 @@ class MatrixTrigger(ChannelTriggerBase):
             # clock skew between the homeserver and this host, not at a
             # genuinely old event.
             await _drop("stale", age_ms=age_ms)
+            return
+
+        verdict = self._voice_events.check(agent_id, room_id)
+        if verdict != VoiceRateLimiter.OK:
+            await _drop_limited(verdict, "room_rate_limited")
             return
 
         if not self.STREAMING_ENABLED:
@@ -2403,7 +2420,7 @@ class MatrixTrigger(ChannelTriggerBase):
             agent_id=agent_id,
             app_id=getattr(credential, "app_id", ""),
             chat_id=room_id,
-            sender_id=sender,
+            sender_id=sender[: self.VOICE_AUDIT_SENDER_MAX],
             details={
                 "kind": ctl.kind,
                 "rtc_session_id": ctl.rtc_session_id,
@@ -2557,18 +2574,23 @@ class MatrixTrigger(ChannelTriggerBase):
                 # The durable layer is down and the claim was let through
                 # (failing closed would mute every call for the length of a
                 # DB blip). The at-most-once guarantee does not hold for
-                # this turn; leave a row that says so.
-                await self._audit(
-                    EVENT_DEDUP_FAIL_OPEN,
-                    message_id=message.message_id,
-                    agent_id=agent_id,
-                    app_id=getattr(credential, "app_id", ""),
-                    chat_id=message.chat_id,
-                    details={
-                        "error": decision.get("error", ""),
-                        "context": "voice_turn_claim",
-                        "turn_id": turn_id,
-                    },
+                # this turn; leave a row that says so. Written off this
+                # path: the DB that just failed would stall the caller's
+                # first audio for another timeout.
+                self._spawn_voice_task(
+                    self._audit(
+                        EVENT_DEDUP_FAIL_OPEN,
+                        message_id=message.message_id,
+                        agent_id=agent_id,
+                        app_id=getattr(credential, "app_id", ""),
+                        chat_id=message.chat_id,
+                        details={
+                            "error": decision.get("error", ""),
+                            "context": "voice_turn_claim",
+                            "turn_id": turn_id,
+                        },
+                    ),
+                    label="audit:claim_fail_open",
                 )
             if not decision["accept"]:
                 logger.info(

@@ -355,6 +355,31 @@ def test_rate_limiter_is_a_sliding_window_and_flags_the_first_denial():
     assert lim.check("a1", ROOM) == lim.DENIED_FIRST
 
 
+def test_rate_limiter_forgets_rooms_that_went_quiet():
+    now = [0.0]
+    lim = VoiceRateLimiter(limit=1, window_seconds=10, clock=lambda: now[0])
+    lim.SWEEP_EVERY = 4
+    for i in range(3):
+        lim.check("a1", f"room{i}")
+        lim.check("a1", f"room{i}")  # denied: leaves a denial stamp too
+    assert len(lim._seen) == 3 and len(lim._denied_at) == 3
+    now[0] = 30.0
+    for _ in range(4):
+        lim.check("a1", "busy")
+    assert set(lim._seen) == {("a1", "busy")} and set(lim._denied_at) <= {("a1", "busy")}
+
+
+def test_rate_limiter_keeps_the_denial_stamp_inside_its_window():
+    """Cleaning up must not make an ongoing flood look like a new one."""
+    now = [0.0]
+    lim = VoiceRateLimiter(limit=1, window_seconds=10, clock=lambda: now[0])
+    lim.SWEEP_EVERY = 1
+    assert lim.check("a1", ROOM) == lim.OK
+    assert lim.check("a1", ROOM) == lim.DENIED_FIRST
+    now[0] = 5.0
+    assert lim.check("a1", ROOM) == lim.DENIED
+
+
 class _FakeResp:
     def __init__(self, status: int, json_data: dict):
         self.status = status
@@ -575,13 +600,56 @@ async def test_over_long_ids_never_reach_the_registry_or_the_audit_row(h):
 
 
 @pytest.mark.asyncio
-async def test_room_budget_is_the_first_gate_even_for_garbage(h):
-    """A flood of malformed / foreign events must hit the room budget, not
-    slip past it by being rejected earlier."""
+async def test_replayed_backlog_does_not_spend_the_live_calls_budget(h):
+    """After a long disconnect the room's backlog of control events is
+    replayed at once — all stale. Those, and malformed / foreign events,
+    must be rejected BEFORE the room's event budget, or the call in progress
+    would find its call.started rate-limited."""
     h.t._voice_events = VoiceRateLimiter(limit=2)
-    for _ in range(6):
-        await h.control(_event(T_TURN_CANCELLED, {"rtc_session_id": SESSION}))
-    assert h.drop_reasons() == ["malformed", "malformed", "room_rate_limited"]
+    old = int(time.time() * 1000) - h.t.VOICE_CONTROL_MAX_AGE_MS - 1000
+    for i in range(20):
+        await h.control(
+            _event(T_TURN_HINT, {"rtc_session_id": f"old{i}", "turn_id": TURN}, ts_ms=old)
+        )
+    for _ in range(20):
+        await h.control(_event(T_TURN_CANCELLED, {"rtc_session_id": SESSION}))  # malformed
+        await h.control(_event(T_CALL_STARTED, sender=AGENT))  # not the caller
+
+    await h.control(_event(T_CALL_STARTED))  # the live call
+
+    assert [a["content"]["ack_of"] for a in h.acks] == ["call.started"] and h.known()
+    assert "room_rate_limited" not in h.drop_reasons()
+    # The garbage is still bounded where it matters: audit rows.
+    assert len(h.drop_reasons()) == h.t.VOICE_CONTROL_DROP_AUDITS_PER_MINUTE
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_rows_survive_a_spent_drop_budget(h):
+    """A flood first uses up the room's drop-audit budget; the one row that
+    says "this room is now rate limited" must still be written."""
+    h.t._voice_events = VoiceRateLimiter(limit=1)
+    h.t._voice_drop_audits = VoiceRateLimiter(limit=2)
+    for _ in range(5):
+        await h.control(_event(T_CALL_STARTED, sender=AGENT))
+    assert h.drop_reasons() == ["non_caller_sender"] * 2  # budget spent
+
+    await h.control(_event(T_CALL_STARTED))
+    for i in range(4):
+        await h.control(_event(T_TURN_HINT, {"rtc_session_id": SESSION, "turn_id": f"t{i}"}))
+    assert h.drop_reasons()[2:] == ["room_rate_limited"]
+
+
+@pytest.mark.asyncio
+async def test_audit_rows_fit_the_sender_column(h):
+    """channel_trigger_audit.sender_id is VARCHAR(128) on MySQL: a longer
+    value loses the whole row there (SQLite would never show it)."""
+    long_sender = "@" + "s" * 300 + ":matrix.netmind.chat"
+    await h.control(_event(T_CALL_STARTED, sender=long_sender))  # handled
+    await h.control(
+        _event(T_TURN_CANCELLED, {"rtc_session_id": SESSION}, sender=long_sender)
+    )  # dropped (malformed)
+    assert h.audit_types() == [EVENT_VOICE_CONTROL_HANDLED, EVENT_VOICE_CONTROL_DROPPED]
+    assert all(len(kw["sender_id"]) <= 128 for _, kw in h.audits)
 
 
 @pytest.mark.asyncio
@@ -599,7 +667,7 @@ async def test_drop_audits_are_budgeted_per_room(h):
 async def test_malformed_event_type_is_clipped_in_the_audit_row(h):
     await h.t._audit_voice_control_drop(_cred(), ROOM, "@s:h" * 200, "k" * 500, "malformed")
     _, kw = h.audits[-1]
-    assert len(kw["details"]["kind"]) == 80 and len(kw["sender_id"]) == 255
+    assert len(kw["details"]["kind"]) == 80 and len(kw["sender_id"]) == 128
 
 
 @pytest.mark.asyncio
@@ -1015,7 +1083,19 @@ async def test_claim_db_fail_open_runs_the_turn_and_is_audited(h):
     h.t._dedup_store.classify = AsyncMock(
         return_value={"accept": True, "layer": "db_fail_open", "error": "db down"}
     )
-    assert await h.t._claim_voice_turn(_cred(), _voice_msg()) is True
+    audit_gate = asyncio.Event()
+    real_audit = h.t._audit
+
+    async def _slow_audit(event_type, **kw):
+        await audit_gate.wait()
+        await real_audit(event_type, **kw)
+
+    h.t._audit = _slow_audit
+    # The claim returns without waiting for the (failing) DB a second time.
+    assert await asyncio.wait_for(h.t._claim_voice_turn(_cred(), _voice_msg()), 1) is True
+    assert h.audits == []
+    audit_gate.set()
+    await h.settle()
     assert [
         kw["details"] for event_type, kw in h.audits if event_type == EVENT_DEDUP_FAIL_OPEN
     ] == [{"error": "db down", "context": "voice_turn_claim", "turn_id": TURN}]
