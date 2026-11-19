@@ -156,6 +156,25 @@ def split_narra_system_prompt(body: str) -> Tuple[Optional[str], str]:
     return match.group(1).strip(), body[match.end():]
 
 
+def is_leaf_tool(tool_name: Any, leaf: str) -> bool:
+    """True when ``tool_name`` is exactly ``leaf``, bare or MCP-qualified.
+
+    Fully-qualified tool names end in ``__<name>``. Matching the exact leaf
+    (never a substring) keeps a sibling such as ``narra_reply_draft`` or an
+    unrelated ``loudspeaker`` from being claimed.
+
+    The single definition of this rule for the channel's reply tools: the
+    trigger (which DELIVERS ``speak`` / ``narra_reply`` text) and the reply
+    extractor (which tells the runtime the turn was ANSWERED) must agree on
+    what counts as those tools. If they drift, a delivered reply reads as
+    unanswered (the DM fallback double-sends) or an undelivered one reads
+    as answered (a silent turn).
+    """
+    return isinstance(tool_name, str) and (
+        tool_name == leaf or tool_name.endswith(f"__{leaf}")
+    )
+
+
 def voice_reply_binding(rtc_voice: Any) -> Optional[dict]:
     """The v15 reply binding for a voice turn, or None when it has none.
 
@@ -178,9 +197,10 @@ def with_voice_reply_binding(content: dict, binding: Optional[dict]) -> dict:
     An ``m.replace`` edit must carry the same binding on the outer content
     AND on ``m.new_content`` — Narra rejects an edit missing either level
     (``invalid_reply_binding``). ``binding=None`` returns ``content`` as is,
-    so text turns stay byte-identical.
+    so text turns stay byte-identical; so does anything that is not a
+    dict (the binding crosses the turn envelope, which may be serialized).
     """
-    if not binding:
+    if not isinstance(binding, dict) or not binding:
         return content
     stamped = {**content, RTC_VOICE_REPLY_KEY: dict(binding)}
     new_content = content.get("m.new_content")

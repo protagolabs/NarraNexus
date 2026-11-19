@@ -118,6 +118,7 @@ from ._narramessenger_credential_manager import (
 )
 from ._rtc_voice import (
     extract_common_voice_instructions,
+    is_leaf_tool,
     parse_rtc_voice_input,
     split_narra_system_prompt,
     voice_reply_binding,
@@ -177,9 +178,7 @@ def _is_voice_reply_tool(tool_name: str) -> bool:
     mirroring the managed-ingress filter: a future ``narra_reply_*``
     sibling is never collaterally claimed.
     """
-    return tool_name in ("speak", "narra_reply") or tool_name.endswith(
-        ("__speak", "__narra_reply")
-    )
+    return is_leaf_tool(tool_name, "speak") or is_leaf_tool(tool_name, "narra_reply")
 
 
 def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
@@ -1637,8 +1636,15 @@ class MatrixTrigger(ChannelTriggerBase):
         credential: NarramessengerCredential,
         room_id: str,
         text: str,
+        *,
+        voice_reply: Optional[dict] = None,
     ) -> None:
         """Send Narra's server-suggested denial notice as ``m.notice``.
+
+        ``voice_reply`` is the v15 reply binding when the denied event is a
+        voice turn: the notice is then that turn's reply (same as a
+        circuit-breaker refusal) and must be bound, or an acked call hears
+        nothing until Narra's turn timeout.
 
         Per guide: this is the ONLY allowed side effect for a denied
         event. Do NOT read history, write memory, invoke tools, call
@@ -1660,7 +1666,9 @@ class MatrixTrigger(ChannelTriggerBase):
             resp = await client.room_send(
                 room_id=room_id,
                 message_type="m.room.message",
-                content={"msgtype": "m.notice", "body": text},
+                content=with_voice_reply_binding(
+                    {"msgtype": "m.notice", "body": text}, voice_reply
+                ),
             )
             if not isinstance(resp, RoomSendResponse):
                 code = str(getattr(resp, "status_code", "unknown") or "unknown")
@@ -1982,7 +1990,12 @@ class MatrixTrigger(ChannelTriggerBase):
                     f"notice={verdict.notice_text[:80]!r})"
                 )
                 await self._send_matrix_notice(
-                    credential, message.chat_id, verdict.notice_text
+                    credential,
+                    message.chat_id,
+                    verdict.notice_text,
+                    voice_reply=voice_reply_binding(
+                        (message.raw or {}).get("rtc_voice")
+                    ),
                 )
             else:
                 logger.info(
@@ -2298,8 +2311,7 @@ class MatrixTrigger(ChannelTriggerBase):
         if rtc_voice:
             extra_data["rtc_voice"] = rtc_voice
 
-        state = _StreamReplyState()
-        state.voice_reply = voice_reply_binding(rtc_voice)
+        state = _StreamReplyState(voice_reply=voice_reply_binding(rtc_voice))
 
         if rtc_voice:
             # The bridge owns the live m.text / m.replace lifecycle for
@@ -2545,10 +2557,8 @@ class MatrixTrigger(ChannelTriggerBase):
         if not (isinstance(text, str) and text.strip()):
             return
 
-        is_speak = tool_name == "speak" or tool_name.endswith("__speak")
-        is_narra_reply = (
-            tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
-        )
+        is_speak = is_leaf_tool(tool_name, "speak")
+        is_narra_reply = is_leaf_tool(tool_name, "narra_reply")
 
         if state.voice_bridge is not None and _is_voice_reply_tool(tool_name):
             # Every completed reply text enters the bridge — the claim
@@ -2701,10 +2711,8 @@ class MatrixTrigger(ChannelTriggerBase):
             if not isinstance(item, dict) or item.get("type") != "tool_call_item":
                 continue
             tool_name = str(item.get("tool_name") or "")
-            is_reply = (
-                tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
-            )
-            is_speak = tool_name == "speak" or tool_name.endswith("__speak")
+            is_reply = is_leaf_tool(tool_name, "narra_reply")
+            is_speak = is_leaf_tool(tool_name, "speak")
             if not (is_reply or is_speak):
                 continue
             args = item.get("arguments") or {}

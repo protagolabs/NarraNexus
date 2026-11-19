@@ -32,6 +32,7 @@ from narranexus_plugins.narramessenger_module._narramessenger_credential_manager
 )
 from narranexus_plugins.narramessenger_module._rtc_voice import (
     RTC_VOICE_REPLY_KEY,
+    is_leaf_tool,
     voice_reply_binding,
     with_voice_reply_binding,
 )
@@ -116,6 +117,51 @@ def test_with_binding_stamps_both_levels_without_mutating_input():
 def test_with_binding_none_is_identity():
     content = {"msgtype": "m.text", "body": "hi"}
     assert with_voice_reply_binding(content, None) == content
+
+
+@pytest.mark.parametrize("not_a_binding", ["S:T", ["S", "T"], 7, {}, ""])
+def test_with_binding_ignores_anything_that_is_not_a_binding_dict(not_a_binding):
+    """The binding crosses the turn envelope; a mangled value must leave the
+    reply deliverable rather than raise in the fallback sender."""
+    content = {"msgtype": "m.text", "body": "hi"}
+    assert with_voice_reply_binding(content, not_a_binding) == content
+
+
+@pytest.mark.parametrize(
+    "tool_name,expected",
+    [
+        ("speak", True),
+        ("mcp__narramessenger_module__speak", True),
+        ("mcp__other__loudspeaker", False),
+        ("speak_draft", False),
+        ("mcp__x__speak__draft", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_is_leaf_tool_matches_the_exact_leaf_only(tool_name, expected):
+    assert is_leaf_tool(tool_name, "speak") is expected
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "speak",
+        "mcp__narramessenger_module__speak",
+        "narra_reply",
+        "mcp__narramessenger_module__narra_reply",
+        "mcp__other__loudspeaker",
+        "speak_draft",
+        "mcp__chat_module__get_chat_history",
+    ],
+)
+def test_trigger_delivery_and_reply_extractor_agree_on_reply_tools(tool_name):
+    """What the trigger delivers and what the runtime counts as an answer
+    must be the same set: a tool delivered but not counted double-sends via
+    the DM fallback; one counted but not delivered is a silent turn."""
+    delivered = mt_mod._is_voice_reply_tool(tool_name)
+    counted = mod_mod._extract_narramessenger_reply(tool_name, {"text": "hi"}) is not None
+    assert delivered == counted
 
 
 # ── streaming path end to end ───────────────────────────────────────────
@@ -405,6 +451,58 @@ async def test_circuit_refusal_on_voice_turn_carries_binding():
 
     await t._send_circuit_refusal(_cred(), _msg({}), "busy")
     assert RTC_VOICE_REPLY_KEY not in client.room_send.await_args.kwargs["content"]
+
+
+# ── authorize-event denial notice ───────────────────────────────────────
+@pytest.mark.asyncio
+async def test_denial_notice_carries_binding_when_given():
+    t, client = _trigger_with_client()
+
+    await t._send_matrix_notice(_cred(), ROOM, "Not allowed.", voice_reply=BINDING)
+    assert client.room_send.await_args.kwargs["content"] == {
+        "msgtype": "m.notice",
+        "body": "Not allowed.",
+        RTC_VOICE_REPLY_KEY: BINDING,
+    }
+
+    await t._send_matrix_notice(_cred(), ROOM, "Not allowed.")
+    assert client.room_send.await_args.kwargs["content"] == {
+        "msgtype": "m.notice",
+        "body": "Not allowed.",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw,expected", [({"rtc_voice": _rtc()}, BINDING), ({}, None)])
+async def test_denied_turn_notice_is_bound_only_for_a_voice_turn(
+    monkeypatch, raw, expected
+):
+    """A denied voice turn's notice is that turn's reply: unbound, an acked
+    call would hear nothing until Narra's turn timeout."""
+    t, _ = _trigger_with_client()
+    monkeypatch.setattr(t, "is_echo", AsyncMock(return_value=False))
+    monkeypatch.setattr(t, "_resolve_room_shape", AsyncMock(return_value=("dm", 2)))
+    monkeypatch.setattr(t, "_is_mentioning_us", lambda *a, **k: False)
+    monkeypatch.setattr(t, "_classify", AsyncMock(return_value="dm"))
+    monkeypatch.setattr(t, "_reconcile_room_shape", lambda message, target: message)
+    monkeypatch.setattr(t, "_late_voice_upgrade", lambda message, **k: message)
+    monkeypatch.setattr(
+        t,
+        "_authorize_event",
+        AsyncMock(
+            return_value=mt_mod._AuthorizeVerdict(
+                allow=False, notice_send=True, notice_text="Quota exhausted."
+            )
+        ),
+    )
+    notice = AsyncMock()
+    monkeypatch.setattr(t, "_send_matrix_notice", notice)
+
+    await t._process_message(_cred(), _msg(raw))
+
+    notice.assert_awaited_once()
+    assert notice.await_args.args[1:] == (ROOM, "Quota exhausted.")
+    assert notice.await_args.kwargs == {"voice_reply": expected}
 
 
 # ── platform no-reply fallback (reply_kwargs -> send_to_agent) ──────────

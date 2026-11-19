@@ -14,7 +14,8 @@ v15 下 ack 过的通话里，未绑定的回复会被 Narra 静默丢弃——�
 （见下一段），那时它就是这一轮唯一的答案。
 
 同一个 commit 修了一个旧 bug：`_extract_narramessenger_reply` 现在也认 `speak(text)`（按**精确叶子名** `speak` /
-`...__speak`，不做子串匹配），[[descriptor.py]] 的 `reply_tools` 加了 `"speak"`。此前语音轮只调 `speak` 时，runtime
+`...__speak`，不做子串匹配；判定用 [[_rtc_voice.py]] 的 `is_leaf_tool`，与 trigger 投递 `speak` 用的是同一个函数，
+托管分支过滤 `narra_reply` 也改用它），[[descriptor.py]] 的 `reply_tools` 加了 `"speak"`。此前语音轮只调 `speak` 时，runtime
 按 registry 判定「没回复」，DM 兜底会再让 helper LLM 写一条发进房间：v14 下是聊天记录多一条；v15 下这条重复消息带着
 本轮绑定，若抢在 bridge 第一次 flush 之前到达，会顶掉 agent 真正的回答。`reply_tool_names`（对模型声明的回复工具）
 **没动**：文字轮上 `speak` 其实会被 trigger 捕获并当普通文本发出，但不应把它当作默认回复工具推给模型

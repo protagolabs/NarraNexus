@@ -60,6 +60,15 @@ F28 语音快速回答模式（voice fast mode）的入站契约层：Hybrid 把
 - `with_voice_reply_binding(content, binding)`：返回盖好章的**新** dict（不改入参）；content 带
   `m.new_content` 时两层都盖。`binding=None` 原样返回，保证文字轮事件逐字节不变。
 
+- `is_leaf_tool(tool_name, leaf)`：「工具名恰好是 `leaf`，裸名或 `...__leaf`」这条规则的**唯一定义点**。
+  trigger 用它决定「这段 `speak` / `narra_reply` 文本发不发进房间」，reply extractor 用它决定「这一轮算不算已回复」。
+  两边必须是同一个集合：trigger 发了而 extractor 不认 → DM 兜底再补一条（v15 下那条带着本轮绑定，可能顶掉真回答）；
+  extractor 认了而 trigger 没发 → 静默轮。此前这条规则在两个文件里字面复制了四份，没有任何机制保证一致。
+  放在本文件是因为它零重依赖：extractor 是 descriptor 里的 REF，不能为了一个判定去 import 带着 nio + SDK 的 trigger。
+  `tests/.../test_voice_reply_binding.py::test_trigger_delivery_and_reply_extractor_agree_on_reply_tools` 钉住两侧一致。
+- `with_voice_reply_binding` 对**不是 dict** 的 binding 也原样返回：binding 要穿过 turn envelope（可能被序列化），
+  坏值不该让兜底发送抛异常。
+
 契约源：Narra「升級到第 15 版語音通話契約」文档 §C8（2026-11-19，Poliyka 提供）。所有出口的清单见
 [[matrix_trigger.py]] 同日条目。
 

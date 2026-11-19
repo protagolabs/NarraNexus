@@ -34,12 +34,12 @@ from narranexus.platform.schema import (
 from narranexus.platform.schema.hook_schema import HookAfterExecutionParams
 
 from ._matrix_send import MatrixSendError, matrix_room_send
-from ._rtc_voice import with_voice_reply_binding
 from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
 )
 from ._narramessenger_mcp_tools import register_narramessenger_mcp_tools
+from ._rtc_voice import is_leaf_tool, with_voice_reply_binding
 
 # ───────────────────────────────────────────────────────────────────────────
 # Reply extractor (named by descriptor.reply_extractor_ref) — so ChatModule
@@ -71,10 +71,10 @@ def _extract_narramessenger_reply(tool_name: str, arguments: dict) -> Optional[s
         return None
 
     name = tool_name or ""
-    # ``speak`` is matched on the exact leaf name: a bare substring would
-    # also claim an unrelated tool that merely contains the word.
-    is_speak = name == "speak" or name.endswith("__speak")
-    if "narra_reply" in name or "narra_send" in name or is_speak:
+    # ``speak`` is matched on the exact leaf name (the same rule the trigger
+    # delivers it by): a bare substring would also claim an unrelated tool
+    # that merely contains the word.
+    if "narra_reply" in name or "narra_send" in name or is_leaf_tool(name, "speak"):
         text = args.get("text", "")
         return text or None
 
@@ -393,7 +393,7 @@ class NarramessengerModule(ChannelModuleBase):
         ):
             # Exact-name filter: fully-qualified tools end in "__<name>", so
             # a future narra_reply_* sibling is never collaterally dropped.
-            return [t for t in tools if not t.endswith("__narra_reply")]
+            return [t for t in tools if not is_leaf_tool(t, "narra_reply")]
         if extra.get("rtc_voice"):
             # F28 voice-call turn: speak leads the surface (the first
             # expressive entry is the turn's default reply tool). speak is
