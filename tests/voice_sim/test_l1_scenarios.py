@@ -116,7 +116,7 @@ def harness(monkeypatch):
         sent.append(content)
         return f"$ev{len(sent) - 1}"
 
-    async def _fake_plain_reply(credential, room_id, text):
+    async def _fake_plain_reply(credential, room_id, text, *, voice_reply=None):
         plain.append(text)
 
     async def _owner(agent_id):

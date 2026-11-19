@@ -56,7 +56,11 @@ DESCRIPTOR = ChannelDescriptor(
     # ``MessageSourceRegistry.register`` at import — so a distribution that drops
     # this plugin drops the handler with it, and importing the package registers
     # nothing. The extractor is a REF: naming it must not import the SDK.
-    reply_tools=("narra_reply", "narra_send"),
+    # ``speak`` is the reply tool of a voice turn (and is delivered as plain
+    # text when called on a text turn). Listing it is what tells the runtime
+    # the turn was answered: without it a speak-only voice turn reads as "no
+    # reply" and the DM fallback writes a second, helper-authored answer.
+    reply_tools=("narra_reply", "narra_send", "speak"),
     row_prefix_template="[NarraMessenger · {sender_name} · {sender_id} · {chat_id}]",
     reply_extractor_ref=f"{_MOD}.narramessenger_module.narramessenger_module:_extract_narramessenger_reply",
     dedicated_trigger=True,
