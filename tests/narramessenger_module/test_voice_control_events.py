@@ -147,6 +147,59 @@ def test_parse_rejects_other_types_and_malformed_payloads(event_type, content):
     assert parse_voice_control_event(event_type, content) is None
 
 
+LONG_ID = "x" * 129
+
+
+@pytest.mark.parametrize(
+    "event_type,content",
+    [
+        (T_CALL_STARTED, {"rtc_session_id": LONG_ID}),
+        (T_TURN_CANCELLED, {"rtc_session_id": SESSION, "turn_id": LONG_ID}),
+        (T_TURN_HINT, {"rtc_session_id": LONG_ID, "turn_id": TURN}),
+    ],
+)
+def test_parse_rejects_over_long_ids(event_type, content):
+    """The sender chooses these ids and they are stored and audited: an
+    over-long one is rejected, never truncated (keys are hashes of them)."""
+    assert parse_voice_control_event(event_type, content) is None
+
+
+def test_ids_at_the_cap_are_accepted():
+    at_cap = "x" * 128
+    ctl = parse_voice_control_event(
+        T_TURN_CANCELLED, {"rtc_session_id": at_cap, "turn_id": at_cap}
+    )
+    assert ctl is not None and ctl.turn_id == at_cap
+
+
+def test_message_path_rejects_over_long_ids_too():
+    from narranexus_plugins.narramessenger_module._rtc_voice import (
+        parse_rtc_voice_input,
+        voice_reply_binding,
+    )
+
+    assert voice_reply_binding({"rtc_session_id": SESSION, "turn_id": LONG_ID}) is None
+    assert voice_reply_binding({"rtc_session_id": LONG_ID, "turn_id": TURN}) is None
+
+    def _input(turn_id: str) -> dict:
+        return {
+            "type": "m.room.message",
+            "content": {
+                "msgtype": "m.text",
+                "body": "hi",
+                "ai.netmind.rtc.voice_input": {
+                    "version": 1, "transport": "matrix", "seq": 1,
+                    "transcript_final": True, "rtc_session_id": SESSION,
+                    "turn_id": turn_id, "invocation_id": "i", "agent_profile_id": "p",
+                },
+            },
+        }
+
+    assert parse_rtc_voice_input(_input(TURN)) is not None
+    # Strict parse fails -> the turn degrades to voice without correlation.
+    assert parse_rtc_voice_input(_input(LONG_ID)) is None
+
+
 def test_call_level_ack_has_no_turn_id_key():
     for kind in (KIND_CALL_STARTED, KIND_CALL_ENDED):
         assert build_voice_ack(kind, SESSION, TURN) == {
@@ -503,6 +556,50 @@ async def test_stale_control_event_is_ignored(h):
     assert h.acks == [] and not h.known()
     h.authorize.assert_not_awaited()
     assert h.drop_reasons() == ["stale"]
+    # The age is in the row: skewed clocks show up as an absurd value.
+    age_ms = h.audits[-1][1]["details"]["age_ms"]
+    assert h.t.VOICE_CONTROL_MAX_AGE_MS < age_ms < h.t.VOICE_CONTROL_MAX_AGE_MS + 60_000
+
+
+@pytest.mark.asyncio
+async def test_over_long_ids_never_reach_the_registry_or_the_audit_row(h):
+    await h.control(_event(T_CALL_STARTED, {"rtc_session_id": LONG_ID}))
+    await h.control(_event(T_CALL_STARTED))
+    await h.control(_event(T_TURN_CANCELLED, {"rtc_session_id": SESSION, "turn_id": LONG_ID}))
+
+    assert h.drop_reasons() == ["malformed", "malformed"]
+    assert len(h.t._voice_registry) == 1
+    assert h.t._voice_registry.get("agent_x", SESSION).cancelled_turns == set()
+    assert LONG_ID not in repr(h.audits)
+    h.authorize.assert_awaited_once()  # only the well-formed call.started
+
+
+@pytest.mark.asyncio
+async def test_room_budget_is_the_first_gate_even_for_garbage(h):
+    """A flood of malformed / foreign events must hit the room budget, not
+    slip past it by being rejected earlier."""
+    h.t._voice_events = VoiceRateLimiter(limit=2)
+    for _ in range(6):
+        await h.control(_event(T_TURN_CANCELLED, {"rtc_session_id": SESSION}))
+    assert h.drop_reasons() == ["malformed", "malformed", "room_rate_limited"]
+
+
+@pytest.mark.asyncio
+async def test_drop_audits_are_budgeted_per_room(h):
+    h.t._voice_drop_audits = VoiceRateLimiter(limit=3)
+    for _ in range(8):
+        await h.control(_event(T_CALL_STARTED, sender=AGENT))
+    assert h.drop_reasons() == ["non_caller_sender"] * 3
+    # Another room has its own budget.
+    await h.control(_event(T_CALL_STARTED, sender=AGENT), room=OTHER_ROOM)
+    assert len(h.drop_reasons()) == 4
+
+
+@pytest.mark.asyncio
+async def test_malformed_event_type_is_clipped_in_the_audit_row(h):
+    await h.t._audit_voice_control_drop(_cred(), ROOM, "@s:h" * 200, "k" * 500, "malformed")
+    _, kw = h.audits[-1]
+    assert len(kw["details"]["kind"]) == 80 and len(kw["sender_id"]) == 255
 
 
 @pytest.mark.asyncio
@@ -912,6 +1009,25 @@ async def test_text_and_degraded_turns_pass_the_claim_untouched(h):
 
 
 @pytest.mark.asyncio
+async def test_claim_db_fail_open_runs_the_turn_and_is_audited(h):
+    """The durable layer is down: the turn must still run (failing closed
+    would mute the call), but the lost at-most-once guarantee leaves a row."""
+    h.t._dedup_store.classify = AsyncMock(
+        return_value={"accept": True, "layer": "db_fail_open", "error": "db down"}
+    )
+    assert await h.t._claim_voice_turn(_cred(), _voice_msg()) is True
+    assert [
+        kw["details"] for event_type, kw in h.audits if event_type == EVENT_DEDUP_FAIL_OPEN
+    ] == [{"error": "db down", "context": "voice_turn_claim", "turn_id": TURN}]
+
+
+@pytest.mark.asyncio
+async def test_normal_claim_writes_no_fail_open_audit(h):
+    assert await h.t._claim_voice_turn(_cred(), _voice_msg()) is True
+    assert h.audits == []
+
+
+@pytest.mark.asyncio
 async def test_claim_without_a_dedup_store_still_runs_the_turn(h):
     h.t._dedup_store = None
     assert await h.t._claim_voice_turn(_cred(), _voice_msg()) is True
@@ -1132,6 +1248,25 @@ async def test_sync_loop_drops_control_events_past_the_per_agent_handler_cap(mon
     assert yielded == [] and h.acks == [] and not h.known()
     # Overflow is a flood by definition: one audit row, not one per event.
     assert h.drop_reasons() == ["handler_cap"]
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_short_circuits_at_dispatch(monkeypatch):
+    """The switch is flipped when the system is under strain: no handler
+    slot, no task per event, and one audit row per agent per minute."""
+    h = _Harness(monkeypatch)
+    h.t.STREAMING_ENABLED = False
+    handler = AsyncMock()
+    monkeypatch.setattr(h.t, "_handle_voice_control_event", handler)
+
+    for _ in range(20):
+        h.t._dispatch_voice_control_event(object(), _cred(), ROOM, _event(T_CALL_STARTED))
+    assert len(h.t._voice_control_tasks) == 1  # the single audit task
+    assert h.t._voice_handlers_in_flight == {}
+    await h.settle()
+
+    handler.assert_not_awaited()
+    assert h.drop_reasons() == ["live_voice_disabled"] and h.acks == []
 
 
 @pytest.mark.asyncio

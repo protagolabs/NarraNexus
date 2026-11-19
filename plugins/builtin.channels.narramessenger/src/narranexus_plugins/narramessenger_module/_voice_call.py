@@ -35,6 +35,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from ._rtc_voice import is_rtc_id
+
 VOICE_ACK_EVENT_TYPE = "ai.netmind.rtc.agent.ack.v2"
 
 # Audit rows for the control plane (plain strings; the audit column is a
@@ -76,31 +78,29 @@ class VoiceControlEvent:
     turn_id: Optional[str] = None
 
 
-def _non_blank_str(value: Any) -> bool:
-    return isinstance(value, str) and bool(value.strip())
-
-
 def parse_voice_control_event(
     event_type: Any, content: Any
 ) -> Optional[VoiceControlEvent]:
     """Validate a custom timeline event as a v15 control event.
 
     Returns None for any other event type and for a malformed payload
-    (missing / blank ``rtc_session_id``; a turn-level event without a
-    ``turn_id``). Ids are opaque strings — today they are UUIDs, but the
-    contract tells agents not to rely on that. A ``turn_id`` on a
-    call-level event is ignored rather than rejected.
+    (missing / blank / over-long ``rtc_session_id``; a turn-level event
+    without a usable ``turn_id``). Ids are opaque strings — today they are
+    UUIDs, but the contract tells agents not to rely on that — bounded by
+    ``MAX_RTC_ID_LEN``: they are stored in the registry and written to
+    audit rows, and the sender chooses them. A ``turn_id`` on a call-level
+    event is ignored rather than rejected.
     """
     kind = VOICE_CONTROL_EVENT_KINDS.get(event_type) if isinstance(event_type, str) else None
     if kind is None or not isinstance(content, dict):
         return None
     session_id = content.get("rtc_session_id")
-    if not _non_blank_str(session_id):
+    if not is_rtc_id(session_id):
         return None
     turn_id: Optional[str] = None
     if kind in _TURN_KINDS:
         turn_id = content.get("turn_id")
-        if not _non_blank_str(turn_id):
+        if not is_rtc_id(turn_id):
             return None
     return VoiceControlEvent(kind=kind, rtc_session_id=session_id, turn_id=turn_id)
 
@@ -121,7 +121,7 @@ def build_voice_ack(
         "supports_long_task_delivery": VOICE_ACK_SUPPORTS_LONG_TASK_DELIVERY,
     }
     if kind in _TURN_KINDS:
-        if not _non_blank_str(turn_id):
+        if not is_rtc_id(turn_id):
             raise ValueError(f"ack_of={kind} requires a turn_id")
         content["turn_id"] = turn_id
     return content
@@ -216,7 +216,10 @@ class VoiceCallRegistry:
     """
 
     DEFAULT_TTL_SECONDS = 7200.0
-    MAX_RETIRED_PER_ROOM = 8
+    # Far more calls than one room can complete inside the 5-minute window in
+    # which a late event of an old call is still accepted, so a retired
+    # session cannot age out of the list while its events can still arrive.
+    MAX_RETIRED_PER_ROOM = 32
     # More cancelled turns than any real call produces; past it further
     # cancels are refused (see ``mark_cancelled``) so one call cannot grow
     # the set without bound.

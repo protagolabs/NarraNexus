@@ -69,6 +69,10 @@ F28 语音快速回答模式（voice fast mode）的入站契约层：Hybrid 把
 - `with_voice_reply_binding` 对**不是 dict** 的 binding 也原样返回：binding 要穿过 turn envelope（可能被序列化），
   坏值不该让兜底发送抛异常。
 
+- `MAX_RTC_ID_LEN`（128）+ `is_rtc_id`：语音契约里所有关联 id 的长度上限，入站解析（`parse_rtc_voice_input`）、
+  出站绑定（`voice_reply_binding`）和控制事件解析（[[_voice_call.py]]）共用。超长的严格解析失败，语音轮退成
+  「降级语音轮」（有语音模式、没有关联 id），照常被回答。为什么要有上限、为什么是拒绝而不是截断，见 `_voice_call.py.md`。
+
 契约源：Narra「升級到第 15 版語音通話契約」文档 §C8（2026-11-19，Poliyka 提供）。所有出口的清单见
 [[matrix_trigger.py]] 同日条目。
 

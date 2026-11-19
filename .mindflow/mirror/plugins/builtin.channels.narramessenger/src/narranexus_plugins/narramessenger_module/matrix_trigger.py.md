@@ -22,6 +22,14 @@ timeline 里的四种控制事件（nio 解析成 `UnknownEvent`）在 `_wrap_ev
   名额在任务的 **done-callback** 里归还，不在协程自己的 `finally` 里：任务在第一步之前被 cancel 时协程的
   `finally` 根本不会跑，名额会泄漏，反复 stop/start 之后这个 agent 的控制事件会被永久判为超限。
 - **房间内所有控制事件的限速**、**未知 session 准入的限速**（见 `_voice_call.py.md` 的 `VoiceRateLimiter`）。
+  房间限速是 handler 的**第一道门**，排在解析之前：它只需要 agent + room，放在最前面，后面每一道会丢弃的门
+  （包括拒绝畸形事件、别人发的事件、过期事件的那几道）就都在它身后，没有哪一道能靠「更早被拒」绕开限速。
+- **丢弃审计的预算**：每个 (agent, room) 每分钟最多写 10 行 `voice_control_dropped`，超出的只打 debug 日志。
+  所有丢弃都经 `_audit_voice_control_drop` 这一个出口，所以这条预算对每道门都成立，不依赖门的先后顺序。
+  审计表是排障最依赖的那张表，被噪声灌满等于把这次新加的可观测性自己废掉。写进行里的 `kind`（畸形事件的类型
+  是发送者随手写的）和 `sender_id` 会被截短。
+- **kill switch 在 dispatch 处直接短路**：不占 handler 名额、不为每个事件起任务，审计每个 agent 每分钟一行。
+  运维是在系统扛不住的时候才翻这个开关，不能在那一刻把每个合法控制事件都变成一次写库。
 
 **handler 只做有界的事（门、registry、墓碑），ack 另起任务。** 这是有意拆开的：ack 是对 homeserver 的 HTTP，
 慢起来能挂很久；如果和取消处理绑在同一个任务里，homeserver 一慢，handler 名额被 ack 占满，后面的
@@ -36,11 +44,12 @@ timeline 里的四种控制事件（nio 解析成 `UnknownEvent`）在 `_wrap_ev
 
 全部成立才处理并 ack；任何一条不成立都是**丢弃且不 ack**：
 
-- payload 合规；
+- 房间没超过控制事件限速（第一道，见上）；
+- payload 合规（含 id 不超过 128 字符）；
 - sender 不是自己，也不是 appservice 机器人；
-- 事件不超过 5 分钟（冷启动 / 重连补回来的旧事件对应的通话早结束了）；
+- 事件不超过 5 分钟（冷启动 / 重连补回来的旧事件对应的通话早结束了）。比的是 homeserver 的 `origin_server_ts` 和本机
+  时钟，所以丢弃的审计行带 `age_ms`：负数或大得离谱的值一眼就是时钟偏移，而不是真的旧事件；
 - `STREAMING_ENABLED` 为真（kill switch 下语音轮按文字轮跑、回复不带绑定，ack 了 Narra 就会要求绑定、回复全丢）；
-- 房间没超过控制事件限速；
 - session 是本房间**退役过**的旧通话 → 丢弃（旧通话的晚到事件不能把当前通话挤掉）；
 - session 未知 → 过准入：限速 + 和语音轮同样的两道门——权威的 1:1 房间（路由为 dm **且**有效成员恰好 2）
   + Narra `authorize-event`（`mentioned=False`）。同一个新 session 同时到达的几个事件**共用一次准入**
@@ -51,9 +60,10 @@ timeline 里的四种控制事件（nio 解析成 `UnknownEvent`）在 `_wrap_ev
   未知 session 的 `call.ended` 直接忽略；
 - 无论已知还是刚学到，最后都拿 registry 里的条目核对房间和来电者。
 
-**审计**：处理成功写 `voice_control_handled`；丢弃写 `voice_control_dropped` 并带原因。两个例外不写：
-限速类的拒绝只记每个窗口的第一条（一场洪泛一行，而不是每个事件一行）；未知 session 的 `call.ended`（什么都没发生）。
-ack 发送失败另写 `transport_send_failed`；墓碑落库失败（fail-open）写 `dedup_fail_open`。
+**审计**：处理成功写 `voice_control_handled`；丢弃写 `voice_control_dropped` 并带原因，受上面的每房间预算约束。
+另有两类不逐条写：限速类的拒绝只记每个窗口的第一条（一场洪泛一行，而不是每个事件一行）；未知 session 的
+`call.ended`（什么都没发生）。ack 发送失败另写 `transport_send_failed`；墓碑或认领时 dedup 落库失败（fail-open）
+写 `dedup_fail_open`（`context` 区分 `voice_turn_tombstone` / `voice_turn_claim`）。
 
 **为什么「不 ack」是安全方向**：Narra 2026-11-18 起的行为是，一通电话只要没 ack 过 `call.started`，回复就退回
 v14 的「房间 + agent + 时间」匹配。所以任何疑点都选择不 ack，等于这通电话按老契约跑，和本次改动之前一样。
@@ -68,6 +78,9 @@ v14 的「房间 + agent + 时间」匹配。所以任何疑点都选择不 ack�
 - 必须在**基类管线的所有门之后**（authorize-event、解绑凭据、空内容、ingress breaker）：在门之前认领的话，
   被 breaker 挡掉的轮次 key 已经烧掉，Narra 重发时反而被判重、这一轮永远没有回复。被拒的发送者也因此烧不掉 key。
 - 必须在**进通话队列之前**：重复的输入要被丢弃，而不是被 `_merge_voice_batch` 合并进某一轮。
+
+dedup 的持久层挂掉时 `classify` 是 fail-open（放行）。认领沿用这个语义——fail-closed 会让一次 DB 抖动变成通话全哑——
+但会写一行 `dedup_fail_open` 审计：这一轮的「至多一次」保证此刻不成立，重发的同一轮可能被念两遍，事后得查得到原因。
 
 认领成功且该轮属于已知的 v15 通话（未结束，房间、来电者都对得上）时，另起任务发 `turn.started` ack。
 降级语音轮恒放行（沿用基类按 event id 的去重）；文字轮和 kill switch 下的语音轮根本不走这个分支。
@@ -100,6 +113,9 @@ v14 agent 永远收不到控制事件、registry 为空，所以**不会**给 v1
   先跑完，于是它拿不到 `turn.started` ack（只少一条指标，回复不受影响）。
 - kill switch 打开时没有任何 ack，但绑定并非处处一致：authorize 拒绝通知在语音标记被剥掉之前发出、带绑定；
   atomic 路径上的回复用的是已剥掉标记的消息、不带。两者都无害——没 ack 过的通话，Narra 不检查绑定。
+- 被 `_merge_voice_batch` 合并掉的轮次也各自认领、各自发了 `turn.started` ack，但合并后只有一条回复、绑的是最新一轮的
+  `turn_id`；被并掉的那几轮在 Narra 看来是「ack 了但没回复」。合并是既有行为，这里只是多了 ack。下一步做
+  「中断正在跑的轮次」时必须把合并、ack、取消三者的关系一起想清楚。
 - 被判重的重复投递会在收件箱里多写一条 inbound 记录：认领在基类管线里面，基类对返回空串的轮次照样记 inbound
   （排队被合并的语音消息一直就是这样）。要消掉需要基类提供「这一轮不记」的出口，是跨渠道改动。
 

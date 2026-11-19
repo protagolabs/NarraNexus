@@ -702,6 +702,12 @@ class MatrixTrigger(ChannelTriggerBase):
         self._voice_control_tasks: set[asyncio.Task] = set()
         # One audit row per agent per minute for handler-cap overflow.
         self._voice_overflow_audits = VoiceRateLimiter(limit=1)
+        # Drop audits per (agent, room) per minute. Every gate that drops a
+        # control event writes through this, so no gate — whatever its
+        # position — can be used to flood the audit table.
+        self._voice_drop_audits = VoiceRateLimiter(
+            limit=self.VOICE_CONTROL_DROP_AUDITS_PER_MINUTE
+        )
         # Set by stop(): the sync loop and workers are still winding down
         # for a moment after it, and must not start new voice tasks.
         self._voice_stopping = False
@@ -2114,6 +2120,9 @@ class MatrixTrigger(ChannelTriggerBase):
     VOICE_CONTROL_MAX_HANDLERS_PER_AGENT = 64
     VOICE_CONTROL_EVENTS_PER_MINUTE = 120
     VOICE_NEW_SESSIONS_PER_MINUTE = 6
+    # Audit rows for dropped control events, per room per minute. Drops
+    # past this are logged at debug only.
+    VOICE_CONTROL_DROP_AUDITS_PER_MINUTE = 10
 
     @staticmethod
     def _is_voice_control_event(event: Any) -> bool:
@@ -2178,11 +2187,30 @@ class MatrixTrigger(ChannelTriggerBase):
         audited from a task of its own (the sync loop does no I/O here).
         """
         agent_id = credential.agent_id
+        if not self.STREAMING_ENABLED:
+            # The kill switch turns voice turns into plain text turns whose
+            # replies carry no binding; acking would make Narra require the
+            # binding and drop every one of them. Short-circuit here: the
+            # switch is flipped when the system is under strain, so no
+            # handler slot, no task per event, and one audit row per agent
+            # per minute.
+            if self._voice_overflow_audits.allow(agent_id, "live_voice_disabled"):
+                self._spawn_voice_task(
+                    self._audit_voice_control_drop(
+                        credential,
+                        room_id,
+                        getattr(event, "sender", "") or "",
+                        str(event.type),
+                        "live_voice_disabled",
+                    ),
+                    label="audit:live_voice_disabled",
+                )
+            return
         in_flight = self._voice_handlers_in_flight.get(agent_id, 0)
         if in_flight >= self.VOICE_CONTROL_MAX_HANDLERS_PER_AGENT:
             # Dropped events are a flood by definition: one row per agent
             # per minute, not one per event.
-            if self._voice_overflow_audits.allow(agent_id, ""):
+            if self._voice_overflow_audits.allow(agent_id, "handler_cap"):
                 self._spawn_voice_task(
                     self._audit_voice_control_drop(
                         credential,
@@ -2216,7 +2244,18 @@ class MatrixTrigger(ChannelTriggerBase):
         sender: str,
         kind: str,
         reason: str,
+        **extra: Any,
     ) -> None:
+        """Log one dropped control event and audit it, within the room's
+        drop-audit budget. ``kind`` and ``sender`` come from the event and
+        are clipped: a malformed event's type is whatever the sender wrote."""
+        kind = kind[:80]
+        if not self._voice_drop_audits.allow(credential.agent_id, room_id):
+            logger.debug(
+                f"[matrix:{credential.agent_id}] voice control DROP: {kind} — "
+                f"{reason} (room={room_id}; audit budget spent)"
+            )
+            return
         logger.info(
             f"[matrix:{credential.agent_id}] voice control DROP: {kind} — "
             f"{reason} (room={room_id})"
@@ -2226,8 +2265,8 @@ class MatrixTrigger(ChannelTriggerBase):
             agent_id=credential.agent_id,
             app_id=getattr(credential, "app_id", ""),
             chat_id=room_id,
-            sender_id=sender,
-            details={"kind": kind, "reason": reason},
+            sender_id=sender[:255],
+            details={"kind": kind, "reason": reason, **extra},
         )
 
     async def _handle_voice_control_event(
@@ -2262,14 +2301,22 @@ class MatrixTrigger(ChannelTriggerBase):
         ctl = parse_voice_control_event(event.type, content)
         kind = ctl.kind if ctl is not None else str(event.type)
 
-        async def _drop(reason: str) -> None:
+        async def _drop(reason: str, **extra: Any) -> None:
             await self._audit_voice_control_drop(
-                credential, room_id, sender, kind, reason
+                credential, room_id, sender, kind, reason, **extra
             )
 
         async def _drop_limited(verdict: str, reason: str) -> None:
             if verdict == VoiceRateLimiter.DENIED_FIRST:
                 await _drop(reason)
+
+        # First gate: the room's event budget. It needs nothing from the
+        # payload, so every later gate — including the ones that reject a
+        # malformed or foreign event — sits behind it.
+        verdict = self._voice_events.check(agent_id, room_id)
+        if verdict != VoiceRateLimiter.OK:
+            await _drop_limited(verdict, "room_rate_limited")
+            return
 
         if ctl is None:
             await _drop("malformed")
@@ -2281,20 +2328,18 @@ class MatrixTrigger(ChannelTriggerBase):
             return
 
         sent_ms = int(getattr(event, "server_timestamp", 0) or 0)
-        if sent_ms and (time.time() * 1000 - sent_ms) > self.VOICE_CONTROL_MAX_AGE_MS:
-            await _drop("stale")
+        age_ms = int(time.time() * 1000) - sent_ms if sent_ms else 0
+        if sent_ms and age_ms > self.VOICE_CONTROL_MAX_AGE_MS:
+            # age_ms goes in the row: a huge or negative value points at
+            # clock skew between the homeserver and this host, not at a
+            # genuinely old event.
+            await _drop("stale", age_ms=age_ms)
             return
 
         if not self.STREAMING_ENABLED:
-            # The kill switch turns voice turns into plain text turns whose
-            # replies carry no binding. Acking would make Narra require the
-            # binding and drop every one of them.
+            # Normally short-circuited at dispatch; kept so the handler is
+            # safe to call on its own.
             await _drop("live_voice_disabled")
-            return
-
-        verdict = self._voice_events.check(agent_id, room_id)
-        if verdict != VoiceRateLimiter.OK:
-            await _drop_limited(verdict, "room_rate_limited")
             return
 
         known = self._voice_registry.get(agent_id, ctl.rtc_session_id)
@@ -2508,6 +2553,23 @@ class MatrixTrigger(ChannelTriggerBase):
                 0,
                 agent_id=agent_id,
             )
+            if decision["layer"] == "db_fail_open":
+                # The durable layer is down and the claim was let through
+                # (failing closed would mute every call for the length of a
+                # DB blip). The at-most-once guarantee does not hold for
+                # this turn; leave a row that says so.
+                await self._audit(
+                    EVENT_DEDUP_FAIL_OPEN,
+                    message_id=message.message_id,
+                    agent_id=agent_id,
+                    app_id=getattr(credential, "app_id", ""),
+                    chat_id=message.chat_id,
+                    details={
+                        "error": decision.get("error", ""),
+                        "context": "voice_turn_claim",
+                        "turn_id": turn_id,
+                    },
+                )
             if not decision["accept"]:
                 logger.info(
                     f"[matrix:{agent_id}] DROP: voice turn already claimed "
