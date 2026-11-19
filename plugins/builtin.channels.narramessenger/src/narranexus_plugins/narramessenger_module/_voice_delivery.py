@@ -48,6 +48,17 @@ _EMOJI_RE = re.compile(
 _SENTENCE_END_RE = re.compile(r"[.!?。！？…][\"')\]]?\s*$")
 
 
+def replacement_content(text: str, replaces_event_id: str) -> dict:
+    """``m.replace`` content that sets a text event's body to ``text``."""
+    return {
+        "msgtype": "m.text",
+        # "* " prefix: the MSC2676 fallback body for pre-edit clients.
+        "body": f"* {text}",
+        "m.new_content": {"msgtype": "m.text", "body": text},
+        "m.relates_to": {"rel_type": "m.replace", "event_id": replaces_event_id},
+    }
+
+
 def sanitize_for_tts(text: str) -> str:
     """Reduce model text to a TTS-safe spoken string.
 
@@ -105,6 +116,17 @@ class VoiceDeliveryBridge:
         self.first_delta_at: Optional[float] = None
         self.first_sent_at: Optional[float] = None
         self.finalized_at: Optional[float] = None
+
+    @property
+    def base_event_id(self) -> Optional[str]:
+        """Event id of this turn's one visible reply, once it has been sent.
+
+        A turn may have exactly one visible reply event (voice contract
+        v15): after the base exists, anything further — including a
+        fallback delivery — must be an ``m.replace`` of it, never a second
+        new message.
+        """
+        return self._base_event_id
 
     # ── event intake ────────────────────────────────────────────────────
 
@@ -237,17 +259,8 @@ class VoiceDeliveryBridge:
                 content[LIVE_MARKER_KEY] = {}
             self._base_event_id = await self._send(content)
         else:
-            new_content: dict = {"msgtype": "m.text", "body": text}
-            content = {
-                "msgtype": "m.text",
-                # "* " prefix: the MSC2676 fallback body for pre-edit clients.
-                "body": f"* {text}",
-                "m.new_content": new_content,
-                "m.relates_to": {
-                    "rel_type": "m.replace",
-                    "event_id": self._base_event_id,
-                },
-            }
+            content = replacement_content(text, self._base_event_id)
+            new_content = content["m.new_content"]
             if live:
                 content[LIVE_MARKER_KEY] = {}
                 new_content[LIVE_MARKER_KEY] = {}

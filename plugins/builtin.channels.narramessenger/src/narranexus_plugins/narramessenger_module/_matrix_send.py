@@ -41,7 +41,8 @@ from narranexus.platform.utils.fs.workspace_paths import (
 )
 
 _UPLOAD_PATH = "/_matrix/media/v3/upload"
-_ROOM_SEND_PATH = "/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}"
+_EVENT_SEND_PATH = "/_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}"
+_ROOM_SEND_PATH = _EVENT_SEND_PATH.replace("{event_type}", "m.room.message")
 # Edit is a separate send of ``m.room.message`` whose content carries an
 # ``m.relates_to`` block with ``rel_type="m.replace"`` pointing at the
 # original event. The txn_id must be unique per edit (Matrix's idempotency
@@ -185,17 +186,58 @@ async def matrix_room_send(
 
     Raises ``MatrixSendError`` on HTTP / transport error.
     """
+    return await matrix_send_event(
+        homeserver=homeserver,
+        token=token,
+        room_id=room_id,
+        event_type="m.room.message",
+        content=content,
+        txn_id=txn_id,
+    )
+
+
+async def matrix_send_event(
+    *,
+    homeserver: str,
+    token: str,
+    room_id: str,
+    event_type: str,
+    content: dict,
+    txn_id: Optional[str] = None,
+    timeout_seconds: Optional[float] = None,
+) -> str:
+    """Send one timeline event of any type, return its ``event_id``.
+
+    ``m.room.message`` goes through :func:`matrix_room_send`; this is the
+    general form, needed for Matrix custom events whose type is not a room
+    message (the voice contract's ``ai.netmind.rtc.agent.ack.v2``). The PUT
+    body is the event ``content`` itself. Passing a stable ``txn_id`` makes
+    a retried send idempotent on the homeserver. ``timeout_seconds``
+    overrides the default 60 s total for sends that are only useful while
+    fresh (an ack).
+
+    Raises ``MatrixSendError`` on HTTP / transport error.
+    """
     base = (homeserver or "").rstrip("/")
     if not base or not token:
         raise MatrixSendError("no_credential", "missing homeserver/token")
     if not room_id:
         raise MatrixSendError("bad_room", "room_id is required")
+    if not event_type:
+        raise MatrixSendError("bad_event_type", "event_type is required")
 
     txn = txn_id or f"nx-{uuid.uuid4().hex}"
-    url = base + _ROOM_SEND_PATH.format(room_id=room_id, txn_id=txn)
+    url = base + _EVENT_SEND_PATH.format(
+        room_id=room_id, event_type=event_type, txn_id=txn
+    )
     headers = {"Authorization": f"Bearer {token}"}
+    timeout = (
+        aiohttp.ClientTimeout(total=timeout_seconds)
+        if timeout_seconds is not None
+        else _HTTP_TIMEOUT
+    )
     try:
-        async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.put(url, headers=headers, json=content) as resp:
                 if resp.status != 200:
                     try:
