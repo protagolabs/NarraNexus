@@ -41,7 +41,7 @@ from tests._paths import engine_source_roots
 
 # ``class Foo(ChannelTriggerBase):`` — on-disk source of truth for "this
 # module directory owns a channel trigger" (mirrors test_trigger_startup_alignment.py).
-_SUBCLASS_RE = re.compile(r"class\s+\w+\s*\(\s*ChannelTriggerBase\s*\)")
+_SUBCLASS_RE = re.compile(r"class\s+\w+\s*\(\s*(?:\w+\s*,\s*)*ChannelTriggerBase\s*\)")
 
 
 def _channel_names_from_entrypoints() -> list[str]:

@@ -33,6 +33,7 @@ from narranexus.platform.channel.channel_audit_events import (
 )
 from narranexus.platform.channel.channel_dedup_store import ChannelDedupStore
 from narranexus_plugins.narramessenger_module import _matrix_send as ms
+from narranexus_plugins.narramessenger_module import _voice_control as vc_mod
 from narranexus_plugins.narramessenger_module import matrix_trigger as mt_mod
 from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
@@ -471,7 +472,7 @@ class _Harness:
             )
             return "$ack"
 
-        monkeypatch.setattr(mt_mod, "matrix_send_event", _fake_send)
+        monkeypatch.setattr(vc_mod, "matrix_send_event", _fake_send)
 
         async def _shape(client, room_id, credential):
             return self.shape

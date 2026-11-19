@@ -56,7 +56,7 @@ STARTUP_FILES = {
 
 # ``class Foo(ChannelTriggerBase):`` — the on-disk source of truth for "this is
 # a channel trigger". Excludes job_trigger (not a ChannelTriggerBase subclass).
-_SUBCLASS_RE = re.compile(r"class\s+(\w+)\s*\(\s*ChannelTriggerBase\s*\)")
+_SUBCLASS_RE = re.compile(r"class\s+(\w+)\s*\(\s*(?:\w+\s*,\s*)*ChannelTriggerBase\s*\)")
 
 
 def discover_channel_trigger_classes() -> set[str]:
