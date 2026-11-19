@@ -43,6 +43,7 @@ from narranexus.platform.channel.channel_prompts import (
 from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 
 from ._narramessenger_credential_manager import NarramessengerCredential
+from ._rtc_voice import voice_reply_binding
 
 
 class NarramessengerContextBuilder(ChannelContextBuilderBase):
@@ -57,6 +58,14 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         self._message = message
         self._credential = credential
         self._agent_id = agent_id
+
+    def reply_kwargs(self) -> Dict[str, Any]:
+        """Voice contract v15: a platform-written fallback reply to a voice
+        turn must be bound like any other, so the binding rides the turn
+        envelope to ``NarramessengerModule.send_to_agent``. Empty for text
+        and degraded turns (nothing to bind)."""
+        binding = voice_reply_binding((self._message.raw or {}).get("rtc_voice"))
+        return {"voice_reply": binding} if binding else {}
 
     async def get_message_info(self) -> Dict[str, Any]:
         room_id = self._message.chat_id

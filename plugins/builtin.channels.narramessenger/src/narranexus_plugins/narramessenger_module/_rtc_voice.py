@@ -1,7 +1,8 @@
 """
 @file_name: _rtc_voice.py
 @date: 2026-08-06
-@description: F28 RTC voice-input metadata — v1 parser + body envelope splitter.
+@description: F28 RTC voice metadata — v1 input parser, body envelope splitter,
+and the v15 outbound reply binding.
 
 Contract source: Hybrid "Direct Matrix RTC fast reply" handoff, sections 3.1/3.2/4.2.
 The metadata is a performance / presentation hint, NOT an authorization
@@ -23,6 +24,9 @@ from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
 RTC_VOICE_INPUT_KEY = "ai.netmind.rtc.voice_input"
+# Voice contract v15: the key every reply to a voice turn carries so Narra
+# binds it to the exact (session, turn) instead of matching by room + time.
+RTC_VOICE_REPLY_KEY = "ai.netmind.rtc.voice_reply"
 
 # Cap for instructions accepted through the degraded common trigger, where
 # nothing else bounds the string (the strict parser's contract does).
@@ -150,3 +154,36 @@ def split_narra_system_prompt(body: str) -> Tuple[Optional[str], str]:
     if match is None:
         return None, body
     return match.group(1).strip(), body[match.end():]
+
+
+def voice_reply_binding(rtc_voice: Any) -> Optional[dict]:
+    """The v15 reply binding for a voice turn, or None when it has none.
+
+    ``rtc_voice`` is the dict ``parse_event`` stamps on ``raw["rtc_voice"]``.
+    Only a strictly-validated turn has correlation ids; a degraded turn
+    (blank ids) cannot be bound and yields None, as does a text turn.
+    """
+    if not isinstance(rtc_voice, dict):
+        return None
+    session_id = rtc_voice.get("rtc_session_id")
+    turn_id = rtc_voice.get("turn_id")
+    if not (_non_blank_str(session_id) and _non_blank_str(turn_id)):
+        return None
+    return {"rtc_session_id": session_id, "turn_id": turn_id}
+
+
+def with_voice_reply_binding(content: dict, binding: Optional[dict]) -> dict:
+    """Return ``content`` stamped with the reply binding (input untouched).
+
+    An ``m.replace`` edit must carry the same binding on the outer content
+    AND on ``m.new_content`` — Narra rejects an edit missing either level
+    (``invalid_reply_binding``). ``binding=None`` returns ``content`` as is,
+    so text turns stay byte-identical.
+    """
+    if not binding:
+        return content
+    stamped = {**content, RTC_VOICE_REPLY_KEY: dict(binding)}
+    new_content = content.get("m.new_content")
+    if isinstance(new_content, dict):
+        stamped["m.new_content"] = {**new_content, RTC_VOICE_REPLY_KEY: dict(binding)}
+    return stamped

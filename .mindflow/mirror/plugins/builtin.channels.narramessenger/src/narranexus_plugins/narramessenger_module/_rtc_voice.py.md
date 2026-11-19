@@ -1,7 +1,7 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_rtc_voice.py
 stub: false
-last_verified: 2026-08-11
+last_verified: 2026-11-19
 ---
 
 ## Why it exists
@@ -50,9 +50,25 @@ F28 语音快速回答模式（voice fast mode）的入站契约层：Hybrid 把
   `<narra-system-prompt>` envelope；未闭合、出现在正文中间的一律不剥，
   整个 body 按 transcript 处理——用户原文永远不能被提升为指令内容。
 
+## 2026-11-19 — 出站绑定：`ai.netmind.rtc.voice_reply`（语音契约 v15）
+
+本文件原先只管入站；v15 起也是**出站回复绑定**的唯一定义点：
+
+- `RTC_VOICE_REPLY_KEY` 字面量。
+- `voice_reply_binding(rtc_voice)`：从 `raw["rtc_voice"]` 取 `{rtc_session_id, turn_id}`，两个 id 都是非空字符串
+  才返回，否则 None。降级轮天然没有 id，所以无法绑定——这是有意的，不拿别的轮的 id 去凑。
+- `with_voice_reply_binding(content, binding)`：返回盖好章的**新** dict（不改入参）；content 带
+  `m.new_content` 时两层都盖。`binding=None` 原样返回，保证文字轮事件逐字节不变。
+
+契约源：Narra「升級到第 15 版語音通話契約」文档 §C8（2026-11-19，Poliyka 提供）。所有出口的清单见
+[[matrix_trigger.py]] 同日条目。
+
 ## Downstream
 
-被 trigger 的 voice 检测分支消费（fast profile 触发 + envelope 注入；
+出站绑定的消费方：[[matrix_trigger.py]]（bridge / plain sender / error marker / 熔断拒绝）、
+[[narramessenger_context_builder.py]]（`reply_kwargs`）、[[narramessenger_module.py]]（`send_to_agent`）。
+
+入站：被 trigger 的 voice 检测分支消费（fast profile 触发 + envelope 注入；
 通话级串行自 2026-08-11 起按 agent:room key，不再取 rtc_session_id）。`parse_rtc_voice_input` 与
 `extract_common_voice_instructions` 自 2026-08-11 起是
 `matrix_trigger._detect_voice_turn` 两级检测的 Level 1 / Level 2 判据；

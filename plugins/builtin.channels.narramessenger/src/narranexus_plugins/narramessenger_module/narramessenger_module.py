@@ -34,6 +34,7 @@ from narranexus.platform.schema import (
 from narranexus.platform.schema.hook_schema import HookAfterExecutionParams
 
 from ._matrix_send import MatrixSendError, matrix_room_send
+from ._rtc_voice import with_voice_reply_binding
 from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
@@ -55,10 +56,10 @@ from ._narramessenger_mcp_tools import register_narramessenger_mcp_tools
 def _extract_narramessenger_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """Extract the user-visible reply text from an agent tool call.
 
-    Recognises ``narra_reply(text)`` (the reply marker) and
-    ``narra_send(room_id, text)`` (proactive) — both carry the user-facing
-    text in the ``text`` arg. Returns None when the call isn't a user-facing
-    reply.
+    Recognises ``narra_reply(text)`` (the reply marker), ``speak(text)``
+    (the voice-turn reply) and ``narra_send(room_id, text)`` (proactive) —
+    all carry the user-facing text in the ``text`` arg. Returns None when
+    the call isn't a user-facing reply.
     """
     args = arguments
     if isinstance(args, str):
@@ -69,7 +70,11 @@ def _extract_narramessenger_reply(tool_name: str, arguments: dict) -> Optional[s
     if not isinstance(args, dict):
         return None
 
-    if "narra_reply" in (tool_name or "") or "narra_send" in (tool_name or ""):
+    name = tool_name or ""
+    # ``speak`` is matched on the exact leaf name: a bare substring would
+    # also claim an unrelated tool that merely contains the word.
+    is_speak = name == "speak" or name.endswith("__speak")
+    if "narra_reply" in name or "narra_send" in name or is_speak:
         text = args.get("text", "")
         return text or None
 
@@ -249,6 +254,10 @@ class NarramessengerModule(ChannelModuleBase):
         ``target_id`` is a NarraMessenger ``room_id`` (Matrix room id).
         Delivered natively via Matrix ``room_send`` — used for both replies
         and proactive/composite sends routed from other parts of the system.
+
+        ``voice_reply`` (from the context builder's ``reply_kwargs``) is the
+        v15 reply binding of the voice turn being answered; when present the
+        event carries it so Narra speaks the fallback instead of dropping it.
         """
         cred = await self.get_credential(agent_id)
         if not cred:
@@ -261,7 +270,10 @@ class NarramessengerModule(ChannelModuleBase):
                 homeserver=cred.matrix_homeserver_url,
                 token=cred.matrix_access_token,
                 room_id=target_id,
-                content={"msgtype": "m.text", "body": message},
+                content=with_voice_reply_binding(
+                    {"msgtype": "m.text", "body": message},
+                    kwargs.get("voice_reply"),
+                ),
             )
             return {"success": True, "data": {"event_id": event_id}}
         except MatrixSendError as e:
@@ -385,8 +397,9 @@ class NarramessengerModule(ChannelModuleBase):
         if extra.get("rtc_voice"):
             # F28 voice-call turn: speak leads the surface (the first
             # expressive entry is the turn's default reply tool). speak is
-            # NOT in reply_tool_names — on a normal turn the trigger has no
-            # voice bridge, so listing it would declare a dead tool.
+            # NOT in reply_tool_names — on a text turn the trigger would
+            # still deliver it as plain text, but the reply tool to offer
+            # the model there is narra_reply, not speak.
             return [f"mcp__{self.mcp_server_name}__speak", *tools]
         return tools
 

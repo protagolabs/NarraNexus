@@ -1,8 +1,46 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-11-03
+last_verified: 2026-11-19
 ---
+
+## 2026-11-19 — 语音契约 v15 第一步：本轮语音回复都带 `ai.netmind.rtc.voice_reply`
+
+Narra 语音契约 v15 要求：agent 对 `call.started` 回过 ack 之后，这通电话里**每一条**语音回复都必须带
+`{rtc_session_id, turn_id}` 绑定，否则被 `invalid_reply_binding` 静默丢弃（只留在聊天记录、不念出来，
+且 Narra 端不写日志）。绑定在 v14 的匹配路径上不被检查，所以这一步可以先于 ack / 控制事件上线。
+
+回答语音轮的出口：本文件里三类，加上平台兜底一类（不在本文件），全部经 [[_rtc_voice.py]] 的 `with_voice_reply_binding` 盖章：
+
+- **live bridge**：`_voice_send` 闭包盖章，base 事件和每次 `m.replace` 的外层 + `m.new_content` 两层都带
+  （Narra 对编辑缺任意一层都拒）。bridge 本身不知道绑定，仍是纯生命周期逻辑。
+- **`_send_matrix_reply`**：新增 keyword-only `voice_reply`。三个调用点传它——bridge 收尾失败的 plain 兜底、
+  spoken 清洗为空时 `narra_reply` 的 fresh-send、`_send_circuit_refusal`（语音轮的熔断拒绝就是这一轮的回复）。
+- **`_finalize_stream_silent` 的 error marker**：读 `state.voice_reply`。今天 v14 下 marker 会被念出来，
+  带绑定是为了升 15 后行为不变（否则这一轮只能等 Narra 60 秒超时）。
+- 平台 no-reply 兜底不在本文件：走 [[narramessenger_context_builder.py]] 的 `reply_kwargs` →
+  [[narramessenger_module.py]] 的 `send_to_agent`。
+
+绑定来源是 `_StreamReplyState.voice_reply`（`voice_reply_binding(rtc_voice)`）：只有严格校验通过的轮有 id，
+**降级语音轮（id 为空）和文字轮都是 None**，文字轮发出的 content 与之前逐字节相同。合并批次沿用
+`_merge_voice_batch` 的既有规则——跟最新一句的 `turn_id`，正是 Narra 眼里的「当前轮」。
+
+**故意不盖章的出口**（别当成漏网去「补」，补了会把不是本轮回复的消息错绑进本轮）：
+
+- `narra_send` / `narra_send_media`（MCP 工具，[[_narramessenger_mcp_tools.py]] / [[_matrix_send.py]]）：模型主动外发的聊天消息或附件，
+  不是语音回复；媒体的 msgtype 也不在 Narra 接受的 `m.text` / `m.notice` 之内。
+- authorize-event 的拒绝通知（原生路径 `_send_matrix_notice`；托管路径在 `managed_before_run` 里直接发出）：轮次根本没被受理。
+- silent-buffer / 群聊路径：语音只在 1:1 房间成立。
+
+留给后续步骤的契约坑（ack / 控制事件那一步上线前必须处理，属后续 PR）：
+
+- bridge 的 base 事件已发出但最终 edit 失败时，plain 兜底是本轮**第二条**新可见消息，v15 下会被 Narra 判
+  `visible_event_already_bound`——盖章救不回来，属于 C9。
+- `STREAMING_ENABLED=False` 时语音轮被剥成文字轮、回复不带绑定，所以 kill switch 打开时不能 ack `call.started`。
+
+已知边界：升 15 并 ack 之后，降级语音轮的回复无法绑定、会被 Narra 丢弃；v15 下 Narra 自己发的语音输入
+都带完整 metadata，降级只会出现在对端发坏数据时。atomic 路径不涉及（`STREAMING_ENABLED=False` 时语音轮
+先被剥成文字轮）。测试：`tests/narramessenger_module/test_voice_reply_binding.py`。
 
 ## 2026-11-03 — `_MATRIX_USER_RE` 已删除：MXID 现在来自 bind claim
 

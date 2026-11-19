@@ -1,8 +1,16 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/descriptor.py
-last_verified: 2026-10-14
+last_verified: 2026-11-19
 stub: false
 ---
+
+## 2026-11-19 — `reply_tools` 加 `"speak"`
+
+语音轮的提示词规定 `speak` 是用户唯一能听到的出口，但 registry 里只登记了 `narra_reply` / `narra_send`，
+runtime（step_3 `_has_organic_reply`、chat_module 的已送达判定）因此把「只调了 speak」的语音轮当成没回复，
+DM 兜底会再补发一条 helper 写的答案。登记之后这类轮次判为 `already_replied_via_tool`。文字轮调 `speak` 也成立：
+trigger 会捕获并以普通文本发出。影响面不止「是否算已回复」：chat_module 记录的已送达文本、agent 下一轮历史、step_4 的会话锚定都读这个 registry，
+现在都会把 `speak` 的文本算进去（副作用清单见 [[narramessenger_module.py]]）。不影响对模型声明哪些工具。
 
 ## 2026-10-14 — 声明 `reset_on_reenable=("matrix_since_token",)`
 
