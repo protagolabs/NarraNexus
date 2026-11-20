@@ -1,5 +1,5 @@
 ---
-code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_voice_call.py
+code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/voice/_voice_call.py
 stub: false
 last_verified: 2026-11-19
 ---

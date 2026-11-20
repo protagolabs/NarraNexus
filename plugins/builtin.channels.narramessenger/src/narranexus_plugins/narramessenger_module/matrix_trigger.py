@@ -116,7 +116,7 @@ from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
 )
-from ._rtc_voice import (
+from .voice._rtc_voice import (
     extract_common_voice_instructions,
     is_leaf_tool,
     parse_rtc_voice_input,
@@ -124,8 +124,8 @@ from ._rtc_voice import (
     voice_reply_binding,
     with_voice_reply_binding,
 )
-from ._voice_control import VoiceControlMixin
-from ._voice_delivery import VoiceDeliveryBridge, replacement_content
+from .voice._voice_control import VoiceControlMixin
+from .voice._voice_delivery import VoiceDeliveryBridge, replacement_content
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 

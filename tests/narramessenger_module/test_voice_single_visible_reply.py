@@ -22,8 +22,8 @@ from narranexus_plugins.narramessenger_module import matrix_trigger as mt_mod
 from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from narranexus_plugins.narramessenger_module._rtc_voice import RTC_VOICE_REPLY_KEY
-from narranexus_plugins.narramessenger_module._voice_delivery import (
+from narranexus_plugins.narramessenger_module.voice._rtc_voice import RTC_VOICE_REPLY_KEY
+from narranexus_plugins.narramessenger_module.voice._voice_delivery import (
     LIVE_MARKER_KEY,
     VoiceDeliveryBridge,
     replacement_content,

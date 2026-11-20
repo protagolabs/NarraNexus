@@ -12,6 +12,9 @@ last_verified: 2026-11-19
 唯一的改写是把模块级的 `_service_sender_for(own_mxid)` 换成等价的 `self._service_sender_mxid(credential)`
 （mixin 不反向 import 本文件）。
 
+同一个 PR 里，四个语音文件（`_rtc_voice` / `_voice_delivery` / `_voice_call` / `_voice_control`）一起收进了 `voice/` 子包
+（见 `voice/__init__.py.md`）；本文件对它们的导入相应变成 `from .voice.<模块> import ...`。本文件自己**不**进那个包：`descriptor.py` 的 `trigger_ref` 指向这里，是运行时发现 trigger 的入口。
+
 本文件只留下四处接缝：
 
 - 生命周期：`__init__` 调 `_init_voice_control()`，`start()` 调 `_reset_voice_control()`，`stop()` 调 `_stop_voice_control()`；

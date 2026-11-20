@@ -34,8 +34,8 @@ from narranexus.platform.channel.channel_audit_events import (
 )
 from narranexus.platform.schema.parsed_message import ParsedMessage
 
-from ._matrix_send import MatrixSendError, matrix_send_event
-from ._narramessenger_credential_manager import NarramessengerCredential
+from .._matrix_send import MatrixSendError, matrix_send_event
+from .._narramessenger_credential_manager import NarramessengerCredential
 from ._rtc_voice import voice_reply_binding
 from ._voice_call import (
     EVENT_VOICE_CONTROL_DROPPED,

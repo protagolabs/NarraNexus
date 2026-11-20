@@ -1,5 +1,5 @@
 ---
-code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_rtc_voice.py
+code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/voice/_rtc_voice.py
 stub: false
 last_verified: 2026-11-19
 ---

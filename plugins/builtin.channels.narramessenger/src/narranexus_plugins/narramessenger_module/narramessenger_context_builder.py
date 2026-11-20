@@ -43,7 +43,7 @@ from narranexus.platform.channel.channel_prompts import (
 from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 
 from ._narramessenger_credential_manager import NarramessengerCredential
-from ._rtc_voice import voice_reply_binding
+from .voice._rtc_voice import voice_reply_binding
 
 
 class NarramessengerContextBuilder(ChannelContextBuilderBase):

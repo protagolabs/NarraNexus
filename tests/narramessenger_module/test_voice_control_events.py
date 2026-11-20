@@ -33,12 +33,12 @@ from narranexus.platform.channel.channel_audit_events import (
 )
 from narranexus.platform.channel.channel_dedup_store import ChannelDedupStore
 from narranexus_plugins.narramessenger_module import _matrix_send as ms
-from narranexus_plugins.narramessenger_module import _voice_control as vc_mod
+from narranexus_plugins.narramessenger_module.voice import _voice_control as vc_mod
 from narranexus_plugins.narramessenger_module import matrix_trigger as mt_mod
 from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from narranexus_plugins.narramessenger_module._voice_call import (
+from narranexus_plugins.narramessenger_module.voice._voice_call import (
     EVENT_VOICE_CONTROL_DROPPED,
     EVENT_VOICE_CONTROL_HANDLED,
     KIND_CALL_ENDED,
@@ -174,7 +174,7 @@ def test_ids_at_the_cap_are_accepted():
 
 
 def test_message_path_rejects_over_long_ids_too():
-    from narranexus_plugins.narramessenger_module._rtc_voice import (
+    from narranexus_plugins.narramessenger_module.voice._rtc_voice import (
         parse_rtc_voice_input,
         voice_reply_binding,
     )

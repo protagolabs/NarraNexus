@@ -39,7 +39,7 @@ from ._narramessenger_credential_manager import (
     NarramessengerCredentialManager,
 )
 from ._narramessenger_mcp_tools import register_narramessenger_mcp_tools
-from ._rtc_voice import is_leaf_tool, with_voice_reply_binding
+from .voice._rtc_voice import is_leaf_tool, with_voice_reply_binding
 
 # ───────────────────────────────────────────────────────────────────────────
 # Reply extractor (named by descriptor.reply_extractor_ref) — so ChatModule
