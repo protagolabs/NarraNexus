@@ -4,6 +4,11 @@ stub: false
 last_verified: 2026-11-19
 ---
 
+## 2026-11-19 — import 路径跟随 `voice/` 子包
+
+语音相关的四个模块收进了 `narramessenger_module/voice/`（见 `voice/__init__.py.md`）。本文件只改了一行 import：
+`voice_reply_binding` 现在来自 `.voice._rtc_voice`。行为与下文意图不变。
+
 ## 2026-11-19 — `reply_kwargs()`：语音轮把 v15 回复绑定放进 turn envelope
 
 覆写基类的 `reply_kwargs()`（此前用默认空 dict）。严格语音轮返回 `{"voice_reply": {rtc_session_id, turn_id}}`，
