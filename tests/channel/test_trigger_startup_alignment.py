@@ -38,6 +38,8 @@ own check script.
 import re
 from pathlib import Path
 
+import pytest
+
 from tests._paths import engine_source_roots
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +58,10 @@ STARTUP_FILES = {
 
 # ``class Foo(ChannelTriggerBase):`` — the on-disk source of truth for "this is
 # a channel trigger". Excludes job_trigger (not a ChannelTriggerBase subclass).
-_SUBCLASS_RE = re.compile(r"class\s+(\w+)\s*\(\s*ChannelTriggerBase\s*\)")
+# The base list may hold other bases in any position and span lines (a trigger
+# declared with a mixin is still a trigger). ``\b`` keeps the match on the exact
+# name: ``WebhookChannelTriggerBase`` is an intermediate base, not a trigger.
+_SUBCLASS_RE = re.compile(r"class\s+(\w+)\s*\((?:[^)]*\bChannelTriggerBase\b[^)]*)\)")
 
 
 def discover_channel_trigger_classes() -> set[str]:
@@ -76,7 +81,31 @@ def test_discovery_finds_the_known_channel_triggers():
     classes = discover_channel_trigger_classes()
     assert "LarkTrigger" in classes
     assert "WeChatTrigger" in classes
+    # Declared with a mixin: the one trigger whose class line is not the
+    # plain ``class X(ChannelTriggerBase):`` form.
+    assert "MatrixTrigger" in classes
     assert len(classes) >= 6
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("class A(ChannelTriggerBase):", ["A"]),
+        ("class B(SomeMixin, ChannelTriggerBase):", ["B"]),
+        ("class C(ChannelTriggerBase, SomeMixin):", ["C"]),
+        ("class D(\n    MixinOne,\n    ChannelTriggerBase,\n    MixinTwo,\n):", ["D"]),
+        ("class E(pkg.Mixin, ChannelTriggerBase):", ["E"]),
+        # Not triggers: an intermediate base, and a class built on one.
+        ("class WebhookChannelTriggerBase(ChannelTriggerBase):", ["WebhookChannelTriggerBase"]),
+        ("class F(WebhookChannelTriggerBase):", []),
+        ("class G(Mixin, WebhookChannelTriggerBase):", []),
+        ("class H(Other):", []),
+    ],
+)
+def test_subclass_pattern_is_independent_of_base_order(source, expected):
+    """The guards below only see what this pattern finds. A trigger that
+    drops out of it also drops out of the registration check, silently."""
+    assert _SUBCLASS_RE.findall(source) == expected
 
 
 def test_every_channel_trigger_is_registered_in_map():

@@ -1,5 +1,5 @@
 ---
-code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/_voice_call.py
+code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/voice/_voice_call.py
 stub: false
 last_verified: 2026-11-19
 ---
@@ -7,7 +7,7 @@ last_verified: 2026-11-19
 ## Why it exists
 
 Narra 语音契约 v15 的**控制面**在 Nexus 侧的纯逻辑层：哪些 Matrix 自定义事件算控制事件、`ack.v2` 长什么样、
-一通电话在本进程里怎么记、控制事件怎么限速。没有任何 I/O——传输、鉴权、持久化的认领都在 [[matrix_trigger.py]]，
+一通电话在本进程里怎么记、控制事件怎么限速。没有任何 I/O——传输、鉴权、持久化的认领都在 [[_voice_control.py]]，
 这样契约形状可以不起 homeserver 就单测。
 
 契约源：Narra 的 v15 语音通话契约交接文档（2026-11-19）§3.0、C3–C7、C12。
@@ -77,7 +77,7 @@ Narra 语音契约 v15 的**控制面**在 Nexus 侧的纯逻辑层：哪些 Mat
 
 ## Downstream
 
-只被 [[matrix_trigger.py]] 消费。测试：`tests/narramessenger_module/test_voice_control_events.py` 的 pure layer 部分。
+只被 [[_voice_control.py]]（`VoiceControlMixin`，混入 `MatrixTrigger`）消费。测试：`tests/narramessenger_module/test_voice_control_events.py` 的 pure layer 部分。
 
 ## 已知限制
 

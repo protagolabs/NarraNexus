@@ -30,7 +30,7 @@ from narranexus_plugins.narramessenger_module import (
 from narranexus_plugins.narramessenger_module._narramessenger_credential_manager import (
     NarramessengerCredential,
 )
-from narranexus_plugins.narramessenger_module._rtc_voice import (
+from narranexus_plugins.narramessenger_module.voice._rtc_voice import (
     RTC_VOICE_REPLY_KEY,
     is_leaf_tool,
     voice_reply_binding,

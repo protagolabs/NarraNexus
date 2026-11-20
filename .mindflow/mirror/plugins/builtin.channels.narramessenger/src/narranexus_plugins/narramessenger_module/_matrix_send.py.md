@@ -10,7 +10,7 @@ last_verified: 2026-11-19
 `matrix_room_send` 发不了。新增通用的 `matrix_send_event(event_type=...)`，`matrix_room_send` 改为委托给它
 （URL、body、错误码与之前逐字节相同，既有测试钉着）。PUT body 就是 content 本身；传固定 `txn_id` 时重试是幂等的
 （ack 依赖这一点）。`event_type` 为空报 `bad_event_type`。
-`timeout_seconds` 可覆盖默认的 60 秒总预算：ack 只有新鲜时才有用，[[matrix_trigger.py]] 给它 10 秒。
+`timeout_seconds` 可覆盖默认的 60 秒总预算：ack 只有新鲜时才有用，[[_voice_control.py]] 给它 10 秒。
 
 ## 2026-10-30 — import 路径跟随 `utils/fs/` 分组
 

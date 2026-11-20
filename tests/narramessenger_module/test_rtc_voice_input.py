@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import copy
 
-from narranexus_plugins.narramessenger_module._rtc_voice import (
+from narranexus_plugins.narramessenger_module.voice._rtc_voice import (
     RTC_VOICE_INPUT_KEY,
     RtcVoiceInputV1,
     extract_common_voice_instructions,

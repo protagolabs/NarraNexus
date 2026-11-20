@@ -4,6 +4,11 @@ stub: false
 last_verified: 2026-11-19
 ---
 
+## 2026-11-19 — import 路径跟随 `voice/` 子包
+
+语音相关的四个模块收进了 `narramessenger_module/voice/`（见 `voice/__init__.py.md`）。本文件只改了一行 import：
+`is_leaf_tool` / `with_voice_reply_binding` 现在来自 `.voice._rtc_voice`。行为与下文意图不变。
+
 ## 2026-11-19 — `send_to_agent` 认 `voice_reply` kwarg（语音契约 v15 回复绑定）
 
 平台 no-reply 兜底（step_3 `_deliver_im_fallback_reply`）把 turn envelope 里的 `channel_reply_kwargs`
