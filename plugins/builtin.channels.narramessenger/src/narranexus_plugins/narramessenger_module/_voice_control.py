@@ -55,7 +55,15 @@ from ._voice_call import (
 )
 
 if TYPE_CHECKING:
-    from narranexus.platform.channel.channel_dedup_store import ChannelDedupStore
+    # For the type checker the mixin IS a ChannelTriggerBase, so the base's
+    # members (``_audit``, ``_dedup_store``) resolve to their real
+    # declarations instead of stubs. At runtime it stays a plain mixin and
+    # the MRO is MatrixTrigger -> VoiceControlMixin -> ChannelTriggerBase.
+    from narranexus.platform.channel.channel_trigger_base import (
+        ChannelTriggerBase as _Base,
+    )
+else:
+    _Base = object
 
 # Sentinel refusal: a new-session rate-limit denial that is not the first of
 # its window, so the handler drops the event without another audit row.
@@ -72,18 +80,16 @@ class _VoiceControlOrigin:
     sender_id: str
 
 
-class VoiceControlMixin:
+class VoiceControlMixin(_Base):
     """Control events, per-turn claim and acknowledgements (voice contract v15).
 
     Mixed into :class:`MatrixTrigger`; see the module docstring for the seams.
     """
 
     if TYPE_CHECKING:
-        # Provided by MatrixTrigger / ChannelTriggerBase.
+        # Members MatrixTrigger itself defines (its definitions win over
+        # these declarations). Base-class members need none: see _Base.
         STREAMING_ENABLED: bool
-        _dedup_store: Optional["ChannelDedupStore"]
-
-        async def _audit(self, event_type: str, **kwargs: Any) -> None: ...
 
         async def _authorize_event(
             self, credential: Any, message: Any, *, mentioned: bool

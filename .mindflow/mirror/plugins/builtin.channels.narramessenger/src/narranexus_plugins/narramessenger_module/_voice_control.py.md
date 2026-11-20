@@ -15,8 +15,11 @@ registry、限速器）在 [[_voice_call.py]]，没有 I/O；这里是围着它�
 
 **为什么是 mixin 而不是持有 trigger 引用的协作对象**：这里每个方法都在读 trigger 自己的状态和门——dedup store、
 审计写入、`_authorize_event`、`_resolve_room_shape`、流式 kill switch。做成协作对象只是把 `self.` 换成
-`self._trigger.`，依赖一条没少，还多一层间接。依赖用 `if TYPE_CHECKING:` 的声明写在类体里：它让 mixin 里对这些成员的引用在类型检查下有定义
-（名字拼错会报），但项目的 pyright 配置不比对存根和真实签名，签名漂移它查不出来。
+`self._trigger.`，依赖一条没少，还多一层间接。类型检查视角下 mixin 继承 `ChannelTriggerBase`（`_Base`，仅 `TYPE_CHECKING` 时成立，运行时是 `object`，MRO 不变），
+所以基类成员（`_audit`、`_dedup_store`）走真实声明。只有 `MatrixTrigger` 自己定义的四个成员用类体里的存根声明
+（`STREAMING_ENABLED`、`_authorize_event`、`_resolve_room_shape`、`_service_sender_mxid`）。存根要尽量少：
+mixin 排在 MRO 前面，存根会在类型检查下盖住它后面的真实声明，而项目的 pyright 只开了「属性是否存在」这一类检查，
+被存根盖住的名字等于在整个 `MatrixTrigger` 上都不再被检查，只能靠测试兜。
 mixin 不反向 import `matrix_trigger`（那会成环）：appservice 机器人的 MXID 用 trigger 的方法
 `_service_sender_mxid(credential)` 取。
 

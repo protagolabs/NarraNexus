@@ -41,7 +41,10 @@ from tests._paths import engine_source_roots
 
 # ``class Foo(ChannelTriggerBase):`` — on-disk source of truth for "this
 # module directory owns a channel trigger" (mirrors test_trigger_startup_alignment.py).
-_SUBCLASS_RE = re.compile(r"class\s+\w+\s*\(\s*(?:\w+\s*,\s*)*ChannelTriggerBase\s*\)")
+# Same pattern as test_trigger_startup_alignment.py: other bases may sit in any
+# position (a trigger declared with a mixin is still a trigger); ``\b`` keeps
+# ``WebhookChannelTriggerBase`` subclasses out.
+_SUBCLASS_RE = re.compile(r"class\s+\w+\s*\((?:[^)]*\bChannelTriggerBase\b[^)]*)\)")
 
 
 def _channel_names_from_entrypoints() -> list[str]:
@@ -68,7 +71,16 @@ def test_channel_name_discovery_finds_the_known_channels():
     names = _channel_names_from_entrypoints()
     assert "lark" in names
     assert "wechat" in names
+    # Its trigger is declared with a mixin, not the plain one-base form.
+    assert "narramessenger" in names
     assert len(names) >= 6
+
+
+def test_subclass_pattern_is_independent_of_base_order():
+    assert _SUBCLASS_RE.search("class B(SomeMixin, ChannelTriggerBase):")
+    assert _SUBCLASS_RE.search("class C(ChannelTriggerBase, SomeMixin):")
+    assert _SUBCLASS_RE.search("class D(\n    Mixin,\n    ChannelTriggerBase,\n):")
+    assert not _SUBCLASS_RE.search("class F(WebhookChannelTriggerBase):")
 
 
 def test_every_channel_trigger_declares_dedicated_handler():

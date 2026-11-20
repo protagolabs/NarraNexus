@@ -79,6 +79,7 @@ F28 语音快速回答模式（voice fast mode）的入站契约层：Hybrid 把
 ## Downstream
 
 出站绑定的消费方：[[matrix_trigger.py]]（bridge / plain sender / error marker / 熔断拒绝）、
+[[_voice_control.py]]（`_claim_voice_turn` / `_drop_dead_voice_turns` 用 `voice_reply_binding` 判断这一轮有没有关联 id）、
 [[narramessenger_context_builder.py]]（`reply_kwargs`）、[[narramessenger_module.py]]（`send_to_agent`）。
 
 入站：被 trigger 的 voice 检测分支消费（fast profile 触发 + envelope 注入；
