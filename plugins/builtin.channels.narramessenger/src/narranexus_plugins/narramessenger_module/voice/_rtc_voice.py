@@ -1,7 +1,8 @@
 """
 @file_name: _rtc_voice.py
 @date: 2026-08-06
-@description: F28 RTC voice-input metadata — v1 parser + body envelope splitter.
+@description: F28 RTC voice metadata — v1 input parser, body envelope splitter,
+and the v15 outbound reply binding.
 
 Contract source: Hybrid "Direct Matrix RTC fast reply" handoff, sections 3.1/3.2/4.2.
 The metadata is a performance / presentation hint, NOT an authorization
@@ -23,6 +24,9 @@ from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
 RTC_VOICE_INPUT_KEY = "ai.netmind.rtc.voice_input"
+# Voice contract v15: the key every reply to a voice turn carries so Narra
+# binds it to the exact (session, turn) instead of matching by room + time.
+RTC_VOICE_REPLY_KEY = "ai.netmind.rtc.voice_reply"
 
 # Cap for instructions accepted through the degraded common trigger, where
 # nothing else bounds the string (the strict parser's contract does).
@@ -57,8 +61,22 @@ def _is_strict_int(value: Any, expected: int) -> bool:
     return type(value) is int and value == expected
 
 
+# Longest correlation id accepted anywhere in the voice contract. The ids are
+# opaque strings chosen by the far side (UUIDs today, 36 chars) and end up in
+# registries, audit rows and logs, so an unbounded one is a memory and log
+# amplifier. Over-long ids are REJECTED, never truncated: claim keys and ack
+# transaction ids are hashes of them, and truncation would make two different
+# turns collide.
+MAX_RTC_ID_LEN = 128
+
+
 def _non_blank_str(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def is_rtc_id(value: Any) -> bool:
+    """True for a usable correlation id: a non-blank string within the cap."""
+    return _non_blank_str(value) and len(value) <= MAX_RTC_ID_LEN
 
 
 def _voice_metadata(event: Any) -> Optional[dict]:
@@ -90,7 +108,7 @@ def parse_rtc_voice_input(event: Any) -> Optional[RtcVoiceInputV1]:
         return None
     if meta.get("transcript_final") is not True:
         return None
-    if not all(_non_blank_str(meta.get(field)) for field in _BINDING_ID_FIELDS):
+    if not all(is_rtc_id(meta.get(field)) for field in _BINDING_ID_FIELDS):
         return None
 
     instructions = meta.get("voice_instructions")
@@ -150,3 +168,56 @@ def split_narra_system_prompt(body: str) -> Tuple[Optional[str], str]:
     if match is None:
         return None, body
     return match.group(1).strip(), body[match.end():]
+
+
+def is_leaf_tool(tool_name: Any, leaf: str) -> bool:
+    """True when ``tool_name`` is exactly ``leaf``, bare or MCP-qualified.
+
+    Fully-qualified tool names end in ``__<name>``. Matching the exact leaf
+    (never a substring) keeps a sibling such as ``narra_reply_draft`` or an
+    unrelated ``loudspeaker`` from being claimed.
+
+    The single definition of this rule for the channel's reply tools: the
+    trigger (which DELIVERS ``speak`` / ``narra_reply`` text) and the reply
+    extractor (which tells the runtime the turn was ANSWERED) must agree on
+    what counts as those tools. If they drift, a delivered reply reads as
+    unanswered (the DM fallback double-sends) or an undelivered one reads
+    as answered (a silent turn).
+    """
+    return isinstance(tool_name, str) and (
+        tool_name == leaf or tool_name.endswith(f"__{leaf}")
+    )
+
+
+def voice_reply_binding(rtc_voice: Any) -> Optional[dict]:
+    """The v15 reply binding for a voice turn, or None when it has none.
+
+    ``rtc_voice`` is the dict ``parse_event`` stamps on ``raw["rtc_voice"]``.
+    Only a strictly-validated turn has correlation ids; a degraded turn
+    (blank ids) cannot be bound and yields None, as does a text turn.
+    """
+    if not isinstance(rtc_voice, dict):
+        return None
+    session_id = rtc_voice.get("rtc_session_id")
+    turn_id = rtc_voice.get("turn_id")
+    if not (is_rtc_id(session_id) and is_rtc_id(turn_id)):
+        return None
+    return {"rtc_session_id": session_id, "turn_id": turn_id}
+
+
+def with_voice_reply_binding(content: dict, binding: Optional[dict]) -> dict:
+    """Return ``content`` stamped with the reply binding (input untouched).
+
+    An ``m.replace`` edit must carry the same binding on the outer content
+    AND on ``m.new_content`` — Narra rejects an edit missing either level
+    (``invalid_reply_binding``). ``binding=None`` returns ``content`` as is,
+    so text turns stay byte-identical; so does anything that is not a
+    dict (the binding crosses the turn envelope, which may be serialized).
+    """
+    if not isinstance(binding, dict) or not binding:
+        return content
+    stamped = {**content, RTC_VOICE_REPLY_KEY: dict(binding)}
+    new_content = content.get("m.new_content")
+    if isinstance(new_content, dict):
+        stamped["m.new_content"] = {**new_content, RTC_VOICE_REPLY_KEY: dict(binding)}
+    return stamped

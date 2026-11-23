@@ -1,8 +1,41 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-11-03
+last_verified: 2026-11-19
 ---
+
+## 2026-11-19 — import 路径跟随 `voice/` 子包
+
+语音相关的四个模块收进了 `narramessenger_module/voice/`（见 `voice/__init__.py.md`）。本文件只改了一行 import：
+`is_leaf_tool` / `with_voice_reply_binding` 现在来自 `.voice._rtc_voice`。行为与下文意图不变。
+
+## 2026-11-19 — `send_to_agent` 认 `voice_reply` kwarg（语音契约 v15 回复绑定）
+
+平台 no-reply 兜底（step_3 `_deliver_im_fallback_reply`）把 turn envelope 里的 `channel_reply_kwargs`
+原样展开给 `send_to_agent`。语音轮时 [[narramessenger_context_builder.py]] 的 `reply_kwargs()` 会放进
+`voice_reply={rtc_session_id, turn_id}`，这里用 [[_rtc_voice.py]] 的 `with_voice_reply_binding` 盖到事件上。
+没有这个 kwarg（文字轮、主动外发、其他模块路由来的发送）时 content 与之前完全相同。为什么必须带：
+v15 下 ack 过的通话里，未绑定的回复会被 Narra 静默丢弃——而兜底只在这一轮**真的没有任何回复工具被调用**时才触发
+（见下一段），那时它就是这一轮唯一的答案。
+
+同一个 commit 修了一个旧 bug：`_extract_narramessenger_reply` 现在也认 `speak(text)`（按**精确叶子名** `speak` /
+`...__speak`，不做子串匹配；判定用 [[_rtc_voice.py]] 的 `is_leaf_tool`，与 trigger 投递 `speak` 用的是同一个函数，
+托管分支过滤 `narra_reply` 也改用它），[[descriptor.py]] 的 `reply_tools` 加了 `"speak"`。此前语音轮只调 `speak` 时，runtime
+按 registry 判定「没回复」，DM 兜底会再让 helper LLM 写一条发进房间：v14 下是聊天记录多一条；v15 下这条重复消息带着
+本轮绑定，若抢在 bridge 第一次 flush 之前到达，会顶掉 agent 真正的回答。`reply_tool_names`（对模型声明的回复工具）
+**没动**：文字轮上 `speak` 其实会被 trigger 捕获并当普通文本发出，但不应把它当作默认回复工具推给模型
+（文字轮的回复工具是 `narra_reply`），所以仍不声明。
+
+已知的、有意接受的副作用：
+
+- chat_module 的已送达文本与 agent 下一轮的历史现在会记录 `speak` 的文本（以前语音轮记的是 helper 写的兜底），
+  step_4 的会话锚定对 `speak` 与 `narra_reply` 一视同仁。同一轮里 `speak("X")` + `narra_reply("X")`（或连续两次
+  相同的 `speak`）bridge 会去重、来电者只听一遍，但 chat 记录按帧拼接、会出现两遍 X——只影响记录，不影响送达。
+- `MessageSourceHandler.is_user_reply_tool` 是**子串**匹配，而这里的 extractor 对 `speak` 是精确叶子名：名字里
+  含 "speak" 的其他工具（目前全仓没有）会被前者当成回复、后者当成不是。`narra_send_media` 早就有同类分歧。
+  根治需要让 handler 支持精确叶子名，是跨渠道改动，不在本 PR。
+- 托管入口的轮次没有 trigger 投递 `speak`；模型若在托管轮误调它，现在会被算作已回复。`speak` 的工具说明限定
+  它只在语音通话中有意义，托管轮不会是语音轮。
 
 ## 2026-11-03 — setup text names the Direct Matrix transport
 

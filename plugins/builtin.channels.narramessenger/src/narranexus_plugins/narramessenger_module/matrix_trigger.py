@@ -116,12 +116,16 @@ from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
 )
-from ._rtc_voice import (
+from .voice._rtc_voice import (
     extract_common_voice_instructions,
+    is_leaf_tool,
     parse_rtc_voice_input,
     split_narra_system_prompt,
+    voice_reply_binding,
+    with_voice_reply_binding,
 )
-from ._voice_delivery import VoiceDeliveryBridge
+from .voice._voice_control import VoiceControlMixin
+from .voice._voice_delivery import VoiceDeliveryBridge, replacement_content
 from .narramessenger_context_builder import NarramessengerContextBuilder
 
 
@@ -175,9 +179,7 @@ def _is_voice_reply_tool(tool_name: str) -> bool:
     mirroring the managed-ingress filter: a future ``narra_reply_*``
     sibling is never collaterally claimed.
     """
-    return tool_name in ("speak", "narra_reply") or tool_name.endswith(
-        ("__speak", "__narra_reply")
-    )
+    return is_leaf_tool(tool_name, "speak") or is_leaf_tool(tool_name, "narra_reply")
 
 
 def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
@@ -305,6 +307,10 @@ class _StreamReplyState:
     # gated). Keeps two tools' delta streams from interleaving into one
     # segment view.
     voice_stream_tool: str = ""
+    # Voice contract v15: the reply binding of the voice turn this stream
+    # answers (None on text and degraded turns). Every event this turn
+    # sends to the room is stamped with it.
+    voice_reply: Optional[dict] = None
 
 # Authenticated Matrix media download (MSC3916 / Matrix 1.11). The room's
 # homeserver requires a bearer token on media fetches — the legacy
@@ -400,7 +406,7 @@ class _AuthorizeVerdict:
     notice_text: Optional[str] = None
 
 
-class MatrixTrigger(ChannelTriggerBase):
+class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
     """NarraMessenger channel trigger — Matrix client transport.
 
     Sole NarraMessenger trigger as of Commit 7 (2026-07-02); the legacy
@@ -641,12 +647,14 @@ class MatrixTrigger(ChannelTriggerBase):
         # holds a call's drain loop; overlapping utterances buffer and
         # merge into one follow-up turn. Entries die when the call idles.
         self._voice_calls: dict[str, _VoiceCallState] = {}
+        self._init_voice_control()
 
     # ────────────────────────────────────────────────────────────────────
     # Lifecycle
     # ────────────────────────────────────────────────────────────────────
 
     async def start(self, db) -> None:
+        self._reset_voice_control()
         await super().start(db)
         logger.info(
             f"MatrixTrigger started: {len(self._workers)} workers, "
@@ -673,6 +681,8 @@ class MatrixTrigger(ChannelTriggerBase):
             if not task.done():
                 task.cancel()
         self._silent_flush_tasks.clear()
+
+        self._stop_voice_control()
 
         for key, client in list(self._clients.items()):
             try:
@@ -1631,8 +1641,15 @@ class MatrixTrigger(ChannelTriggerBase):
         credential: NarramessengerCredential,
         room_id: str,
         text: str,
+        *,
+        voice_reply: Optional[dict] = None,
     ) -> None:
         """Send Narra's server-suggested denial notice as ``m.notice``.
+
+        ``voice_reply`` is the v15 reply binding when the denied event is a
+        voice turn: the notice is then that turn's reply (same as a
+        circuit-breaker refusal) and must be bound, or an acked call hears
+        nothing until Narra's turn timeout.
 
         Per guide: this is the ONLY allowed side effect for a denied
         event. Do NOT read history, write memory, invoke tools, call
@@ -1654,7 +1671,9 @@ class MatrixTrigger(ChannelTriggerBase):
             resp = await client.room_send(
                 room_id=room_id,
                 message_type="m.room.message",
-                content={"msgtype": "m.notice", "body": text},
+                content=with_voice_reply_binding(
+                    {"msgtype": "m.notice", "body": text}, voice_reply
+                ),
             )
             if not isinstance(resp, RoomSendResponse):
                 code = str(getattr(resp, "status_code", "unknown") or "unknown")
@@ -1678,16 +1697,34 @@ class MatrixTrigger(ChannelTriggerBase):
         """The base's refusal hook: this channel's ``send_channel_reply`` is
         a no-op, so a circuit-breaker refusal goes out through the same
         sender as a normal answer. True iff the homeserver accepted it (a
-        False hands the group window back, see the base)."""
-        return await self._send_matrix_reply(credential, message.chat_id, text)
+        False hands the group window back, see the base). On a voice turn
+        the refusal is the turn's reply, so it carries the reply binding."""
+        return await self._send_matrix_reply(
+            credential,
+            message.chat_id,
+            text,
+            voice_reply=voice_reply_binding(
+                (getattr(message, "raw", None) or {}).get("rtc_voice")
+            ),
+        )
 
     async def _send_matrix_reply(
         self,
         credential: NarramessengerCredential,
         room_id: str,
         content: str,
+        *,
+        voice_reply: Optional[dict] = None,
+        replaces_event_id: Optional[str] = None,
     ) -> bool:
         """Send ``content`` back into ``room_id`` as ``m.room.message``.
+
+        ``voice_reply`` is the v15 reply binding when this send answers a
+        voice turn (stamped onto the event); None for text turns.
+        ``replaces_event_id`` turns the send into an ``m.replace`` of that
+        event instead of a new message — a voice turn may have only one
+        visible reply event, so a fallback delivery after the live base
+        went out must edit it.
 
         Retry policy:
           - M_LIMIT_EXCEEDED → obey ``retry_after_ms``, then retry.
@@ -1730,7 +1767,12 @@ class MatrixTrigger(ChannelTriggerBase):
                 resp = await client.room_send(
                     room_id=room_id,
                     message_type="m.room.message",
-                    content={"msgtype": "m.text", "body": content},
+                    content=with_voice_reply_binding(
+                        replacement_content(content, replaces_event_id)
+                        if replaces_event_id
+                        else {"msgtype": "m.text", "body": content},
+                        voice_reply,
+                    ),
                 )
             except Exception as e:  # noqa: BLE001
                 last_code = "transport_exception"
@@ -1961,7 +2003,12 @@ class MatrixTrigger(ChannelTriggerBase):
                     f"notice={verdict.notice_text[:80]!r})"
                 )
                 await self._send_matrix_notice(
-                    credential, message.chat_id, verdict.notice_text
+                    credential,
+                    message.chat_id,
+                    verdict.notice_text,
+                    voice_reply=voice_reply_binding(
+                        (message.raw or {}).get("rtc_voice")
+                    ),
                 )
             else:
                 logger.info(
@@ -2013,6 +2060,14 @@ class MatrixTrigger(ChannelTriggerBase):
                     },
                 )
             else:
+                # Voice contract v15: one logical turn runs at most once,
+                # however many times it is delivered, and never after it
+                # was cancelled. Claimed HERE — past every gate of the base
+                # pipeline (a turn the ingress breaker turns away must stay
+                # claimable for Narra's re-send) and before the per-call
+                # queue (a duplicate must be dropped, not merged in).
+                if not await self._claim_voice_turn(credential, message):
+                    return ""
                 return await self._run_voice_serialized(
                     credential, message, sender_name, attachments=attachments
                 )
@@ -2145,8 +2200,14 @@ class MatrixTrigger(ChannelTriggerBase):
         last_text = ""
         try:
             while call.pending:
-                batch = call.pending
+                # Take the batch BEFORE awaiting: messages that arrive
+                # during the await go to the fresh list, not into a batch
+                # that is already being filtered.
+                queued = call.pending
                 call.pending = []
+                batch = await self._drop_dead_voice_turns(credential, queued)
+                if not batch:
+                    continue
                 merged_message, merged_sender, merged_attachments = (
                     _merge_voice_batch(batch)
                 )
@@ -2277,7 +2338,7 @@ class MatrixTrigger(ChannelTriggerBase):
         if rtc_voice:
             extra_data["rtc_voice"] = rtc_voice
 
-        state = _StreamReplyState()
+        state = _StreamReplyState(voice_reply=voice_reply_binding(rtc_voice))
 
         if rtc_voice:
             # The bridge owns the live m.text / m.replace lifecycle for
@@ -2290,7 +2351,7 @@ class MatrixTrigger(ChannelTriggerBase):
                     homeserver=credential.matrix_homeserver_url,
                     token=credential.matrix_access_token,
                     room_id=room_id_for_send,
-                    content=content,
+                    content=with_voice_reply_binding(content, state.voice_reply),
                 )
 
             state.voice_bridge = VoiceDeliveryBridge(send=_voice_send)
@@ -2372,7 +2433,14 @@ class MatrixTrigger(ChannelTriggerBase):
                         f"(room={message.chat_id})"
                     )
                     await self._send_matrix_reply(
-                        credential, message.chat_id, spoken
+                        credential,
+                        message.chat_id,
+                        spoken,
+                        voice_reply=state.voice_reply,
+                        # The live base may already be in the room: the
+                        # fallback then finishes THAT event (final,
+                        # marker-free edit) rather than adding a second one.
+                        replaces_event_id=state.voice_bridge.base_event_id,
                     )
                 # Deliberately NOTHING else once the bridge delivered: on
                 # a live call the plain sender is a DELIVERY channel (the
@@ -2393,7 +2461,10 @@ class MatrixTrigger(ChannelTriggerBase):
             # No placeholder to edit — fresh-send via the retry-aware
             # reply sender (same one the atomic path uses).
             await self._send_matrix_reply(
-                credential, message.chat_id, final_text
+                credential,
+                message.chat_id,
+                final_text,
+                voice_reply=state.voice_reply,
             )
             return final_text
 
@@ -2517,10 +2588,8 @@ class MatrixTrigger(ChannelTriggerBase):
         if not (isinstance(text, str) and text.strip()):
             return
 
-        is_speak = tool_name == "speak" or tool_name.endswith("__speak")
-        is_narra_reply = (
-            tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
-        )
+        is_speak = is_leaf_tool(tool_name, "speak")
+        is_narra_reply = is_leaf_tool(tool_name, "narra_reply")
 
         if state.voice_bridge is not None and _is_voice_reply_tool(tool_name):
             # Every completed reply text enters the bridge — the claim
@@ -2617,7 +2686,10 @@ class MatrixTrigger(ChannelTriggerBase):
                 homeserver=credential.matrix_homeserver_url,
                 token=credential.matrix_access_token,
                 room_id=room_id,
-                content={"msgtype": "m.text", "body": self.STREAM_ERROR_MARKER},
+                content=with_voice_reply_binding(
+                    {"msgtype": "m.text", "body": self.STREAM_ERROR_MARKER},
+                    state.voice_reply,
+                ),
             )
             logger.info(
                 f"[matrix:{credential.agent_id}] silent stream — fresh "
@@ -2670,10 +2742,8 @@ class MatrixTrigger(ChannelTriggerBase):
             if not isinstance(item, dict) or item.get("type") != "tool_call_item":
                 continue
             tool_name = str(item.get("tool_name") or "")
-            is_reply = (
-                tool_name == "narra_reply" or tool_name.endswith("__narra_reply")
-            )
-            is_speak = tool_name == "speak" or tool_name.endswith("__speak")
+            is_reply = is_leaf_tool(tool_name, "narra_reply")
+            is_speak = is_leaf_tool(tool_name, "speak")
             if not (is_reply or is_speak):
                 continue
             args = item.get("arguments") or {}
@@ -2919,6 +2989,13 @@ class MatrixTrigger(ChannelTriggerBase):
                             continue
                         if self._is_room_creation_event(event):
                             self._apply_room_creation_event(room_id, event)
+                            continue
+                        if self._is_voice_control_event(event):
+                            # Not a prompt: handled off the base pipeline
+                            # and off this loop (never yielded).
+                            self._dispatch_voice_control_event(
+                                client, credential, room_id, event
+                            )
                             continue
                         raw = self._wrap_event(
                             event=event,

@@ -1,8 +1,20 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/narramessenger_context_builder.py
 stub: false
-last_verified: 2026-09-04
+last_verified: 2026-11-19
 ---
+
+## 2026-11-19 — import 路径跟随 `voice/` 子包
+
+语音相关的四个模块收进了 `narramessenger_module/voice/`（见 `voice/__init__.py.md`）。本文件只改了一行 import：
+`voice_reply_binding` 现在来自 `.voice._rtc_voice`。行为与下文意图不变。
+
+## 2026-11-19 — `reply_kwargs()`：语音轮把 v15 回复绑定放进 turn envelope
+
+覆写基类的 `reply_kwargs()`（此前用默认空 dict）。严格语音轮返回 `{"voice_reply": {rtc_session_id, turn_id}}`，
+降级语音轮和文字轮返回 `{}`。它经 `turn_envelope()` → `channel_reply_kwargs` 到达 step_3 的平台 no-reply
+兜底，再展开给 [[narramessenger_module.py]] 的 `send_to_agent`。走这条通用接缝是为了不让 runtime 认识任何
+渠道细节（铁律 #3），和 WeChat 的 `context_token` 是同一个机制。
 
 ## 2026-08-06 — voice fast mode: RTC 检测 + voice register + speak
 
