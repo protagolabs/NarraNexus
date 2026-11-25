@@ -70,10 +70,10 @@ notice、`_build_and_run_agent` 的判定与取值、`_strip_voice_stamp`、`_la
 请求中被摘掉 / 被换新后补关、请求抛异常 / 被取消时同样补关、fallback 只在没有 live client 时使用且用后被关、关自身失败不
 遮盖结果、live client 不关）；回复在重试间 client 被换掉后改用新 client、重连窗口里重试落在上一次的 client 上并送达（每次
 尝试后补关）、连续两次重试都没有 live client 仍送达、从未有 client 时审计 details 与原先逐字相同、同一 live client 上重试
-三次不被关；notice 不用 fallback；notice 与房型查询走 live client；`connect()` 收尾只摘自己的 client（新旧循环重叠时新
+三次不被关；notice 不用 fallback（第一次 notice 途中 client 被摘掉后，第二次 notice 不会再落到那个退役 client 上、也不会让它被再用一次）；notice 与房型查询走 live client；`connect()` 收尾只摘自己的 client（新旧循环重叠时新
 client 保留）；`is_voice_turn` / `rtc_voice_stamp`。实测变异：helper 不补关 → 13 红；helper 连 live client 一起关 → 6 红；
 回复钉住第一次的 client → 1 红；只在请求成功时补关 → 4 红；空 stamp 也算语音轮 → 1 红；helper 忽略 fallback → 3 红；
-回复不传 fallback → 2 红；`connect()` 无条件摘 → 1 红。
+回复不传 fallback → 2 红；`connect()` 无条件摘 → 1 红；notice 记住上次的 client 当 fallback → 1 红。
 
 ## 2026-11-25 — agent 处理文字轮期间上报 Matrix `m.typing`（「对方正在输入…」）
 

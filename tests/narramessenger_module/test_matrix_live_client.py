@@ -332,9 +332,21 @@ async def test_reply_retries_on_the_live_client_never_close_it(t):
 
 @pytest.mark.asyncio
 async def test_notice_does_not_fall_back_to_a_retired_client(t):
-    """Only the reply sender passes a fallback: a notice with no live
-    client is not sent at all."""
-    await t._send_matrix_notice(_cred(), ROOM, "not allowed")
+    """Only the reply sender passes a fallback. A notice whose client was
+    retired during its request leaves that client closed; the next notice,
+    with no live client, sends nothing — nothing lands on the retired
+    client and it is not used (and closed) again."""
+    old = _Client(_ok(), _ok())
+    t._clients[_key(t)] = old
+    old.during = lambda: t._clients.pop(_key(t))  # retired mid-request
+
+    await t._send_matrix_notice(_cred(), ROOM, "first")
+    assert len(old.sent) == 1
+    assert old.closed == 1
+
+    await t._send_matrix_notice(_cred(), ROOM, "second")
+    assert len(old.sent) == 1
+    assert old.closed == 1
     assert t._audit_repo.calls == []
 
 
