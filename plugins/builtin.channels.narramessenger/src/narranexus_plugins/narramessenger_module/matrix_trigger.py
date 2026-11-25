@@ -34,6 +34,9 @@ Scope of THIS FILE (Phase 1, Commits 3 + 4b + 5 + 6 + 7):
      notice forwards ``m.notice`` back to the room, else silent drop
   ✓  (6)  Auto-join invited rooms during the sync loop
      (``autoJoin: always`` per NarraMessenger's OpenClaw config)
+  ✓  Typing indicator (``m.typing`` via ``client.room_typing``) while
+     the agent works on a dm / group_mention text turn — see
+     :meth:`processing_indicator`
 
   ✓  (Phase 3) Multimodal: ``m.image`` / ``m.file`` / ``m.audio`` /
      ``m.video`` → ``_wrap_event`` marshals the mxc URI, ``parse_event``
@@ -45,7 +48,6 @@ Scope of THIS FILE (Phase 1, Commits 3 + 4b + 5 + 6 + 7):
 
 Deferred to Phase 4:
   ✗  Progressive update via ``m.replace``
-  ✗  Typing indicator via ``PUT /rooms/{room}/typing/{user}``
   ✗  ``NarramessengerContextBuilder`` adapting to matrix event shape
      (currently shared with the polling trigger — good enough for
      text-only Phase 1)
@@ -58,6 +60,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, List, Literal, Optional
 
@@ -80,6 +83,7 @@ from nio import (
     RoomMessageText,
     RoomSendError,
     RoomSendResponse,
+    RoomTypingResponse,
     SyncResponse,
     UnknownEvent,
 )
@@ -561,6 +565,15 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
     # keeps a room with constant membership churn from looping.
     ROSTER_LOOKUP_ATTEMPTS = 2
 
+    # ── Typing indicator (m.typing) ──────────────────────────────────────
+    # The homeserver holds a typing notice for the timeout we send; the
+    # pump refreshes well inside it so the indicator stays up for the
+    # whole run. The typing=false sent on exit is bounded so a slow
+    # homeserver never holds up the reply flow.
+    TYPING_TIMEOUT_MS = 30000
+    TYPING_REFRESH_SECONDS = 20.0
+    TYPING_STOP_TIMEOUT_SECONDS = 2.0
+
     def __init__(self, max_workers: int = 3):
         super().__init__(
             base_workers=max_workers,
@@ -648,6 +661,13 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         # merge into one follow-up turn. Entries die when the call idles.
         self._voice_calls: dict[str, _VoiceCallState] = {}
         self._init_voice_control()
+
+        # ── Typing indicator ─────────────────────────────────────────────
+        # (subscriber_key, room_id) -> number of turns currently showing
+        # the indicator. The worker pool runs same-room text turns
+        # concurrently; only the exit that drops the count to zero clears
+        # the indicator. Keys are removed at zero.
+        self._typing_refs: dict[tuple[str, str], int] = {}
 
     # ────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -1685,6 +1705,164 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
             logger.warning(
                 f"[matrix:{credential.agent_id}] authorize-event notice "
                 f"send raised: {type(e).__name__}: {e} (room={room_id})"
+            )
+
+    # ────────────────────────────────────────────────────────────────────
+    # Typing indicator
+    # ────────────────────────────────────────────────────────────────────
+
+    @asynccontextmanager
+    async def processing_indicator(  # type: ignore[override]
+        self, credential: NarramessengerCredential, message: ParsedMessage
+    ) -> AsyncIterator[None]:
+        """Show "typing..." in the room while the agent works on the turn.
+
+        The base wraps ``_build_and_run_agent`` in this hook, and this
+        class's ``_process_message`` only reaches the base for an
+        authorized dm / group_mention turn that passed the ingress
+        breaker — the group_silent path and authorize denials return
+        earlier, so they never show the indicator.
+
+        Reports typing=true at once, refreshes every
+        ``TYPING_REFRESH_SECONDS`` from a background pump, and on exit
+        (normal, exception or cancellation) stops the pump and reports
+        typing=false. Concurrent turns of one agent in one room share the
+        indicator through ``_typing_refs``: only the last exit clears it.
+
+        No-op for voice-call turns (the call UI is the feedback) and when
+        the agent has no live client at entry. Every send looks up the
+        live client at send time (``_send_typing``), like the reply and
+        notice senders: new requests go only to the live client, so after
+        a reconnect the new client carries on and after an unbind / stop
+        no new request is sent (the server-side timeout clears the
+        indicator). A retired client whose request was in flight is closed
+        as soon as that request ends (see ``_send_typing``). No client is
+        ever created for this cosmetic signal, and every failure is logged
+        at debug level and swallowed — it never affects the run or the
+        credential.
+        """
+        if (getattr(message, "raw", None) or {}).get("rtc_voice"):
+            yield
+            return
+        key = self._subscriber_key(credential)
+        room_id = message.chat_id
+        if key not in self._clients or not room_id:
+            yield
+            return
+
+        ref_key = (key, room_id)
+        self._typing_refs[ref_key] = self._typing_refs.get(ref_key, 0) + 1
+        stop_event = asyncio.Event()
+
+        async def _pump() -> None:
+            # The first report does not check stop_event: a turn that ends
+            # before the pump is scheduled still shows the indicator once,
+            # and the exit's typing=false is ordered after it.
+            while True:
+                await self._send_typing(credential, key, room_id, True)
+                try:
+                    await asyncio.wait_for(
+                        stop_event.wait(), timeout=self.TYPING_REFRESH_SECONDS
+                    )
+                    return
+                except asyncio.TimeoutError:
+                    continue
+
+        pump_task = asyncio.create_task(_pump())
+        try:
+            yield
+        finally:
+            stop_event.set()
+            remaining = self._typing_refs.get(ref_key, 1) - 1
+            if remaining > 0:
+                self._typing_refs[ref_key] = remaining
+            else:
+                self._typing_refs.pop(ref_key, None)
+            try:
+                await asyncio.wait_for(
+                    pump_task, timeout=self.TYPING_STOP_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                pass  # wait_for has cancelled the pump
+            if remaining <= 0:
+                await self._send_typing_bounded(credential, key, room_id, False)
+                # A turn that started while our typing=false was in flight
+                # may have had its typing=true land first; restore it.
+                if ref_key in self._typing_refs:
+                    await self._send_typing_bounded(credential, key, room_id, True)
+
+    async def _send_typing_bounded(
+        self,
+        credential: NarramessengerCredential,
+        key: str,
+        room_id: str,
+        typing: bool,
+    ) -> None:
+        """``_send_typing`` capped at ``TYPING_STOP_TIMEOUT_SECONDS``."""
+        try:
+            await asyncio.wait_for(
+                self._send_typing(credential, key, room_id, typing),
+                timeout=self.TYPING_STOP_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.debug(
+                f"[matrix:{credential.agent_id}] typing={typing} timed out "
+                f"(non-fatal, room={room_id})"
+            )
+
+    async def _send_typing(
+        self,
+        credential: NarramessengerCredential,
+        key: str,
+        room_id: str,
+        typing: bool,
+    ) -> None:
+        """One ``m.typing`` report through the subscriber's CURRENT client.
+
+        The client is looked up here, with no await before the request:
+        the subscribe loop pops and closes a client on reconnect / unbind /
+        stop, and a request on a closed nio client silently opens a new
+        aiohttp session that is never closed. No live client → skip.
+
+        That only covers the FIRST attempt: nio retries inside
+        ``room_typing`` (429 back-off, one transport retry), and each retry
+        re-opens a session if the client was closed meanwhile. So when the
+        request ends (normally, by error or by cancellation) and the client
+        is no longer the live one, close it again here. ``close()`` is
+        idempotent; the live client is never closed.
+
+        Never raises (other than cancellation): nio returns a
+        ``RoomTypingError`` instead of raising on a Matrix-level failure,
+        and transport errors raise — both are cosmetic, so both end in a
+        debug line and nothing else (no audit, no credential change)."""
+        client = self._clients.get(key)
+        if client is None:
+            return
+        try:
+            resp = await client.room_typing(
+                room_id, typing_state=typing, timeout=self.TYPING_TIMEOUT_MS
+            )
+        except Exception as e:  # noqa: BLE001 — cosmetic, never abort
+            logger.debug(
+                f"[matrix:{credential.agent_id}] typing={typing} raised "
+                f"(non-fatal, room={room_id}): {type(e).__name__}: {e}"
+            )
+            return
+        finally:
+            if self._clients.get(key) is not client:
+                try:
+                    await client.close()
+                except Exception as e:  # noqa: BLE001 — cosmetic, never abort
+                    logger.debug(
+                        f"[matrix:{credential.agent_id}] closing a retired "
+                        f"client after typing={typing} raised (non-fatal): "
+                        f"{type(e).__name__}: {e}"
+                    )
+        if not isinstance(resp, RoomTypingResponse):
+            logger.debug(
+                f"[matrix:{credential.agent_id}] typing={typing} failed "
+                f"(non-fatal, room={room_id}): "
+                f"{getattr(resp, 'status_code', None) or type(resp).__name__}"
             )
 
     # ────────────────────────────────────────────────────────────────────
