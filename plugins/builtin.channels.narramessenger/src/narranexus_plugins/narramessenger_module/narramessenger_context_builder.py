@@ -43,7 +43,7 @@ from narranexus.platform.channel.channel_prompts import (
 from narranexus.platform.schema.parsed_message import ChatType, ParsedMessage
 
 from ._narramessenger_credential_manager import NarramessengerCredential
-from .voice._rtc_voice import voice_reply_binding
+from .voice._rtc_voice import rtc_voice_stamp, voice_reply_binding
 
 
 class NarramessengerContextBuilder(ChannelContextBuilderBase):
@@ -64,7 +64,7 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         turn must be bound like any other, so the binding rides the turn
         envelope to ``NarramessengerModule.send_to_agent``. Empty for text
         and degraded turns (nothing to bind)."""
-        binding = voice_reply_binding((self._message.raw or {}).get("rtc_voice"))
+        binding = voice_reply_binding(rtc_voice_stamp(self._message))
         return {"voice_reply": binding} if binding else {}
 
     async def get_message_info(self) -> Dict[str, Any]:
@@ -80,7 +80,7 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         # injection argument. Here it only swaps the reply register for
         # the spoken one. The voice template is channel-agnostic
         # (channel_prompts); only the detection is narramessenger-specific.
-        rtc_voice = (self._message.raw or {}).get("rtc_voice")
+        rtc_voice = rtc_voice_stamp(self._message)
         if rtc_voice:
             instructions = (rtc_voice.get("voice_instructions") or "").strip()
             section = (

@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-10-14
+last_verified: 2026-11-25
 ---
+
+## 2026-11-25 — `processing_indicator` 注释补上 Matrix（仅注释，行为不变）
+
+钩子上方「各渠道怎么实现」的清单多了一行 NarraMessenger（Matrix `m.typing`，30s 服务端超时、20s 续期、退出清除、
+同房间并发轮次按引用计数共享）。钩子本身和它在 `_process_message` 里包住 `_build_and_run_agent` 的位置都没动；
+实现与设计理由见 [[matrix_trigger.py]] 2026-11-25 条目。
 
 ## 2026-10-14（预审后）— 看门狗收割死订阅者时同样释放 per-agent 基线
 
