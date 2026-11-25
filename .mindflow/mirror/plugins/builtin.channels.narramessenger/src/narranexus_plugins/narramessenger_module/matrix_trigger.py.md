@@ -7,9 +7,9 @@ last_verified: 2026-11-25
 ## 2026-11-25 — agent 处理文字轮期间上报 Matrix `m.typing`（「对方正在输入…」）
 
 OpenClaw / Hermes 接入的 agent 在处理消息时 Narra Messenger 客户端会显示「对方正在输入…」，我们没有。
-现在覆写基类钩子 `processing_indicator`（[[channel_trigger_base.py]]，包住 `_build_and_run_agent`）：
-进入时立即 `client.room_typing(room, typing_state=True, timeout=TYPING_TIMEOUT_MS=30000)`，后台泵每
-`TYPING_REFRESH_SECONDS=20` 秒续期；退出（正常 / 异常 / 取消）时停泵并发 typing=false。照 Telegram 的泵模式写，差异如下。
+现在覆写基类钩子 `processing_indicator`（[[channel_trigger_base.py]]，包住 `_build_and_run_agent`）：进入时让该房间的
+**泵**立即 `client.room_typing(room, typing_state=True, timeout=TYPING_TIMEOUT_MS=30000)`，每 `TYPING_REFRESH_SECONDS=20`
+秒续期；最后一轮退出（正常 / 异常 / 取消）后由泵发 typing=false。思路来自 Telegram 的泵，但结构不同，见下。
 
 **何时触发**：钩子只在基类 `_process_message` 里，本类的 `_process_message` 只有「dm / group_mention、authorize-event
 放行、过了 ingress breaker」才走到 `super()`——group_silent 与 authorize 拒绝都在那之前 return，天然不显示输入中。
@@ -19,54 +19,66 @@ OpenClaw / Hermes 接入的 agent 在处理消息时 Narra Messenger 客户端�
 - 语音轮（`raw["rtc_voice"]` 为真）整个钩子不发任何请求：通话界面本身就是反馈。连带：`STREAMING_ENABLED=False`
   时语音轮在 `_build_and_run_agent` 里才被剥成文字轮，此时钩子已看到 `rtc_voice`，所以 kill switch 下降级的语音轮
   也不显示输入中（无害，记录不改）。
-- 进入时 agent 没有活跃 client（`self._clients` 里没有）则整段空操作、不起泵，**不**像 Telegram 那样临时建 client——
-  为一个装饰性信号起一个 Matrix 会话不值得，而且没有 client 时 `_process_message` 本来就会 DROP。
+- 进入时 agent 没有活跃 client（`self._clients` 里没有）则整段空操作、不计数、不起泵，**不**像 Telegram 那样临时建
+  client——为一个装饰性信号起一个 Matrix 会话不值得，而且没有 client 时 `_process_message` 本来就会 DROP。
+
+**结构：钩子只记账，每个房间一个泵串行发所有请求**（review 首轮 I1 / M1 / M2 之后的形态）：
+- `_typing_refs[(subscriber_key, room_id)]` 记该房间当前有几轮在跑；`_typing_pumps[同一个 key]` 是该房间唯一的泵
+  （`_TypingPump(task, wake)`）。
+- 钩子进入：计数 +1，然后 `_wake_typing_pump`——没有泵（或登记的泵 task 已结束、done 回调还没跑）就新建并登记，有就
+  `wake.set()`。钩子退出的 `finally`：计数 -1（归零删 key）、唤醒泵，**立即返回，不 await 任何东西**。所以 homeserver
+  再慢也不占 worker——之前的实现在 `finally` 里串行等泵 / 发 false / 补发 true，最坏占住共享 worker 约 6s，而 worker 池是
+  全体 Matrix 订阅者共用的。计数递减必须留在钩子 `finally` 里：挪进泵，取消路径上计数可能永远不归零。
+- 泵循环（`_typing_pump`）：计数 >0 → 发 true，然后等「下次续期时间到 或 被唤醒」；被唤醒只重读计数，不重发（所以并发
+  轮次进出不会多发请求）。计数为 0 → 发 false，发完**重读**计数：仍为 0 则在没有任何 await 的前提下把自己从
+  `_typing_pumps` 摘掉并 return；不为 0（false 在途时有新一轮进来）→ 回到发 true。`wake.clear()` 放在每轮读计数之前，
+  所以不会丢唤醒。
+- 正反两个竞态都由「单协程串行」消除：新一轮在 false 在途时进来，它的 true 只能在 false 落地之后由同一个泵发出，房间
+  最终显示 true；一轮在 false 在途时进来又退出，false 落地后计数为 0，泵直接收工，不会留一个孤儿 true（之前的「补发
+  true」逻辑可能落成 `A.false → B.false → A.true`，留下最长 30s 的幽灵输入中，已删除）。同房间并发 N 轮也只有一个泵，
+  续期请求不随 N 翻倍。
+- 第一次 true 不看计数：没有任何 await 的极快轮次（泵还没被调度就退出了）也是先 true 后 false。
+- 泵内每次 `room_typing` 都经 `_send_typing_bounded`，上限 `TYPING_REQUEST_TIMEOUT_SECONDS=2`（续期的 true 也一样）：
+  nio 对 429 无上限退避，不设上限泵会卡在一个请求里、对唤醒失去响应。超时只打 debug；取消照常向上传播。
+- 泵不是 fire-and-forget：照 `_silent_flush_tasks` 的做法登记在 `_typing_pumps`，`add_done_callback` 负责异常打点
+  （取消 debug、崩溃 warning，不外传），并在泵崩溃时按身份把自己摘掉（正常 return 的泵已经自摘，回调是 no-op）。
+- `stop()`：在关 client 之前，先 cancel 所有泵、清空 `_typing_pumps` / `_typing_refs`，同时把 `_clients` 摘空（这几步之间
+  没有 await），然后有上限地等被取消的泵结束，最后才逐个关 client。这样之后不会有钩子再起泵（进入要求有 live client），
+  也不会有请求去拿一个正在被关的 client。仍在跑的 worker 之后退出时只做计数递减（缺 key 时按 0 处理，不会写出负数）。
+- 钩子自身任何失败（进入时起泵、退出时记账）都 `except Exception` + debug，不外传；`CancelledError` 不吞。
 
 **每次发送都在发送那一刻取 live client**（与 `_send_matrix_reply` / `_send_matrix_notice` 同一写法）：`_send_typing`
-收的是 subscriber key，在函数内 `self._clients.get(key)`，取到之后到 `room_typing` 之间没有 await；取不到就跳过（不发、
-不建 client）。泵、退出时的 false、补发的 true 全走它。原因：订阅循环在重连 / 解绑 / `stop()` 时先 `_clients.pop` 再
-`client.close()`，而 nio 的 `close()` 只把 `client_session` 置 None，下一次请求会悄悄新建一个永不关闭的 aiohttp session
-（`Unclosed client session`）；`stop()` 又是先关 client 再取消 worker，若钩子一直攥着入口时的 client，停机必然泄漏。
-效果：新请求只发给 live client——重连后新 client 就绪即接着续期、退出的 false 也打到新 client；解绑 / 停机后不再发起
-新的 typing 请求，由服务端 30s 超时自行清除。
+只收 `credential`（key 在函数内由 `_subscriber_key` 算出，不再和 credential 并列传两份），在函数内 `self._clients.get(key)`，
+取到之后到 `room_typing` 之间没有 await；取不到就跳过（不发、不建 client）。原因：订阅循环在重连 / 解绑时先
+`_clients.pop` 再 `client.close()`，而 nio 的 `close()` 只把 `client_session` 置 None，下一次请求会悄悄新建一个永不关闭的
+aiohttp session（`Unclosed client session`）。效果：新请求只发给 live client——重连后新 client 就绪即接着续期、false 也打到
+新 client；解绑 / 停机后不再发起新的 typing 请求，由服务端 30s 超时自行清除。
 「取 client 与发请求之间无 await」只保住第一次尝试：nio 的 `room_typing` → `_send` 内部有重试循环（429 无限退避重试、
 传输错误重试一次），每次重试都经过带 `@client_session` 的 `send()`，session 为 None 就新建。所以被拆掉的 client 若有
 在途请求或正处于 nio 退避，请求结束后（正常 / 出错 / 被取消，都在 `finally` 里）只要它已不是 `_clients` 里的当前
-client，就立即再 `close()` 一次，防止 nio 重建的 session 泄漏；`close()` 幂等，关自身的异常只打 debug；仍是 live 的
-client 绝不关。这依赖「重连总是注册一个新的 client 对象」（`connect()` 里新建后 `_clients[key] = client`，只在订阅循环
-`finally` 里 pop）。
-引用计数的增减与有没有 client 无关，照常递减、归零删 key。
-
-**同房间并发 = 引用计数**：worker 池会让同一 agent 同一房间的多个文字轮并发跑。`_typing_refs[(subscriber_key, room_id)]`
-记当前有几轮在显示；只有把计数减到 0 的那个退出才发 typing=false（否则先结束的那轮会把还在跑的那轮的指示清掉），
-归零即删 key，不泄漏。另一个竞态：最后一轮的 typing=false 在途时新一轮进来，新轮的 typing=true 可能先落地、被
-false 覆盖；所以发完 false 后若计数表里又有了这个 key，就补发一次 typing=true。
+client，就立即再 `close()` 一次；`close()` 幂等，关自身的异常只打 debug；仍是 live 的 client 绝不关。这依赖「重连总是
+注册一个新的 client 对象」（`connect()` 里新建后 `_clients[key] = client`，只在订阅循环 `finally` 里 pop）。
 
 **失败一律非致命**：nio 在 Matrix 层失败时返回 `RoomTypingError` 而不是抛异常，传输错误则抛——`_send_typing` 两种
-都只打 debug，不写 audit、不碰 `disable_credential`（token 失效由 sync 循环负责发现）。退出时停泵、发 false、补发 true
-各有 `TYPING_STOP_TIMEOUT_SECONDS=2` 的上限（`_send_typing_bounded`）。回复消息本身在钩子退出前已经发出，所以慢
-homeserver 不会推迟回复；它影响的是退出清理——最坏串行占用这个 worker 约 3×`TYPING_STOP_TIMEOUT_SECONDS`
-之后才去写 inbox、接下一条消息。
-第一次 typing=true 不检查停止信号：没有任何 await 的极快轮次也会先 true 后 false，顺序由「先等泵结束再发 false」保证。
+都只打 debug，不写 audit、不碰 `disable_credential`（token 失效由 sync 循环负责发现）。
 
 **已知边界**：
-- 回复消息由 `_build_and_run_agent` 内部发出，所以 typing=false 在回复之后才发（中间间隔一次 HTTP 往返）。
+- 回复消息由 `_build_and_run_agent` 内部发出，所以 typing=false 在回复之后才发；钩子退出后由泵异步发出，通常紧跟回复
+  一次 HTTP 往返。
 - group_mention 轮会在群里显示输入中，这是预期的。
-- 同房间并发 N 轮时每轮各有一个泵，续期请求是 N 倍（计数只决定谁发 false）；不合并，记录不改。
 - 托管（managed / Manyfold 转发）入站路径不经过 `_process_message`、也没有 live client，所以不显示输入中。
 - `_send_matrix_reply` / `_send_matrix_notice` 的 `room_send` 有同类在途窗口（发送中 client 被拆掉、nio 重试重建 session），
-  是 dev 既有问题，本次不修。
+  是 dev 既有问题，本 commit 不修。
 
 测试：`tests/narramessenger_module/test_matrix_typing_indicator.py`（假 nio client 记录 `room_typing`，真实
-`processing_indicator`；时序断言都是带上限的条件等待，只有「什么都不该发生」的断言留了短 sleep）。其中两条锁「发送时取
-live client」：轮次中途 pop 掉 client 后旧 client 再收不到任何请求（含 false）、计数表清空；中途换成新 client 后续期与
-false 都打到新 client。另有五条走真实 `_process_message` 的装配测试：dm 与 group_mention 放行时触发；group_silent、
-authorize 拒绝、ingress breaker 拒绝都不触发。关于被拆掉的 client 有四条测试：请求在途时被 pop 则请求结束后被关一次、请求
-挂住被退出取消时同样被关、live client 从不被关、关自身抛异常被吞；另有一条用真实 nio `AsyncClient` + 本地 aiohttp test
-server 复现「首个请求 429、退避期间 pop+close、重试重建 session」，断言事后 `client.client_session is None`。
-实测（共 26 条）：把 `processing_indicator` 换回基类空实现 → 21 红 5 绿（voice、no_active_client、group_silent、denied、
-ingress 五条负例天然为绿）；去掉 `_send_typing` 的退役 client 关闭 → 上述四条退役测试（含真实 nio 那条）变红；分别去掉
-语音跳过、引用计数、补发 true、归零删 key、异常吞掉，各自都有用例变红。
+`processing_indicator`；时序断言都是带上限的条件等待——退出后用「等所有泵收工」`_settled` 再断言 false 已落地，只有
+「什么都不该发生」的断言留了短 sleep）。锁住的契约：钩子退出不等待任何网络（true 或 false 挂死、所有上限都设 30s 时退出
+仍 <0.5s 返回）；钩子自身失败不外传；同房间并发只有一个泵且续期数不随轮数翻倍；false 在途时新一轮进入最终显示 true；
+反向竞态不留孤儿 true；`stop()` 取消泵、清空两张表、泵结束后才关 client；发送时取 live client（中途 pop / 换新）；退役
+client 的补关（含请求被上限取消、真实 nio + 本地 aiohttp server 复现 429 退避期间 pop+close）；五条走真实 `_process_message`
+的装配测试。
+实测（共 32 条）：退出时等泵结束、去掉 false 之后的重读、把重读换回「被唤醒过就补发 true」、每轮各起一个泵、`stop()`
+不取消泵、等待时不响应唤醒、续期 true 不设上限、钩子进入的异常不吞——这八种回退各自都有用例变红（明细见 PR 回帖）。
 
 ## 2026-11-19（三）— 语音控制面搬到 `_voice_control.py`（纯搬运）
 

@@ -246,6 +246,18 @@ class _VoiceCallState:
     pending: list = field(default_factory=list)  # (message, sender_name, attachments)
 
 
+@dataclass
+class _TypingPump:
+    """The one task that sends every ``m.typing`` report for a room.
+
+    ``wake`` is set whenever the room's turn count changes, so the pump
+    re-reads it instead of sleeping out the refresh interval.
+    """
+
+    task: asyncio.Task
+    wake: asyncio.Event
+
+
 def _merge_voice_batch(batch: list) -> tuple:
     """Merge buffered utterances of one call into a single turn.
 
@@ -568,11 +580,12 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
     # ── Typing indicator (m.typing) ──────────────────────────────────────
     # The homeserver holds a typing notice for the timeout we send; the
     # pump refreshes well inside it so the indicator stays up for the
-    # whole run. The typing=false sent on exit is bounded so a slow
-    # homeserver never holds up the reply flow.
+    # whole run. Every typing request is bounded: nio backs off on 429
+    # without a limit, and a stuck request must not keep the pump from
+    # reacting to a turn ending.
     TYPING_TIMEOUT_MS = 30000
     TYPING_REFRESH_SECONDS = 20.0
-    TYPING_STOP_TIMEOUT_SECONDS = 2.0
+    TYPING_REQUEST_TIMEOUT_SECONDS = 2.0
 
     def __init__(self, max_workers: int = 3):
         super().__init__(
@@ -665,9 +678,14 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         # ── Typing indicator ─────────────────────────────────────────────
         # (subscriber_key, room_id) -> number of turns currently showing
         # the indicator. The worker pool runs same-room text turns
-        # concurrently; only the exit that drops the count to zero clears
-        # the indicator. Keys are removed at zero.
+        # concurrently. Keys are removed at zero. Changed only by the
+        # processing_indicator hook (entry / exit), never by the pump.
         self._typing_refs: dict[tuple[str, str], int] = {}
+        # (subscriber_key, room_id) -> the room's single pump. It sends
+        # every typing=true / typing=false for the room, serially, and
+        # removes itself once it has cleared the indicator with the count
+        # still at zero. stop() cancels whatever is left.
+        self._typing_pumps: dict[tuple[str, str], _TypingPump] = {}
 
     # ────────────────────────────────────────────────────────────────────
     # Lifecycle
@@ -704,14 +722,28 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
 
         self._stop_voice_control()
 
-        for key, client in list(self._clients.items()):
+        # Typing pumps go before the clients, with no await in between:
+        # once the clients are unregistered no hook can start a new pump
+        # (entry needs a live client) and no request can pick a client
+        # that is being closed. The cancelled pumps are then awaited
+        # (bounded) so none is still mid-request when the clients close.
+        pumps = [p.task for p in self._typing_pumps.values()]
+        for task in pumps:
+            task.cancel()
+        self._typing_pumps.clear()
+        self._typing_refs.clear()
+        clients = list(self._clients.items())
+        self._clients.clear()
+        if pumps:
+            await asyncio.wait(pumps, timeout=self.TYPING_REQUEST_TIMEOUT_SECONDS)
+
+        for key, client in clients:
             try:
                 await asyncio.wait_for(client.close(), timeout=3.0)
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                 logger.warning(
                     f"[matrix:{key}] client close during stop: {e}"
                 )
-        self._clients.clear()
         await super().stop()
 
     # ────────────────────────────────────────────────────────────────────
@@ -1723,23 +1755,19 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         breaker — the group_silent path and authorize denials return
         earlier, so they never show the indicator.
 
-        Reports typing=true at once, refreshes every
-        ``TYPING_REFRESH_SECONDS`` from a background pump, and on exit
-        (normal, exception or cancellation) stops the pump and reports
-        typing=false. Concurrent turns of one agent in one room share the
-        indicator through ``_typing_refs``: only the last exit clears it.
+        The hook itself never touches the network. Entry counts the turn
+        in ``_typing_refs`` and starts (or wakes) the room's single pump
+        (``_typing_pump``); exit (normal, exception or cancellation) drops
+        the count and wakes the pump, then returns at once — it awaits
+        nothing, so a slow homeserver never holds the worker. The pump
+        sends every typing=true / typing=false for the room, serially, so
+        concurrent turns in one room cannot reorder each other's reports.
 
         No-op for voice-call turns (the call UI is the feedback) and when
-        the agent has no live client at entry. Every send looks up the
-        live client at send time (``_send_typing``), like the reply and
-        notice senders: new requests go only to the live client, so after
-        a reconnect the new client carries on and after an unbind / stop
-        no new request is sent (the server-side timeout clears the
-        indicator). A retired client whose request was in flight is closed
-        as soon as that request ends (see ``_send_typing``). No client is
-        ever created for this cosmetic signal, and every failure is logged
-        at debug level and swallowed — it never affects the run or the
-        credential.
+        the agent has no live client at entry. No client is ever created
+        for this cosmetic signal; every failure is logged at debug level
+        and swallowed (cancellation still propagates) — it never affects
+        the run or the credential.
         """
         if (getattr(message, "raw", None) or {}).get("rtc_voice"):
             yield
@@ -1751,58 +1779,143 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
             return
 
         ref_key = (key, room_id)
-        self._typing_refs[ref_key] = self._typing_refs.get(ref_key, 0) + 1
-        stop_event = asyncio.Event()
-
-        async def _pump() -> None:
-            # The first report does not check stop_event: a turn that ends
-            # before the pump is scheduled still shows the indicator once,
-            # and the exit's typing=false is ordered after it.
-            while True:
-                await self._send_typing(credential, key, room_id, True)
-                try:
-                    await asyncio.wait_for(
-                        stop_event.wait(), timeout=self.TYPING_REFRESH_SECONDS
-                    )
-                    return
-                except asyncio.TimeoutError:
-                    continue
-
-        pump_task = asyncio.create_task(_pump())
+        counted = False
+        try:
+            self._typing_refs[ref_key] = self._typing_refs.get(ref_key, 0) + 1
+            counted = True
+            self._wake_typing_pump(credential, ref_key)
+        except Exception as e:  # noqa: BLE001 — cosmetic, never abort
+            logger.debug(
+                f"[matrix:{credential.agent_id}] typing indicator entry "
+                f"failed (non-fatal, room={room_id}): {type(e).__name__}: {e}"
+            )
         try:
             yield
         finally:
-            stop_event.set()
-            remaining = self._typing_refs.get(ref_key, 1) - 1
-            if remaining > 0:
-                self._typing_refs[ref_key] = remaining
-            else:
-                self._typing_refs.pop(ref_key, None)
-            try:
-                await asyncio.wait_for(
-                    pump_task, timeout=self.TYPING_STOP_TIMEOUT_SECONDS
+            # Synchronous on purpose: the count must drop on every exit
+            # path, cancellation included, and nothing here may wait.
+            if counted:
+                try:
+                    remaining = self._typing_refs.get(ref_key, 0) - 1
+                    if remaining > 0:
+                        self._typing_refs[ref_key] = remaining
+                    else:
+                        self._typing_refs.pop(ref_key, None)
+                    pump = self._typing_pumps.get(ref_key)
+                    if pump is not None:
+                        pump.wake.set()
+                except Exception as e:  # noqa: BLE001 — cosmetic, never abort
+                    logger.debug(
+                        f"[matrix:{credential.agent_id}] typing indicator "
+                        f"exit failed (non-fatal, room={room_id}): "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+    def _wake_typing_pump(
+        self, credential: NarramessengerCredential, ref_key: tuple[str, str]
+    ) -> None:
+        """Wake the room's pump, starting one if the room has none.
+
+        A pump whose task already ended (its done callback has not run
+        yet) is replaced rather than woken.
+        """
+        pump = self._typing_pumps.get(ref_key)
+        if pump is not None and not pump.task.done():
+            pump.wake.set()
+            return
+        wake = asyncio.Event()
+        task = asyncio.create_task(
+            self._typing_pump(credential, ref_key, wake),
+            name=f"matrix-typing:{ref_key[0]}:{ref_key[1]}",
+        )
+        entry = _TypingPump(task=task, wake=wake)
+        self._typing_pumps[ref_key] = entry
+
+        def _done(t: asyncio.Task) -> None:
+            # A pump that returned normally has already removed itself;
+            # this only cleans up after a crash. Identity check: a newer
+            # pump for the room may be registered by now.
+            if self._typing_pumps.get(ref_key) is entry:
+                self._typing_pumps.pop(ref_key, None)
+            if t.cancelled():
+                logger.debug(
+                    f"[matrix:{credential.agent_id}] typing pump cancelled "
+                    f"(room={ref_key[1]})"
                 )
-            except asyncio.TimeoutError:
-                pass  # wait_for has cancelled the pump
-            if remaining <= 0:
-                await self._send_typing_bounded(credential, key, room_id, False)
-                # A turn that started while our typing=false was in flight
-                # may have had its typing=true land first; restore it.
-                if ref_key in self._typing_refs:
-                    await self._send_typing_bounded(credential, key, room_id, True)
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] typing pump crashed "
+                    f"(non-fatal, room={ref_key[1]}): "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+        task.add_done_callback(_done)
+
+    async def _typing_pump(
+        self,
+        credential: NarramessengerCredential,
+        ref_key: tuple[str, str],
+        wake: asyncio.Event,
+    ) -> None:
+        """Send the room's typing reports until no turn is left.
+
+        While ``_typing_refs[ref_key] > 0``: typing=true, refreshed every
+        ``TYPING_REFRESH_SECONDS``; a wake re-reads the count without
+        re-sending. At zero: typing=false, then the count is read again —
+        still zero → the pump removes itself (no await between that read
+        and the removal, so an entering hook either sees this pump gone and
+        starts a new one, or its wake is seen here); non-zero (a turn
+        entered while the false was in flight) → typing=true again. One
+        task per room, so no true can overtake a false or vice versa.
+
+        The first typing=true is sent whatever the count: a turn that ends
+        before the pump first runs still shows the indicator once, followed
+        by the false.
+        """
+        room_id = ref_key[1]
+        loop = asyncio.get_running_loop()
+        refresh_at: Optional[float] = None  # None: typing=true is due now
+        while True:
+            # Cleared before the count is read: a wake from here on is
+            # either already reflected in the read or seen by the wait.
+            wake.clear()
+            if refresh_at is None or self._typing_refs.get(ref_key, 0) > 0:
+                now = loop.time()
+                if refresh_at is None or now >= refresh_at:
+                    await self._send_typing_bounded(credential, room_id, True)
+                    refresh_at = loop.time() + self.TYPING_REFRESH_SECONDS
+                    continue
+                try:
+                    await asyncio.wait_for(wake.wait(), timeout=refresh_at - now)
+                except asyncio.TimeoutError:
+                    pass
+                continue
+            await self._send_typing_bounded(credential, room_id, False)
+            if self._typing_refs.get(ref_key, 0) > 0:
+                refresh_at = None
+                continue
+            entry = self._typing_pumps.get(ref_key)
+            if entry is not None and entry.task is asyncio.current_task():
+                self._typing_pumps.pop(ref_key, None)
+            return
 
     async def _send_typing_bounded(
         self,
         credential: NarramessengerCredential,
-        key: str,
         room_id: str,
         typing: bool,
     ) -> None:
-        """``_send_typing`` capped at ``TYPING_STOP_TIMEOUT_SECONDS``."""
+        """``_send_typing`` capped at ``TYPING_REQUEST_TIMEOUT_SECONDS``.
+
+        nio retries a 429 without limit inside ``room_typing``; the cap
+        keeps the pump responsive. Only the timeout is absorbed here —
+        cancellation propagates."""
         try:
             await asyncio.wait_for(
-                self._send_typing(credential, key, room_id, typing),
-                timeout=self.TYPING_STOP_TIMEOUT_SECONDS,
+                self._send_typing(credential, room_id, typing),
+                timeout=self.TYPING_REQUEST_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
             logger.debug(
@@ -1813,7 +1926,6 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
     async def _send_typing(
         self,
         credential: NarramessengerCredential,
-        key: str,
         room_id: str,
         typing: bool,
     ) -> None:
@@ -1835,6 +1947,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         ``RoomTypingError`` instead of raising on a Matrix-level failure,
         and transport errors raise — both are cosmetic, so both end in a
         debug line and nothing else (no audit, no credential change)."""
+        key = self._subscriber_key(credential)
         client = self._clients.get(key)
         if client is None:
             return

@@ -6,10 +6,19 @@ while the agent works on a dm / group_mention turn.
 
 Contract locked here:
 - Entering reports typing=true at once (server timeout
-  ``TYPING_TIMEOUT_MS``) and a background pump refreshes it every
-  ``TYPING_REFRESH_SECONDS`` until exit.
-- Exit (normal / exception / cancellation) stops the pump and reports
-  typing=false promptly; the body's exception propagates unchanged.
+  ``TYPING_TIMEOUT_MS``) and the room's pump refreshes it every
+  ``TYPING_REFRESH_SECONDS`` until the last turn exits.
+- Exit (normal / exception / cancellation) is synchronous: it drops the
+  count and wakes the pump without awaiting any request, even when the
+  homeserver hangs. The pump then reports typing=false (soon, bounded
+  by ``TYPING_REQUEST_TIMEOUT_SECONDS``) and removes itself; the body's
+  exception propagates unchanged.
+- One pump per (agent, room) sends every report serially: concurrent
+  turns do not multiply the refreshes, a turn entering while the false
+  is in flight ends with typing=true, and a turn that enters and leaves
+  during that false leaves no stray typing=true behind.
+- ``stop()`` cancels the pumps and empties both tables before the
+  clients close.
 - A failed typing request (raised exception OR nio error response) is
   cosmetic: the body is unaffected and no credential side effect fires.
 - Voice-call turns (``raw["rtc_voice"]``) and agents without an active
@@ -69,6 +78,11 @@ async def _until(condition: Callable[[], object]) -> None:
             await asyncio.sleep(0.005)
 
     await asyncio.wait_for(_poll(), timeout=WAIT_LIMIT_SECONDS)
+
+
+async def _settled(t: MatrixTrigger) -> None:
+    """Wait (bounded) until every pump has sent its last report and gone."""
+    await _until(lambda: not t._typing_pumps)
 
 
 def _cred(agent_id: str = "agent_x") -> NarramessengerCredential:
@@ -204,6 +218,7 @@ async def test_instant_body_still_reports_true_then_false():
 
     async with t.processing_indicator(_cred(), _msg()):
         pass
+    await _settled(t)
     assert client.states() == [True, False]
 
 
@@ -215,6 +230,7 @@ async def test_long_run_refreshes_typing():
 
     async with t.processing_indicator(_cred(), _msg()):
         await _until(lambda: client.states().count(True) >= 3)
+    await _settled(t)
     assert client.states()[-1] is False
 
 
@@ -222,14 +238,14 @@ async def test_long_run_refreshes_typing():
 async def test_exit_reports_false_and_does_not_wait_out_the_refresh():
     client = _TypingClient()
     t = _trigger_with(client)
-    # Without a proper stop signal the exit would wait out this interval.
+    # Without a proper wake-up the pump would sleep out this interval
+    # before clearing the indicator.
     t.TYPING_REFRESH_SECONDS = 30.0
 
     async with t.processing_indicator(_cred(), _msg()):
         await _until(lambda: client.typing_calls)
-        start = time.monotonic()
-    elapsed = time.monotonic() - start
-    assert elapsed < 10.0, f"exit took {elapsed:.2f}s"
+    await _until(lambda: False in client.states())  # well inside 30s
+    await _settled(t)
     assert client.typing_calls[-1][:2] == (ROOM, False)
     assert client.states().count(False) == 1
 
@@ -239,15 +255,62 @@ async def test_slow_stop_request_does_not_hold_the_exit():
     client = _TypingClient()
     client.stop_gate = asyncio.Event()  # never set: typing=false hangs
     t = _trigger_with(client)
-    t.TYPING_STOP_TIMEOUT_SECONDS = 0.1
+    t.TYPING_REQUEST_TIMEOUT_SECONDS = 0.1
 
     async with t.processing_indicator(_cred(), _msg()):
         await _until(lambda: client.typing_calls)
-        start = time.monotonic()
-    # Bounded by TYPING_STOP_TIMEOUT_SECONDS (a few multiples at most);
-    # without the bound the exit would hang on the gate forever.
-    assert time.monotonic() - start < 3.0
+    # The hung false is abandoned after TYPING_REQUEST_TIMEOUT_SECONDS and
+    # the pump still finishes; without the bound it would hang forever.
+    await _settled(t)
     assert client.states()[-1] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hang", ["true", "false"])
+async def test_exit_never_waits_for_the_homeserver(hang):
+    """The exit returns without awaiting any request, even with every
+    bound far away and the homeserver not answering at all."""
+    client = _TypingClient()
+    gate = asyncio.Event()
+    if hang == "true":
+        client.typing_gate = gate  # the entry's typing=true never answers
+    else:
+        client.stop_gate = gate  # the clearing typing=false never answers
+    t = _trigger_with(client)
+    t.TYPING_REFRESH_SECONDS = 30.0
+    t.TYPING_REQUEST_TIMEOUT_SECONDS = 30.0
+
+    async with t.processing_indicator(_cred(), _msg()):
+        await _until(lambda: client.typing_calls)
+        if hang == "false":
+            await _until(lambda: client.landed == [True])
+        start = time.monotonic()
+    elapsed = time.monotonic() - start
+    assert elapsed < 0.5, f"exit took {elapsed:.2f}s"
+    assert t._typing_refs == {}
+    if hang == "false":
+        await _until(lambda: False in client.states())  # in flight, hung
+    assert t._typing_pumps  # still working, off the worker
+    gate.set()
+    await _settled(t)
+    assert client.landed[-1] is False
+
+
+@pytest.mark.asyncio
+async def test_hook_failure_never_reaches_the_body(monkeypatch):
+    client = _TypingClient()
+    t = _trigger_with(client)
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("pump start failed")
+
+    monkeypatch.setattr(t, "_wake_typing_pump", _boom)
+    ran = False
+    async with t.processing_indicator(_cred(), _msg()):
+        ran = True
+    assert ran
+    assert t._typing_refs == {}
+    assert t._typing_pumps == {}
 
 
 @pytest.mark.asyncio
@@ -262,6 +325,8 @@ async def test_body_exception_propagates_and_typing_is_cleared():
         async with t.processing_indicator(_cred(), _msg()):
             await _until(lambda: client.typing_calls)
             raise _AgentBoom("agent failed")
+    assert t._typing_refs == {}  # dropped synchronously on exit
+    await _settled(t)
     assert client.states() == [True, False]
     assert t._typing_refs == {}
 
@@ -280,8 +345,9 @@ async def test_cancelled_body_clears_typing():
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert t._typing_refs == {}  # dropped synchronously on exit
+    await _settled(t)
     assert client.states() == [True, False]
-    assert t._typing_refs == {}
 
 
 @pytest.mark.asyncio
@@ -298,6 +364,7 @@ async def test_failed_typing_request_never_reaches_the_body(fail):
         await _until(lambda: client.states().count(True) >= 2)  # pump kept going
         ran = True
     assert ran
+    await _settled(t)
     assert client.states()[-1] is False
     disable.assert_not_awaited()
     assert t._typing_refs == {}
@@ -357,6 +424,7 @@ async def test_client_popped_mid_turn_receives_nothing_more():
         t._clients.pop(key)
         calls_at_pop = len(old.typing_calls)
         await asyncio.sleep(0.15)  # several refresh intervals
+    await _settled(t)  # the pump's clearing pass is over too
     assert len(old.typing_calls) == calls_at_pop
     assert False not in old.states()
     assert t._typing_refs == {}
@@ -375,6 +443,7 @@ async def test_reconnected_client_takes_over_refresh_and_clear():
         t._clients[key] = new  # type: ignore[assignment]
         calls_at_swap = len(old.typing_calls)
         await _until(lambda: new.states().count(True) >= 2)
+    await _settled(t)
     assert len(old.typing_calls) == calls_at_swap
     assert False not in old.states()
     assert new.states()[-1] is False
@@ -396,6 +465,7 @@ async def test_client_retired_during_its_request_is_closed_after_it():
     async with t.processing_indicator(_cred(), _msg()):
         await _until(lambda: old.closed)
         await asyncio.sleep(0.1)  # several refresh intervals
+    await _settled(t)
     assert old.closed == 1
     assert old.states() == [True]
     assert t._typing_refs == {}
@@ -406,12 +476,13 @@ async def test_retired_client_is_closed_when_its_request_is_cancelled():
     old = _TypingClient()
     old.typing_gate = asyncio.Event()  # never set: the request hangs
     t = _trigger_with(old)
-    t.TYPING_STOP_TIMEOUT_SECONDS = 0.1  # the exit cancels the stuck pump
+    t.TYPING_REQUEST_TIMEOUT_SECONDS = 0.1  # the bound cancels the stuck request
     key = t._subscriber_key(_cred())
     old.during_typing = lambda: t._clients.pop(key)
 
     async with t.processing_indicator(_cred(), _msg()):
         await _until(lambda: old.typing_calls)
+    await _settled(t)
     assert old.closed == 1
     assert old.states() == [True]
     assert t._typing_refs == {}
@@ -425,6 +496,7 @@ async def test_live_client_is_never_closed():
 
     async with t.processing_indicator(_cred(), _msg()):
         await _until(lambda: client.states().count(True) >= 3)
+    await _settled(t)
     assert client.states()[-1] is False
     assert client.closed == 0
 
@@ -444,6 +516,7 @@ async def test_failing_close_of_a_retired_client_is_swallowed():
         await _until(lambda: old.closed)
         ran = True
     assert ran
+    await _settled(t)
     disable.assert_not_awaited()
     assert t._typing_refs == {}
 
@@ -488,6 +561,7 @@ async def test_real_nio_client_retired_during_429_backoff_leaves_no_session():
             t._clients.pop(key)
             await client.close()
             await _until(lambda: len(hits) >= 2)
+        await _settled(t)
         assert "/typing/" in hits[0]
         assert client.client_session is None
     finally:
@@ -518,14 +592,17 @@ async def test_concurrent_turns_only_last_exit_clears_typing():
             await b_release.wait()
 
     task_b = asyncio.create_task(_turn_b())
-    # A's exit (including any typing=false it would send) completes here.
     await _turn_a()
-    # A has exited while B still runs: B's indicator must stay up.
+    # A has exited while B still runs: B's indicator must stay up. Room
+    # for the woken pump to (wrongly) clear it before the check.
+    await asyncio.sleep(0.05)
     assert False not in client.states()
     assert t._typing_refs == {(t._subscriber_key(_cred()), ROOM): 1}
+    assert len(t._typing_pumps) == 1
 
     b_release.set()
     await task_b
+    await _settled(t)
     assert client.states().count(False) == 1
     assert client.states()[-1] is False
     assert t._typing_refs == {}
@@ -548,26 +625,29 @@ async def test_turns_in_different_rooms_are_independent():
     await entered.wait()
     async with t.processing_indicator(_cred(), _msg(room=ROOM)):
         pass
+    key = t._subscriber_key(_cred())
+    await _until(lambda: (key, ROOM) not in t._typing_pumps)
     assert client.states(ROOM) == [True, False]
     assert False not in client.states(OTHER_ROOM)
+    assert list(t._typing_pumps) == [(key, OTHER_ROOM)]
 
     release.set()
     await task
+    await _settled(t)
     assert client.states(OTHER_ROOM)[-1] is False
     assert t._typing_refs == {}
 
 
 @pytest.mark.asyncio
 async def test_turn_starting_while_the_last_one_clears_keeps_typing():
-    """Turn A is the last one out and its typing=false is in flight when
-    turn B starts. B's typing=true may reach the homeserver before A's
-    false; A re-asserts typing after its false lands, so B is not left
-    without an indicator until its next refresh."""
+    """Turn A is the last one out and the pump's typing=false is in flight
+    when turn B starts. The same pump sends B's typing=true once the false
+    has landed, so the room ends up showing B's indicator."""
     client = _TypingClient()
     client.stop_gate = asyncio.Event()
     t = _trigger_with(client)
     t.TYPING_REFRESH_SECONDS = 30.0
-    t.TYPING_STOP_TIMEOUT_SECONDS = 30.0
+    t.TYPING_REQUEST_TIMEOUT_SECONDS = 30.0
     b_release = asyncio.Event()
 
     async def _turn_a():
@@ -578,19 +658,114 @@ async def test_turn_starting_while_the_last_one_clears_keeps_typing():
         async with t.processing_indicator(_cred(), _msg()):
             await b_release.wait()
 
-    task_a = asyncio.create_task(_turn_a())
-    await _until(lambda: False in client.states())  # A's false is in flight
+    await _turn_a()
+    await _until(lambda: False in client.states())  # the false is in flight
     task_b = asyncio.create_task(_turn_b())
-    await _until(lambda: client.landed.count(True) >= 2)  # B's true landed
-    client.stop_gate.set()  # A's false lands after B's true
-    await task_a
+    await _until(lambda: t._typing_refs)  # B has entered
+    assert len(t._typing_pumps) == 1  # B woke the same pump
+    client.stop_gate.set()  # the false lands
+    await _until(lambda: client.landed[-1:] == [True] and len(client.landed) == 3)
     # What the homeserver applied last decides what the room shows.
-    assert client.landed[-1] is True
+    assert client.landed == [True, False, True]
 
     b_release.set()
     await task_b
+    await _settled(t)
     assert client.landed[-1] is False
     assert t._typing_refs == {}
+
+
+@pytest.mark.asyncio
+async def test_turn_entering_and_leaving_during_the_clear_leaves_no_stray_true():
+    """Reverse race: B enters and leaves while A's clearing typing=false is
+    in flight. Once the false lands the count is zero again, so the pump
+    stops there — no typing=true lands after the last false."""
+    client = _TypingClient()
+    client.stop_gate = asyncio.Event()
+    t = _trigger_with(client)
+    t.TYPING_REFRESH_SECONDS = 30.0
+    t.TYPING_REQUEST_TIMEOUT_SECONDS = 30.0
+
+    async with t.processing_indicator(_cred(), _msg()):  # turn A
+        pass
+    await _until(lambda: False in client.states())  # the false is in flight
+    async with t.processing_indicator(_cred(), _msg()):  # turn B, in and out
+        pass
+    client.stop_gate.set()
+    await _settled(t)
+    await asyncio.sleep(0.05)  # room for a stray report that must not come
+    assert client.landed == [True, False]
+    assert t._typing_refs == {}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_turns_share_one_pump_and_its_refreshes():
+    """N turns in one room are one pump: the refresh rate does not grow with
+    N, and entering / leaving turns do not trigger extra reports."""
+    client = _TypingClient()
+    t = _trigger_with(client)
+    t.TYPING_REFRESH_SECONDS = 0.05
+    release = asyncio.Event()
+    entered = 0
+
+    async def _turn():
+        nonlocal entered
+        async with t.processing_indicator(_cred(), _msg()):
+            entered += 1
+            await release.wait()
+
+    tasks = [asyncio.create_task(_turn()) for _ in range(3)]
+    await _until(lambda: entered == 3)
+    start = time.monotonic()
+    await asyncio.sleep(0.5)
+    elapsed = time.monotonic() - start
+    assert len(t._typing_pumps) == 1
+    trues = client.states().count(True)
+    # One pump: about 1 + elapsed / refresh reports. Three pumps (one per
+    # turn) would send about three times that.
+    assert trues <= 2 + elapsed / t.TYPING_REFRESH_SECONDS, trues
+
+    release.set()
+    await asyncio.gather(*tasks)
+    await _settled(t)
+    assert client.states().count(False) == 1
+    assert client.states()[-1] is False
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_pumps_and_empties_the_tables():
+    client = _TypingClient()
+    client.typing_gate = asyncio.Event()  # the pump is stuck mid-request
+    t = _trigger_with(client)
+    t.TYPING_REFRESH_SECONDS = 30.0
+    t.TYPING_REQUEST_TIMEOUT_SECONDS = 30.0
+    release = asyncio.Event()
+    entered = asyncio.Event()
+
+    async def _turn():
+        async with t.processing_indicator(_cred(), _msg()):
+            entered.set()
+            await release.wait()
+
+    turn = asyncio.create_task(_turn())
+    await entered.wait()
+    await _until(lambda: client.typing_calls)
+    pump = next(iter(t._typing_pumps.values())).task
+
+    await asyncio.wait_for(t.stop(), timeout=WAIT_LIMIT_SECONDS)
+    assert pump.cancelled()
+    assert t._typing_pumps == {}
+    assert t._typing_refs == {}
+    # Unregistered before the pumps are awaited: the cancelled request
+    # sees a retired client and closes it, then stop() closes it again.
+    assert client.closed == 2
+
+    # The turn still running exits cleanly and starts nothing new.
+    release.set()
+    await turn
+    assert t._typing_refs == {}
+    assert t._typing_pumps == {}
+    assert client.states() == [True]
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -641,6 +816,7 @@ async def test_authorized_dm_turn_reports_typing_through_the_pipeline():
     await p.process(_msg())
     assert p.authorize.await_args.kwargs["mentioned"] is False
     assert p.seen_during_run == [True]
+    await _settled(p.trigger)
     assert p.client.states() == [True, False]
     assert p.trigger._typing_refs == {}
 
@@ -652,6 +828,7 @@ async def test_group_mention_turn_reports_typing_through_the_pipeline():
     p.enqueue_silent.assert_not_awaited()
     assert p.authorize.await_args.kwargs["mentioned"] is True
     assert p.seen_during_run == [True]
+    await _settled(p.trigger)
     assert p.client.states() == [True, False]
     assert p.trigger._typing_refs == {}
 
