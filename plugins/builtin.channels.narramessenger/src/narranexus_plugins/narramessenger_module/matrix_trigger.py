@@ -34,6 +34,9 @@ Scope of THIS FILE (Phase 1, Commits 3 + 4b + 5 + 6 + 7):
      notice forwards ``m.notice`` back to the room, else silent drop
   ✓  (6)  Auto-join invited rooms during the sync loop
      (``autoJoin: always`` per NarraMessenger's OpenClaw config)
+  ✓  Typing indicator (``m.typing`` via ``client.room_typing``) while
+     the agent works on a dm / group_mention text turn — see
+     :meth:`processing_indicator`
 
   ✓  (Phase 3) Multimodal: ``m.image`` / ``m.file`` / ``m.audio`` /
      ``m.video`` → ``_wrap_event`` marshals the mxc URI, ``parse_event``
@@ -45,7 +48,6 @@ Scope of THIS FILE (Phase 1, Commits 3 + 4b + 5 + 6 + 7):
 
 Deferred to Phase 4:
   ✗  Progressive update via ``m.replace``
-  ✗  Typing indicator via ``PUT /rooms/{room}/typing/{user}``
   ✗  ``NarramessengerContextBuilder`` adapting to matrix event shape
      (currently shared with the polling trigger — good enough for
      text-only Phase 1)
@@ -58,8 +60,19 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
-from typing import Any, AsyncIterator, List, Literal, Optional
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    List,
+    Literal,
+    Optional,
+    TypeVar,
+    Union,
+)
 
 import aiohttp
 from loguru import logger
@@ -80,6 +93,7 @@ from nio import (
     RoomMessageText,
     RoomSendError,
     RoomSendResponse,
+    RoomTypingResponse,
     SyncResponse,
     UnknownEvent,
 )
@@ -119,7 +133,9 @@ from ._narramessenger_credential_manager import (
 from .voice._rtc_voice import (
     extract_common_voice_instructions,
     is_leaf_tool,
+    is_voice_turn,
     parse_rtc_voice_input,
+    rtc_voice_stamp,
     split_narra_system_prompt,
     voice_reply_binding,
     with_voice_reply_binding,
@@ -190,7 +206,7 @@ def _voice_profile_for(message: ParsedMessage) -> Optional[TurnProfile]:
     persisted, so the next plain message runs the normal path untouched
     (handoff: the override must never be written to any session store).
     """
-    if (message.raw or {}).get("rtc_voice"):
+    if is_voice_turn(message):
         return TurnProfile.voice_fast()
     return None
 
@@ -240,6 +256,37 @@ class _VoiceCallState:
 
     running: bool = False
     pending: list = field(default_factory=list)  # (message, sender_name, attachments)
+
+
+_T = TypeVar("_T")
+
+
+class _NoLiveClient:
+    """Type of :data:`_NO_LIVE_CLIENT`."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<no live client>"
+
+
+# What MatrixTrigger._with_live_client returns, without running the
+# request, when the subscriber has no registered client (sync loop torn
+# down: unbind, stop, or between two connects). Each caller decides what
+# that means for it — an audited failure for a reply, a skip for typing.
+_NO_LIVE_CLIENT = _NoLiveClient()
+
+
+@dataclass
+class _TypingPump:
+    """The one task that sends every ``m.typing`` report for a room.
+
+    ``wake`` is set whenever the room's turn count changes, so the pump
+    re-reads it instead of sleeping out the refresh interval.
+    """
+
+    task: asyncio.Task
+    wake: asyncio.Event
 
 
 def _merge_voice_batch(batch: list) -> tuple:
@@ -561,6 +608,16 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
     # keeps a room with constant membership churn from looping.
     ROSTER_LOOKUP_ATTEMPTS = 2
 
+    # ── Typing indicator (m.typing) ──────────────────────────────────────
+    # The homeserver holds a typing notice for the timeout we send; the
+    # pump refreshes well inside it so the indicator stays up for the
+    # whole run. Every typing request is bounded: nio backs off on 429
+    # without a limit, and a stuck request must not keep the pump from
+    # reacting to a turn ending.
+    TYPING_TIMEOUT_MS = 30000
+    TYPING_REFRESH_SECONDS = 20.0
+    TYPING_REQUEST_TIMEOUT_SECONDS = 2.0
+
     def __init__(self, max_workers: int = 3):
         super().__init__(
             base_workers=max_workers,
@@ -649,6 +706,18 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         self._voice_calls: dict[str, _VoiceCallState] = {}
         self._init_voice_control()
 
+        # ── Typing indicator ─────────────────────────────────────────────
+        # (subscriber_key, room_id) -> number of turns currently showing
+        # the indicator. The worker pool runs same-room text turns
+        # concurrently. Keys are removed at zero. Changed only by the
+        # processing_indicator hook (entry / exit), never by the pump.
+        self._typing_refs: dict[tuple[str, str], int] = {}
+        # (subscriber_key, room_id) -> the room's single pump. It sends
+        # every typing=true / typing=false for the room, serially, and
+        # removes itself once it has cleared the indicator with the count
+        # still at zero. stop() cancels whatever is left.
+        self._typing_pumps: dict[tuple[str, str], _TypingPump] = {}
+
     # ────────────────────────────────────────────────────────────────────
     # Lifecycle
     # ────────────────────────────────────────────────────────────────────
@@ -684,15 +753,94 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
 
         self._stop_voice_control()
 
-        for key, client in list(self._clients.items()):
+        # Typing pumps go before the clients, with no await in between:
+        # once the clients are unregistered no hook can start a new pump
+        # (entry needs a live client) and no request can pick a client
+        # that is being closed. The cancelled pumps are then awaited
+        # (bounded) so none is still mid-request when the clients close.
+        pumps = [p.task for p in self._typing_pumps.values()]
+        for task in pumps:
+            task.cancel()
+        self._typing_pumps.clear()
+        self._typing_refs.clear()
+        clients = list(self._clients.items())
+        self._clients.clear()
+        if pumps:
+            await asyncio.wait(pumps, timeout=self.TYPING_REQUEST_TIMEOUT_SECONDS)
+
+        for key, client in clients:
             try:
                 await asyncio.wait_for(client.close(), timeout=3.0)
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                 logger.warning(
                     f"[matrix:{key}] client close during stop: {e}"
                 )
-        self._clients.clear()
         await super().stop()
+
+    # ────────────────────────────────────────────────────────────────────
+    # Requests through the live client
+    # ────────────────────────────────────────────────────────────────────
+
+    async def _with_live_client(
+        self,
+        credential: NarramessengerCredential,
+        request: Callable[[AsyncClient], Awaitable[_T]],
+        *,
+        fallback: Optional[AsyncClient] = None,
+    ) -> Union[_T, _NoLiveClient]:
+        """Run one request on the subscriber's CURRENT client.
+
+        Every request on the nio ``AsyncClient`` outside the sync loop goes
+        through here (the raw-aiohttp senders — ``matrix_room_send``, the
+        voice ack's ``matrix_send_event``, ``_download_mxc`` — hold no nio
+        client and are not concerned). The client is looked up at call
+        time, with no await before ``request`` starts: the subscribe loop
+        pops and closes its client on reconnect / unbind (``connect``'s
+        finally), and a request on a closed nio client silently opens a new
+        aiohttp session that nobody closes. ``request`` receives the client
+        it runs on, so a caller that needs to know which one was used reads
+        it there. Returns ``request``'s result; its exceptions (cancellation
+        included) propagate unchanged.
+
+        No registered client: with ``fallback`` (a client the caller already
+        used — necessarily retired by now) the request runs on it; without,
+        :data:`_NO_LIVE_CLIENT` comes back and ``request`` is not called.
+        Only the reply sender passes a fallback: a reply retried across a
+        reconnect window must still be delivered (as it always was), while
+        typing is cosmetic and the room-shape lookups are fail-closed.
+
+        Looking up first only protects the first attempt: nio retries
+        inside one request (429 back-off without limit, a transport retry)
+        and every retry re-opens a session if the client was closed
+        meanwhile. So when the request ends — normally, by error or by
+        cancellation — and its client is no longer ``_clients[key]``, it is
+        closed again here (``close()`` is idempotent; a failing close is
+        debug-logged). A fallback is therefore always closed afterwards;
+        the live client never is.
+
+        Premise: ``connect()`` registers a NEW ``AsyncClient`` object on
+        every (re)connect, so "retired" is an identity test (``is not``).
+        If clients were ever reused across connects, this check would
+        silently stop closing anything.
+        """
+        key = self._subscriber_key(credential)
+        client = self._clients.get(key)
+        if client is None:
+            client = fallback
+        if client is None:
+            return _NO_LIVE_CLIENT
+        try:
+            return await request(client)
+        finally:
+            if self._clients.get(key) is not client:
+                try:
+                    await client.close()
+                except Exception as e:  # noqa: BLE001 — cleanup, never abort
+                    logger.debug(
+                        f"[matrix:{credential.agent_id}] closing a retired "
+                        f"client after its request ended failed (non-fatal): "
+                        f"{type(e).__name__}: {e}"
+                    )
 
     # ────────────────────────────────────────────────────────────────────
     # Abstract-method implementations
@@ -1016,7 +1164,6 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
 
     async def _resolve_room_shape(
         self,
-        client: AsyncClient,
         room_id: str,
         credential: NarramessengerCredential,
     ) -> tuple[Optional[Literal["dm", "group"]], int]:
@@ -1026,13 +1173,18 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         display names, which mention detection needs), then the creation
         state. The count is 0 when the roster could not be verified; the
         kind is None when the room declares none or the lookup failed.
+        Both lookups run on the subscriber's live client
+        (:meth:`_with_live_client`); no live client counts as a failed
+        lookup (fail-closed, retried on the next message).
         """
-        count = await self._get_member_count(client, room_id)
-        await self._ensure_room_kind(client, room_id)
+        count = await self._get_member_count(room_id, credential)
+        await self._ensure_room_kind(room_id, credential)
         effective = self._effective_member_count(room_id, credential) if count else 0
         return self._room_kind.get(room_id), effective
 
-    async def _ensure_room_kind(self, client: AsyncClient, room_id: str) -> None:
+    async def _ensure_room_kind(
+        self, room_id: str, credential: NarramessengerCredential
+    ) -> None:
         """Fetch the room's creation state once, unless already known.
 
         Only a 2xx response whose content is a JSON object without
@@ -1052,13 +1204,23 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
             return
         generation = self._room_kind_gen.get(room_id, 0)
         try:
-            resp = await client.room_get_state_event(
-                room_id, ROOM_CREATION_STATE_TYPE, ""
+            resp = await self._with_live_client(
+                credential,
+                lambda client: client.room_get_state_event(
+                    room_id, ROOM_CREATION_STATE_TYPE, ""
+                ),
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"[matrix] room_get_state_event({room_id}, "
                 f"{ROOM_CREATION_STATE_TYPE}) raised: {type(e).__name__}: {e}"
+            )
+            return
+        if resp is _NO_LIVE_CLIENT:
+            logger.info(
+                f"[matrix:{credential.agent_id}] room_get_state_event("
+                f"{room_id}) skipped: no live client; retried on the next "
+                f"message"
             )
             return
         if (
@@ -1092,7 +1254,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         )
 
     async def _get_member_count(
-        self, client: AsyncClient, room_id: str
+        self, room_id: str, credential: NarramessengerCredential
     ) -> int:
         """Return the authoritative joined-member count for ``room_id``.
 
@@ -1127,7 +1289,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
                 return self._known_member_count(room_id)
             generation = self._room_roster_gen.get(room_id, 0)
             left_before = set(self._room_left_unverified.get(room_id, ()))
-            members = await self._fetch_joined_members(client, room_id)
+            members = await self._fetch_joined_members(room_id, credential)
             if room_id in self._room_roster_authoritative:
                 return self._known_member_count(room_id)
             if members is None:
@@ -1171,19 +1333,28 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         return 0
 
     async def _fetch_joined_members(
-        self, client: AsyncClient, room_id: str
+        self, room_id: str, credential: NarramessengerCredential
     ) -> Optional[list]:
         """One ``joined_members`` call; the member list, or None on failure.
 
         An empty roster counts as a failure: we are a member ourselves, so
-        it is not a shape, and treating it as one would cache 0.
+        it is not a shape, and treating it as one would cache 0. So does
+        having no live client (:meth:`_with_live_client`).
         """
         try:
-            resp = await client.joined_members(room_id)
+            resp = await self._with_live_client(
+                credential, lambda client: client.joined_members(room_id)
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 f"[matrix] joined_members({room_id}) raised: "
                 f"{type(e).__name__}: {e}"
+            )
+            return None
+        if resp is _NO_LIVE_CLIENT:
+            logger.info(
+                f"[matrix:{credential.agent_id}] joined_members({room_id}) "
+                f"skipped: no live client; retried on the next message"
             )
             return None
         # nio returns JoinedMembersResponse (success) or JoinedMembersError
@@ -1264,7 +1435,6 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
 
     async def _classify(
         self,
-        client: AsyncClient,
         message: ParsedMessage,
         credential: NarramessengerCredential,
         *,
@@ -1311,7 +1481,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
             raise ValueError("room_kind requires member_count from the same resolution")
         if member_count is None:
             room_kind, member_count = await self._resolve_room_shape(
-                client, message.chat_id, credential
+                message.chat_id, credential
             )
         if room_kind == "dm" or (room_kind is None and member_count == 2):
             return "dm"
@@ -1398,8 +1568,9 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
     async def _flush_silent(self, key: tuple[str, str]) -> None:
         """Drain the buffer for ``key`` and hand it off to the 4a silent-
         batch runtime call. Errors are swallowed — a dropped batch is
-        recoverable via reconnect + since_token replay, but a raised
-        exception here would break the debounce timer for the room."""
+        lost (its events are already marked in the dedup store, so a
+        re-delivery would not bring them back), but a raised exception
+        here would break the debounce timer for the room."""
         lock = self._silent_locks.setdefault(key, asyncio.Lock())
         async with lock:
             msgs = self._silent_buffer.pop(key, [])
@@ -1658,23 +1829,27 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         us to deliver this text and we tried; audit it in the standard
         transport_send_failed path so ops can see it, but do NOT
         retry the underlying event handling.
+
+        Sent via :meth:`_with_live_client`, like every request outside the
+        sync loop.
         """
-        key = self._subscriber_key(credential)
-        client = self._clients.get(key)
-        if client is None:
-            logger.warning(
-                f"[matrix:{credential.agent_id}] cannot send authorize "
-                f"notice: no active client for room={room_id}"
-            )
-            return
         try:
-            resp = await client.room_send(
-                room_id=room_id,
-                message_type="m.room.message",
-                content=with_voice_reply_binding(
-                    {"msgtype": "m.notice", "body": text}, voice_reply
+            resp = await self._with_live_client(
+                credential,
+                lambda client: client.room_send(
+                    room_id=room_id,
+                    message_type="m.room.message",
+                    content=with_voice_reply_binding(
+                        {"msgtype": "m.notice", "body": text}, voice_reply
+                    ),
                 ),
             )
+            if resp is _NO_LIVE_CLIENT:
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] cannot send authorize "
+                    f"notice: no active client for room={room_id}"
+                )
+                return
             if not isinstance(resp, RoomSendResponse):
                 code = str(getattr(resp, "status_code", "unknown") or "unknown")
                 logger.warning(
@@ -1685,6 +1860,232 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
             logger.warning(
                 f"[matrix:{credential.agent_id}] authorize-event notice "
                 f"send raised: {type(e).__name__}: {e} (room={room_id})"
+            )
+
+    # ────────────────────────────────────────────────────────────────────
+    # Typing indicator
+    # ────────────────────────────────────────────────────────────────────
+
+    @asynccontextmanager
+    async def processing_indicator(  # type: ignore[override]
+        self, credential: NarramessengerCredential, message: ParsedMessage
+    ) -> AsyncIterator[None]:
+        """Show "typing..." in the room while the agent works on the turn.
+
+        The base wraps ``_build_and_run_agent`` in this hook, and this
+        class's ``_process_message`` only reaches the base for an
+        authorized dm / group_mention turn that passed the ingress
+        breaker — the group_silent path and authorize denials return
+        earlier, so they never show the indicator.
+
+        The hook itself never touches the network. Entry counts the turn
+        in ``_typing_refs`` and starts (or wakes) the room's single pump
+        (``_typing_pump``); exit (normal, exception or cancellation) drops
+        the count and wakes the pump, then returns at once — it awaits
+        nothing, so a slow homeserver never holds the worker. The pump
+        sends every typing=true / typing=false for the room, serially, so
+        concurrent turns in one room cannot reorder each other's reports.
+
+        No-op for voice-call turns (the call UI is the feedback) and when
+        the agent has no live client at entry. No client is ever created
+        for this cosmetic signal; every failure is logged at debug level
+        and swallowed (cancellation still propagates) — it never affects
+        the run or the credential.
+        """
+        if is_voice_turn(message):
+            yield
+            return
+        key = self._subscriber_key(credential)
+        room_id = message.chat_id
+        if key not in self._clients or not room_id:
+            yield
+            return
+
+        ref_key = (key, room_id)
+        counted = False
+        try:
+            self._typing_refs[ref_key] = self._typing_refs.get(ref_key, 0) + 1
+            counted = True
+            self._wake_typing_pump(credential, ref_key)
+        except Exception as e:  # noqa: BLE001 — cosmetic, never abort
+            logger.debug(
+                f"[matrix:{credential.agent_id}] typing indicator entry "
+                f"failed (non-fatal, room={room_id}): {type(e).__name__}: {e}"
+            )
+        try:
+            yield
+        finally:
+            # Synchronous on purpose: the count must drop on every exit
+            # path, cancellation included, and nothing here may wait.
+            if counted:
+                try:
+                    remaining = self._typing_refs.get(ref_key, 0) - 1
+                    if remaining > 0:
+                        self._typing_refs[ref_key] = remaining
+                    else:
+                        self._typing_refs.pop(ref_key, None)
+                    pump = self._typing_pumps.get(ref_key)
+                    if pump is not None:
+                        pump.wake.set()
+                except Exception as e:  # noqa: BLE001 — cosmetic, never abort
+                    logger.debug(
+                        f"[matrix:{credential.agent_id}] typing indicator "
+                        f"exit failed (non-fatal, room={room_id}): "
+                        f"{type(e).__name__}: {e}"
+                    )
+
+    def _wake_typing_pump(
+        self, credential: NarramessengerCredential, ref_key: tuple[str, str]
+    ) -> None:
+        """Wake the room's pump, starting one if the room has none.
+
+        A pump whose task already ended (its done callback has not run
+        yet) is replaced rather than woken.
+        """
+        pump = self._typing_pumps.get(ref_key)
+        if pump is not None and not pump.task.done():
+            pump.wake.set()
+            return
+        wake = asyncio.Event()
+        task = asyncio.create_task(
+            self._typing_pump(credential, ref_key, wake),
+            name=f"matrix-typing:{ref_key[0]}:{ref_key[1]}",
+        )
+        entry = _TypingPump(task=task, wake=wake)
+        self._typing_pumps[ref_key] = entry
+
+        def _done(t: asyncio.Task) -> None:
+            # A pump that returned normally has already removed itself;
+            # this only cleans up after a crash. Identity check: a newer
+            # pump for the room may be registered by now.
+            if self._typing_pumps.get(ref_key) is entry:
+                self._typing_pumps.pop(ref_key, None)
+            if t.cancelled():
+                logger.debug(
+                    f"[matrix:{credential.agent_id}] typing pump cancelled "
+                    f"(room={ref_key[1]})"
+                )
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] typing pump crashed "
+                    f"(non-fatal, room={ref_key[1]}): "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+        task.add_done_callback(_done)
+
+    async def _typing_pump(
+        self,
+        credential: NarramessengerCredential,
+        ref_key: tuple[str, str],
+        wake: asyncio.Event,
+    ) -> None:
+        """Send the room's typing reports until no turn is left.
+
+        While ``_typing_refs[ref_key] > 0``: typing=true, refreshed every
+        ``TYPING_REFRESH_SECONDS``; a wake re-reads the count without
+        re-sending. At zero: typing=false, then the count is read again —
+        still zero → the pump removes itself (no await between that read
+        and the removal, so an entering hook either sees this pump gone and
+        starts a new one, or its wake is seen here); non-zero (a turn
+        entered while the false was in flight) → typing=true again. One
+        task per room, so no true can overtake a false or vice versa.
+
+        The first typing=true is sent whatever the count: a turn that ends
+        before the pump first runs still shows the indicator once, followed
+        by the false.
+        """
+        room_id = ref_key[1]
+        loop = asyncio.get_running_loop()
+        refresh_at: Optional[float] = None  # None: typing=true is due now
+        while True:
+            # Cleared before the count is read: a wake from here on is
+            # either already reflected in the read or seen by the wait.
+            wake.clear()
+            if refresh_at is None or self._typing_refs.get(ref_key, 0) > 0:
+                now = loop.time()
+                if refresh_at is None or now >= refresh_at:
+                    await self._send_typing_bounded(credential, room_id, True)
+                    refresh_at = loop.time() + self.TYPING_REFRESH_SECONDS
+                    continue
+                try:
+                    await asyncio.wait_for(wake.wait(), timeout=refresh_at - now)
+                except asyncio.TimeoutError:
+                    pass
+                continue
+            await self._send_typing_bounded(credential, room_id, False)
+            if self._typing_refs.get(ref_key, 0) > 0:
+                refresh_at = None
+                continue
+            entry = self._typing_pumps.get(ref_key)
+            if entry is not None and entry.task is asyncio.current_task():
+                self._typing_pumps.pop(ref_key, None)
+            return
+
+    async def _send_typing_bounded(
+        self,
+        credential: NarramessengerCredential,
+        room_id: str,
+        typing: bool,
+    ) -> None:
+        """``_send_typing`` capped at ``TYPING_REQUEST_TIMEOUT_SECONDS``.
+
+        nio retries a 429 without limit inside ``room_typing``; the cap
+        keeps the pump responsive. Only the timeout is absorbed here —
+        cancellation propagates."""
+        try:
+            await asyncio.wait_for(
+                self._send_typing(credential, room_id, typing),
+                timeout=self.TYPING_REQUEST_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.debug(
+                f"[matrix:{credential.agent_id}] typing={typing} timed out "
+                f"(non-fatal, room={room_id})"
+            )
+
+    async def _send_typing(
+        self,
+        credential: NarramessengerCredential,
+        room_id: str,
+        typing: bool,
+    ) -> None:
+        """One ``m.typing`` report through the subscriber's CURRENT client.
+
+        Sent via :meth:`_with_live_client` (looked up at send time, a
+        client retired during the request is closed afterwards). No live
+        client → skipped; no client is ever created for this signal.
+
+        Never raises (other than cancellation): nio returns a
+        ``RoomTypingError`` instead of raising on a Matrix-level failure,
+        and transport errors raise — both are cosmetic, so both end in a
+        debug line and nothing else (no audit, no credential change)."""
+        try:
+            resp = await self._with_live_client(
+                credential,
+                lambda client: client.room_typing(
+                    room_id, typing_state=typing, timeout=self.TYPING_TIMEOUT_MS
+                ),
+            )
+        except Exception as e:  # noqa: BLE001 — cosmetic, never abort
+            logger.debug(
+                f"[matrix:{credential.agent_id}] typing={typing} raised "
+                f"(non-fatal, room={room_id}): {type(e).__name__}: {e}"
+            )
+            return
+        if resp is _NO_LIVE_CLIENT:
+            logger.debug(
+                f"[matrix:{credential.agent_id}] typing={typing} skipped: "
+                f"no live client (room={room_id})"
+            )
+            return
+        if not isinstance(resp, RoomTypingResponse):
+            logger.debug(
+                f"[matrix:{credential.agent_id}] typing={typing} failed "
+                f"(non-fatal, room={room_id}): "
+                f"{getattr(resp, 'status_code', None) or type(resp).__name__}"
             )
 
     # ────────────────────────────────────────────────────────────────────
@@ -1703,9 +2104,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
             credential,
             message.chat_id,
             text,
-            voice_reply=voice_reply_binding(
-                (getattr(message, "raw", None) or {}).get("rtc_voice")
-            ),
+            voice_reply=voice_reply_binding(rtc_voice_stamp(message)),
         )
 
     async def _send_matrix_reply(
@@ -1737,42 +2136,40 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         Returns True iff the reply was accepted by the homeserver.
         A False return does NOT re-raise — the sync loop must not stall
         on a single failed reply; the audit event carries the diagnostic.
-        """
-        key = self._subscriber_key(credential)
-        client = self._clients.get(key)
-        if client is None:
-            logger.warning(
-                f"[matrix:{credential.agent_id}] cannot send reply: "
-                f"no active client (sync loop torn down?)"
-            )
-            await self._audit(
-                EVENT_TRANSPORT_SEND_FAILED,
-                agent_id=credential.agent_id,
-                app_id=getattr(credential, "app_id", ""),
-                chat_id=room_id,
-                details={
-                    "error_code": "no_active_client",
-                    "attempts": 0,
-                    "body_preview": (content or "")[:120],
-                },
-            )
-            return False
 
+        Every attempt goes through :meth:`_with_live_client`, so a retry
+        after a reconnect uses the new client and a client retired during
+        an attempt is closed when it ends. A retry that finds no live
+        client (reconnect window: the base backs off for seconds, longer
+        than this retry budget) runs on the client the previous attempt
+        used, passed as ``fallback``; the helper closes it again
+        afterwards, so delivery is unchanged and no session leaks. No
+        client before the FIRST attempt ends the send with the
+        ``no_active_client`` audit (``attempts: 0``), never silently.
+        """
         backoff_ms = self.SEND_INITIAL_BACKOFF_MS
         last_code: str = ""
         last_error: str = ""
+        used_client: Optional[AsyncClient] = None
+
+        async def _attempt(client: AsyncClient) -> Any:
+            nonlocal used_client
+            used_client = client
+            return await client.room_send(
+                room_id=room_id,
+                message_type="m.room.message",
+                content=with_voice_reply_binding(
+                    replacement_content(content, replaces_event_id)
+                    if replaces_event_id
+                    else {"msgtype": "m.text", "body": content},
+                    voice_reply,
+                ),
+            )
 
         for attempt in range(1, self.SEND_MAX_ATTEMPTS + 1):
             try:
-                resp = await client.room_send(
-                    room_id=room_id,
-                    message_type="m.room.message",
-                    content=with_voice_reply_binding(
-                        replacement_content(content, replaces_event_id)
-                        if replaces_event_id
-                        else {"msgtype": "m.text", "body": content},
-                        voice_reply,
-                    ),
+                resp = await self._with_live_client(
+                    credential, _attempt, fallback=used_client
                 )
             except Exception as e:  # noqa: BLE001
                 last_code = "transport_exception"
@@ -1785,6 +2182,26 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
                     await asyncio.sleep(backoff_ms / 1000)
                     backoff_ms *= 2
                 continue
+
+            if resp is _NO_LIVE_CLIENT:
+                # Only reachable on the first attempt: every later one has
+                # the previous attempt's client as fallback.
+                logger.warning(
+                    f"[matrix:{credential.agent_id}] cannot send reply: "
+                    f"no active client (sync loop torn down?)"
+                )
+                await self._audit(
+                    EVENT_TRANSPORT_SEND_FAILED,
+                    agent_id=credential.agent_id,
+                    app_id=getattr(credential, "app_id", ""),
+                    chat_id=room_id,
+                    details={
+                        "error_code": "no_active_client",
+                        "attempts": 0,
+                        "body_preview": (content or "")[:120],
+                    },
+                )
+                return False
 
             if isinstance(resp, RoomSendResponse):
                 return True
@@ -1879,13 +2296,13 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         also handles unbound-credential and empty-content guards, so
         neither path re-implements them.
         """
-        key = self._subscriber_key(credential)
-        client = self._clients.get(key)
-        if client is None:
+        if self._subscriber_key(credential) not in self._clients:
             # No active client → sync loop torn down while events were
-            # in flight. Drop the message; the base's _subscribe_loop
-            # will replay from since_token on reconnect. INFO level so
-            # a missing agent run for an event has a paper trail.
+            # in flight. Drop the message. It is NOT replayed: the base
+            # marked the event in its dedup store before queueing it, and
+            # the /sync cursor was saved once the batch was queued, so a
+            # re-delivery would be dropped as a duplicate anyway. INFO
+            # level so a missing agent run for an event has a paper trail.
             logger.info(
                 f"[matrix:{credential.agent_id}] DROP: no active client "
                 f"(room={message.chat_id}, event={message.message_id})"
@@ -1911,11 +2328,10 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         # message. _classify then reuses the shape instead of looking up
         # again.
         room_kind, member_count = await self._resolve_room_shape(
-            client, message.chat_id, credential
+            message.chat_id, credential
         )
         mentioned = self._is_mentioning_us(message, credential)
         target = await self._classify(
-            client,
             message,
             credential,
             mentioned=mentioned,
@@ -2006,9 +2422,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
                     credential,
                     message.chat_id,
                     verdict.notice_text,
-                    voice_reply=voice_reply_binding(
-                        (message.raw or {}).get("rtc_voice")
-                    ),
+                    voice_reply=voice_reply_binding(rtc_voice_stamp(message)),
                 )
             else:
                 logger.info(
@@ -2044,7 +2458,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         # streams on one call. Modeled on the group_silent per-(agent, room)
         # buffer; the call key is agent_id:room_id (room ≡ call under the
         # 1:1 gate).
-        if (getattr(message, "raw", None) or {}).get("rtc_voice"):
+        if is_voice_turn(message):
             if not self.STREAMING_ENABLED:
                 # The streaming kill switch governs voice too: live
                 # delivery IS streaming, so degrade the whole turn to a
@@ -2113,9 +2527,9 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
 
         Voice mode is 1:1-only; ``chat_type`` is left as it is.
         """
-        raw = message.raw or {}
-        if not raw.get("rtc_voice"):
+        if not is_voice_turn(message):
             return message
+        raw = message.raw or {}
         logger.info(
             f"[matrix:{message.chat_id}] voice stamp dropped: {reason}, "
             f"voice mode is 1:1-only"
@@ -2146,9 +2560,9 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         same rule as parse_event — the envelope must never run the agent
         as user content (review #21).
         """
-        raw = message.raw or {}
-        if not authoritative_dm or raw.get("rtc_voice"):
+        if not authoritative_dm or is_voice_turn(message):
             return message
+        raw = message.raw or {}
         detected = _detect_voice_turn(
             message.content, getattr(raw.get("_nio_event"), "source", None)
         )
@@ -2334,7 +2748,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         _t_voice_received = time.monotonic()
         turn_profile = _voice_profile_for(message)
         _t_voice_applied = time.monotonic()
-        rtc_voice = (message.raw or {}).get("rtc_voice")
+        rtc_voice = rtc_voice_stamp(message)
         if rtc_voice:
             extra_data["rtc_voice"] = rtc_voice
 
@@ -2994,7 +3408,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
                             # Not a prompt: handled off the base pipeline
                             # and off this loop (never yielded).
                             self._dispatch_voice_control_event(
-                                client, credential, room_id, event
+                                credential, room_id, event
                             )
                             continue
                         raw = self._wrap_event(
@@ -3061,7 +3475,11 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
                             f"failed (non-fatal): {e}"
                         )
         finally:
-            self._clients.pop(key, None)
+            # By identity: if a newer subscribe loop for this credential
+            # has registered its own client meanwhile, it stays — every
+            # request outside the sync loop looks clients up in _clients.
+            if self._clients.get(key) is client:
+                self._clients.pop(key, None)
             try:
                 await client.close()
             except Exception:  # noqa: BLE001

@@ -1,8 +1,17 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/voice/_voice_control.py
 stub: false
-last_verified: 2026-11-19
+last_verified: 2026-11-25
 ---
+
+## 2026-11-25 — 控制事件 handler 不再接收同步循环的 client；stamp 读法收口
+
+`_dispatch_voice_control_event` / `_handle_voice_control_event` / `_admit_voice_session_once` /
+`_admit_new_voice_session` 去掉了 `client` 形参，存根 `_resolve_room_shape(room_id, credential)` 同步改签名。原因：这些
+handler 是从同步循环派生出去的 task，可能比那一轮同步活得久——重连后它们手里那个 client 已被订阅循环关掉，再在上面发
+`joined_members` / 取房间 state，nio 会悄悄新建一个永不关闭的 session。现在准入时的房型查询由 trigger 的
+`_resolve_room_shape` 经 `_with_live_client`（[[matrix_trigger.py]] 2026-11-25（二））在请求那一刻取 live client。对名单
+尚未验证的房间，没有 live client 等同房型未知，准入按「不是 1:1」拒绝（fail-closed）；名单已验证的房间读缓存（房型未查过时按成员数判断），不受影响。两处取 v15 回复绑定改用 [[_rtc_voice.py]] 的 `rtc_voice_stamp`。
 
 ## Why it exists
 

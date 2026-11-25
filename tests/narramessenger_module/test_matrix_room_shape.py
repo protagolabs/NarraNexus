@@ -244,7 +244,7 @@ class _Harness:
         return "group_mention" if mentioned else "dm"
 
     async def count(self) -> int:
-        return await self.trigger._get_member_count(self.client, ROOM)  # type: ignore[arg-type]
+        return await self.trigger._get_member_count(ROOM, _cred())
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -815,7 +815,8 @@ async def test_auto_join_clears_stale_unverified_leaves(monkeypatch):
 
     assert await _drive_auto_join(monkeypatch, t) == [ROOM]
     client = _FakeClient(_roster(AGENT_MXID, USER_MXID, THIRD_MXID))
-    assert await t._get_member_count(client, ROOM) == 3  # type: ignore[arg-type]
+    t._clients[t._subscriber_key(_cred())] = client  # type: ignore[assignment]
+    assert await t._get_member_count(ROOM, _cred()) == 3
     assert t._room_joined[ROOM] == {AGENT_MXID, USER_MXID, THIRD_MXID}
 
 
@@ -1079,7 +1080,8 @@ async def test_service_bot_excluded_on_the_agents_own_server_only():
         matrix_user_id=cn_agent,
     )
     assert t._service_sender_mxid(cred) == "@hybrid-im-bot:matrix-cn.narramessenger.cn"
-    kind, count = await t._resolve_room_shape(client, ROOM, cred)  # type: ignore[arg-type]
+    t._clients[t._subscriber_key(cred)] = client  # type: ignore[assignment]
+    kind, count = await t._resolve_room_shape(ROOM, cred)
     assert (kind, count) == (None, 2)
     assert t._service_sender_mxid(_cred()) == BOT_MXID
 
@@ -1480,6 +1482,4 @@ def test_invalid_room_type_clears_a_recorded_kind():
 async def test_classify_rejects_room_kind_without_member_count():
     t = MatrixTrigger()
     with pytest.raises(ValueError):
-        await t._classify(
-            SimpleNamespace(), _msg(), _cred(), room_kind="dm"  # type: ignore[arg-type]
-        )
+        await t._classify(_msg(), _cred(), room_kind="dm")

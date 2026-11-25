@@ -474,7 +474,7 @@ class _Harness:
 
         monkeypatch.setattr(vc_mod, "matrix_send_event", _fake_send)
 
-        async def _shape(client, room_id, credential):
+        async def _shape(room_id, credential):
             return self.shape
 
         self.authorize = AsyncMock(side_effect=lambda *a, **k: _AuthorizeVerdict(allow=self.allow))
@@ -489,7 +489,7 @@ class _Harness:
 
     async def control(self, event, *, room: str = ROOM) -> None:
         """Run one control event through the handler and let its ack finish."""
-        await self.t._handle_voice_control_event(object(), _cred(), room, event)
+        await self.t._handle_voice_control_event(_cred(), room, event)
         await self.settle()
 
     async def settle(self) -> None:
@@ -868,7 +868,7 @@ async def test_events_of_one_new_session_share_a_single_admission(h):
     h.authorize.side_effect = _slow_authorize
     tasks = [
         asyncio.create_task(
-            h.t._handle_voice_control_event(object(), _cred(), ROOM, event)
+            h.t._handle_voice_control_event(_cred(), ROOM, event)
         )
         for event in (
             _event(T_CALL_STARTED),
@@ -901,7 +901,7 @@ async def test_shared_admission_refusal_reaches_every_waiter(h):
     h.authorize.side_effect = _slow_authorize
     tasks = [
         asyncio.create_task(
-            h.t._handle_voice_control_event(object(), _cred(), ROOM, event)
+            h.t._handle_voice_control_event(_cred(), ROOM, event)
         )
         for event in (_event(T_CALL_STARTED), _event(T_TURN_HINT))
     ]
@@ -931,11 +931,11 @@ async def test_crashed_shared_admission_fails_closed_for_every_waiter(h, failure
 
     h.authorize.side_effect = _authorize
     leader = asyncio.create_task(
-        h.t._handle_voice_control_event(object(), _cred(), ROOM, _event(T_CALL_STARTED))
+        h.t._handle_voice_control_event(_cred(), ROOM, _event(T_CALL_STARTED))
     )
     await started.wait()
     waiter = asyncio.create_task(
-        h.t._handle_voice_control_event(object(), _cred(), ROOM, _event(T_TURN_HINT))
+        h.t._handle_voice_control_event(_cred(), ROOM, _event(T_TURN_HINT))
     )
     for _ in range(3):
         await asyncio.sleep(0)
@@ -975,8 +975,8 @@ async def test_slow_ack_does_not_hold_the_handler(h):
     """The handler settles the registry and the tombstone, then hands the
     ack to its own task: a slow homeserver must not delay cancel handling."""
     h.send_gate = asyncio.Event()
-    await h.t._handle_voice_control_event(object(), _cred(), ROOM, _event(T_CALL_STARTED))
-    await h.t._handle_voice_control_event(object(), _cred(), ROOM, _event(T_TURN_CANCELLED))
+    await h.t._handle_voice_control_event(_cred(), ROOM, _event(T_CALL_STARTED))
+    await h.t._handle_voice_control_event(_cred(), ROOM, _event(T_TURN_CANCELLED))
     # Both handlers returned with their acks still in flight.
     assert h.acks == [] and len(h.t._voice_control_tasks) == 2
     assert h.t._voice_registry.turn_is_dead("agent_x", ROOM, SESSION, TURN)
@@ -1341,7 +1341,7 @@ async def test_kill_switch_short_circuits_at_dispatch(monkeypatch):
     monkeypatch.setattr(h.t, "_handle_voice_control_event", handler)
 
     for _ in range(20):
-        h.t._dispatch_voice_control_event(object(), _cred(), ROOM, _event(T_CALL_STARTED))
+        h.t._dispatch_voice_control_event(_cred(), ROOM, _event(T_CALL_STARTED))
     assert len(h.t._voice_control_tasks) == 1  # the single audit task
     assert h.t._voice_handlers_in_flight == {}
     await h.settle()
@@ -1366,9 +1366,9 @@ async def test_handler_slots_are_per_agent_and_released(monkeypatch):
     other = _cred()
     other.agent_id = "agent_y"
 
-    h.t._dispatch_voice_control_event(object(), _cred(), ROOM, _event(T_CALL_STARTED))
-    h.t._dispatch_voice_control_event(object(), _cred(), ROOM, _event(T_TURN_HINT))
-    h.t._dispatch_voice_control_event(object(), other, OTHER_ROOM, _event(T_CALL_STARTED))
+    h.t._dispatch_voice_control_event(_cred(), ROOM, _event(T_CALL_STARTED))
+    h.t._dispatch_voice_control_event(_cred(), ROOM, _event(T_TURN_HINT))
+    h.t._dispatch_voice_control_event(other, OTHER_ROOM, _event(T_CALL_STARTED))
     await asyncio.sleep(0)
     assert h.t._voice_handlers_in_flight == {"agent_x": 1, "agent_y": 1}
 
@@ -1380,7 +1380,7 @@ async def test_handler_slots_are_per_agent_and_released(monkeypatch):
 
     # The slot is free again.
     h.acks.clear()
-    h.t._dispatch_voice_control_event(object(), _cred(), ROOM, _event(T_TURN_HINT))
+    h.t._dispatch_voice_control_event(_cred(), ROOM, _event(T_TURN_HINT))
     await h.settle()
     assert [a["content"]["ack_of"] for a in h.acks] == ["turn_hint"]
 
@@ -1391,7 +1391,7 @@ async def test_handler_slot_is_released_when_cancelled_before_it_runs(monkeypatc
     its own; the slot must come back anyway, or repeated stop/start would
     lock the agent out of control events for good."""
     h = _Harness(monkeypatch)
-    h.t._dispatch_voice_control_event(object(), _cred(), ROOM, _event(T_CALL_STARTED))
+    h.t._dispatch_voice_control_event(_cred(), ROOM, _event(T_CALL_STARTED))
     assert h.t._voice_handlers_in_flight == {"agent_x": 1}
     task = next(iter(h.t._voice_control_tasks))
     task.cancel()  # before the event loop ever ran it
@@ -1406,7 +1406,7 @@ async def test_dispatch_while_stopping_takes_no_slot(monkeypatch):
     h = _Harness(monkeypatch)
     h.t._voice_handlers_in_flight["agent_x"] = 2  # two handlers genuinely running
     h.t._voice_stopping = True
-    h.t._dispatch_voice_control_event(object(), _cred(), ROOM, _event(T_CALL_STARTED))
+    h.t._dispatch_voice_control_event(_cred(), ROOM, _event(T_CALL_STARTED))
     assert h.t._voice_handlers_in_flight == {"agent_x": 2}
     assert h.t._voice_control_tasks == set()
 

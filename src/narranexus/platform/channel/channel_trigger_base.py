@@ -583,6 +583,9 @@ class ChannelTriggerBase(ABC):
     #   - Telegram: ``sendChatAction(chat_id, action="typing")`` shows a
     #     "typing..." hint. Decays after 5s, so the override re-fires
     #     every ~4s in a background task and cancels on exit.
+    #   - NarraMessenger (Matrix): ``m.typing`` via ``room_typing`` with a
+    #     30s server timeout, refreshed every 20s, cleared on exit; shared
+    #     per room by a reference count across concurrent turns.
     #   - Slack: ``assistant.threads.setStatus`` (assistant apps) or
     #     ``reactions.add`` (regular channels) — TBD per channel design.
     #   - Lark: ``bot/typing`` API — TBD.
