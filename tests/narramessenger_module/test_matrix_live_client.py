@@ -13,10 +13,14 @@ Contract locked here:
 - A client popped or replaced during its request is closed once the
   request ends — normally, by error, or by cancellation. The live client
   is never closed.
+- ``fallback`` (reply sender only) runs the request on a client the
+  caller already used when none is registered, and that client is closed
+  afterwards.
 - The reply sender looks the client up again on every attempt: a retry
-  after a reconnect goes to the new client. No client before the first
-  attempt OR before a retry ends in the ``no_active_client`` audit, never
-  silently.
+  after a reconnect goes to the new client; a retry inside the reconnect
+  window (no client registered) goes to the previous attempt's client and
+  still delivers. No client before the first attempt ends in the
+  ``no_active_client`` audit, never silently.
 - The notice sender and the room-shape lookups (joined_members, creation
   state) go through the same path; no client there is a failed lookup.
 - ``is_voice_turn`` / ``rtc_voice_stamp`` read the voice stamp.
@@ -214,6 +218,25 @@ async def test_retired_client_is_closed_when_the_request_is_cancelled(t):
 
 
 @pytest.mark.asyncio
+async def test_fallback_runs_only_without_a_live_client_and_is_closed_after(t):
+    live = _Client()
+    retired = _Client()
+    seen: list = []
+
+    async def _request(c):
+        seen.append(c)
+        return "done"
+
+    t._clients[_key(t)] = live
+    assert await t._with_live_client(_cred(), _request, fallback=retired) == "done"
+    t._clients.pop(_key(t))
+    assert await t._with_live_client(_cred(), _request, fallback=retired) == "done"
+    assert seen == [live, retired]
+    assert live.closed == 0
+    assert retired.closed == 1
+
+
+@pytest.mark.asyncio
 async def test_failing_close_of_a_retired_client_does_not_mask_the_result(t):
     old = _Client()
 
@@ -252,21 +275,32 @@ async def test_reply_retry_after_a_reconnect_uses_the_new_client(t):
 
 
 @pytest.mark.asyncio
-async def test_reply_without_a_client_before_a_retry_is_audited(t):
-    old = _Client(_err("M_UNKNOWN"))
+async def test_reply_retry_inside_the_reconnect_window_uses_the_last_client(t):
+    """Attempt 1 fails and the sync loop pops the client meanwhile; the base
+    backs off longer than the reply's retry budget, so no client is
+    registered for the retry. It runs on the client attempt 1 used (as it
+    always did) and that client is closed again after each attempt."""
+    old = _Client(_err("M_UNKNOWN"), _ok())
     t._clients[_key(t)] = old
-    old.during = lambda: t._clients.pop(_key(t))  # unbind mid-send
+    old.during = lambda: t._clients.pop(_key(t))  # sync loop torn down
 
-    assert await t._send_matrix_reply(_cred(), ROOM, "hello there") is False
-    assert len(old.sent) == 1
-    assert old.closed == 1
-    [(event_type, kwargs)] = t._audit_repo.calls
-    assert event_type == "transport_send_failed"
-    details = kwargs["details"]
-    assert details["error_code"] == "no_active_client"
-    assert details["attempts"] == 1
-    assert details["previous_error_code"] == "M_UNKNOWN"
-    assert details["body_preview"] == "hello there"
+    assert await t._send_matrix_reply(_cred(), ROOM, "hello there") is True
+    assert len(old.sent) == 2
+    assert old.sent[1]["content"] == old.sent[0]["content"]
+    assert old.closed == 2  # once after each attempt
+    assert t._audit_repo.calls == []
+
+
+@pytest.mark.asyncio
+async def test_reply_two_retries_without_a_client_still_deliver(t):
+    old = _Client(_err("M_UNKNOWN"), RuntimeError("connector closed"), _ok())
+    t._clients[_key(t)] = old
+    old.during = lambda: t._clients.pop(_key(t))
+
+    assert await t._send_matrix_reply(_cred(), ROOM, "hi") is True
+    assert len(old.sent) == 3
+    assert old.closed == 3
+    assert t._audit_repo.calls == []
 
 
 @pytest.mark.asyncio
@@ -294,6 +328,14 @@ async def test_reply_retries_on_the_live_client_never_close_it(t):
 # ────────────────────────────────────────────────────────────────────
 # Notice sender and room-shape lookups
 # ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_notice_does_not_fall_back_to_a_retired_client(t):
+    """Only the reply sender passes a fallback: a notice with no live
+    client is not sent at all."""
+    await t._send_matrix_notice(_cred(), ROOM, "not allowed")
+    assert t._audit_repo.calls == []
 
 
 @pytest.mark.asyncio
@@ -363,3 +405,80 @@ def test_voice_stamp_helpers():
     assert is_voice_turn(_msg({"body": "hi"})) is False
     assert rtc_voice_stamp(SimpleNamespace()) is None  # no raw at all
     assert is_voice_turn(SimpleNamespace(raw=None)) is False
+
+
+# ────────────────────────────────────────────────────────────────────
+# connect() unregisters only its own client
+# ────────────────────────────────────────────────────────────────────
+
+
+class _SyncClient:
+    instances: list = []
+
+    def __init__(self, **_kw) -> None:
+        self.device_id = None
+        self.access_token = None
+        self.user_id = None
+        self.closed = 0
+        self.on_sync: Optional[Callable[[], object]] = None
+        _SyncClient.instances.append(self)
+
+    async def sync(self, timeout=None, since=None, full_state=False):
+        if self.on_sync is not None:
+            self.on_sync()
+        raise RuntimeError("Matrix /sync failed: unknown error")
+
+    async def close(self):
+        self.closed += 1
+
+
+def _bound_cred() -> NarramessengerCredential:
+    return NarramessengerCredential(
+        agent_id="agent_x",
+        bearer_token="tok",
+        matrix_homeserver_url="https://matrix.h",
+        matrix_user_id=AGENT_MXID,
+        matrix_access_token="syt_fake",
+    )
+
+
+async def _run_connect(t: MatrixTrigger) -> None:
+    t.running = True
+    with pytest.raises(RuntimeError, match="sync failed"):
+        async for _ in t.connect(_bound_cred()):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_connect_teardown_unregisters_its_own_client(t, monkeypatch):
+    from narranexus_plugins.narramessenger_module import matrix_trigger as mt
+
+    _SyncClient.instances = []
+    monkeypatch.setattr(mt, "AsyncClient", _SyncClient)
+    await _run_connect(t)
+    [own] = _SyncClient.instances
+    assert _key(t) not in t._clients
+    assert own.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_connect_teardown_leaves_a_newer_client_registered(t, monkeypatch):
+    """Two subscribe loops of one credential overlapping: the older one's
+    teardown must not unregister the client the newer one registered."""
+    from narranexus_plugins.narramessenger_module import matrix_trigger as mt
+
+    _SyncClient.instances = []
+    monkeypatch.setattr(mt, "AsyncClient", _SyncClient)
+    newer = _Client()
+    original_init = _SyncClient.__init__
+
+    def _init(self, **kw):
+        original_init(self, **kw)
+        self.on_sync = lambda: t._clients.__setitem__(_key(t), newer)
+
+    monkeypatch.setattr(_SyncClient, "__init__", _init)
+    await _run_connect(t)
+    [own] = _SyncClient.instances
+    assert t._clients[_key(t)] is newer
+    assert own.closed == 1
+    assert newer.closed == 0

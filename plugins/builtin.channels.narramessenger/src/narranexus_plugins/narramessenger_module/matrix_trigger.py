@@ -785,17 +785,29 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         self,
         credential: NarramessengerCredential,
         request: Callable[[AsyncClient], Awaitable[_T]],
+        *,
+        fallback: Optional[AsyncClient] = None,
     ) -> Union[_T, _NoLiveClient]:
         """Run one request on the subscriber's CURRENT client.
 
-        Every homeserver request made outside the sync loop goes through
-        here. The client is looked up at call time, with no await before
-        ``request`` starts: the subscribe loop pops and closes its client on
-        reconnect / unbind (``connect``'s finally), and a request on a
-        closed nio client silently opens a new aiohttp session that nobody
-        closes. Returns :data:`_NO_LIVE_CLIENT` without calling ``request``
-        when no client is registered; otherwise ``request``'s result, and
-        its exceptions (cancellation included) propagate unchanged.
+        Every request on the nio ``AsyncClient`` outside the sync loop goes
+        through here (the raw-aiohttp senders — ``matrix_room_send``, the
+        voice ack's ``matrix_send_event``, ``_download_mxc`` — hold no nio
+        client and are not concerned). The client is looked up at call
+        time, with no await before ``request`` starts: the subscribe loop
+        pops and closes its client on reconnect / unbind (``connect``'s
+        finally), and a request on a closed nio client silently opens a new
+        aiohttp session that nobody closes. ``request`` receives the client
+        it runs on, so a caller that needs to know which one was used reads
+        it there. Returns ``request``'s result; its exceptions (cancellation
+        included) propagate unchanged.
+
+        No registered client: with ``fallback`` (a client the caller already
+        used — necessarily retired by now) the request runs on it; without,
+        :data:`_NO_LIVE_CLIENT` comes back and ``request`` is not called.
+        Only the reply sender passes a fallback: a reply retried across a
+        reconnect window must still be delivered (as it always was), while
+        typing is cosmetic and the room-shape lookups are fail-closed.
 
         Looking up first only protects the first attempt: nio retries
         inside one request (429 back-off without limit, a transport retry)
@@ -803,7 +815,8 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         meanwhile. So when the request ends — normally, by error or by
         cancellation — and its client is no longer ``_clients[key]``, it is
         closed again here (``close()`` is idempotent; a failing close is
-        debug-logged). The live client is never closed.
+        debug-logged). A fallback is therefore always closed afterwards;
+        the live client never is.
 
         Premise: ``connect()`` registers a NEW ``AsyncClient`` object on
         every (re)connect, so "retired" is an identity test (``is not``).
@@ -812,6 +825,8 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         """
         key = self._subscriber_key(credential)
         client = self._clients.get(key)
+        if client is None:
+            client = fallback
         if client is None:
             return _NO_LIVE_CLIENT
         try:
@@ -823,7 +838,7 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
                 except Exception as e:  # noqa: BLE001 — cleanup, never abort
                     logger.debug(
                         f"[matrix:{credential.agent_id}] closing a retired "
-                        f"client after a request raised (non-fatal): "
+                        f"client after its request ended failed (non-fatal): "
                         f"{type(e).__name__}: {e}"
                     )
 
@@ -1553,8 +1568,9 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
     async def _flush_silent(self, key: tuple[str, str]) -> None:
         """Drain the buffer for ``key`` and hand it off to the 4a silent-
         batch runtime call. Errors are swallowed — a dropped batch is
-        recoverable via reconnect + since_token replay, but a raised
-        exception here would break the debounce timer for the room."""
+        lost (its events are already marked in the dedup store, so a
+        re-delivery would not bring them back), but a raised exception
+        here would break the debounce timer for the room."""
         lock = self._silent_locks.setdefault(key, asyncio.Lock())
         async with lock:
             msgs = self._silent_buffer.pop(key, [])
@@ -2123,29 +2139,37 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
 
         Every attempt goes through :meth:`_with_live_client`, so a retry
         after a reconnect uses the new client and a client retired during
-        an attempt is closed when it ends. No live client — before the
-        first attempt or before a retry — ends the send with the
-        ``no_active_client`` audit (``attempts`` = attempts already made);
-        a lost reply always leaves an audit row.
+        an attempt is closed when it ends. A retry that finds no live
+        client (reconnect window: the base backs off for seconds, longer
+        than this retry budget) runs on the client the previous attempt
+        used, passed as ``fallback``; the helper closes it again
+        afterwards, so delivery is unchanged and no session leaks. No
+        client before the FIRST attempt ends the send with the
+        ``no_active_client`` audit (``attempts: 0``), never silently.
         """
         backoff_ms = self.SEND_INITIAL_BACKOFF_MS
         last_code: str = ""
         last_error: str = ""
+        used_client: Optional[AsyncClient] = None
+
+        async def _attempt(client: AsyncClient) -> Any:
+            nonlocal used_client
+            used_client = client
+            return await client.room_send(
+                room_id=room_id,
+                message_type="m.room.message",
+                content=with_voice_reply_binding(
+                    replacement_content(content, replaces_event_id)
+                    if replaces_event_id
+                    else {"msgtype": "m.text", "body": content},
+                    voice_reply,
+                ),
+            )
 
         for attempt in range(1, self.SEND_MAX_ATTEMPTS + 1):
             try:
                 resp = await self._with_live_client(
-                    credential,
-                    lambda client: client.room_send(
-                        room_id=room_id,
-                        message_type="m.room.message",
-                        content=with_voice_reply_binding(
-                            replacement_content(content, replaces_event_id)
-                            if replaces_event_id
-                            else {"msgtype": "m.text", "body": content},
-                            voice_reply,
-                        ),
-                    ),
+                    credential, _attempt, fallback=used_client
                 )
             except Exception as e:  # noqa: BLE001
                 last_code = "transport_exception"
@@ -2160,24 +2184,22 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
                 continue
 
             if resp is _NO_LIVE_CLIENT:
+                # Only reachable on the first attempt: every later one has
+                # the previous attempt's client as fallback.
                 logger.warning(
                     f"[matrix:{credential.agent_id}] cannot send reply: "
                     f"no active client (sync loop torn down?)"
                 )
-                details: dict[str, Any] = {
-                    "error_code": "no_active_client",
-                    "attempts": attempt - 1,
-                    "body_preview": (content or "")[:120],
-                }
-                if last_code:
-                    details["previous_error_code"] = last_code
-                    details["error_message"] = last_error[:400]
                 await self._audit(
                     EVENT_TRANSPORT_SEND_FAILED,
                     agent_id=credential.agent_id,
                     app_id=getattr(credential, "app_id", ""),
                     chat_id=room_id,
-                    details=details,
+                    details={
+                        "error_code": "no_active_client",
+                        "attempts": 0,
+                        "body_preview": (content or "")[:120],
+                    },
                 )
                 return False
 
@@ -2276,9 +2298,11 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
         """
         if self._subscriber_key(credential) not in self._clients:
             # No active client → sync loop torn down while events were
-            # in flight. Drop the message; the base's _subscribe_loop
-            # will replay from since_token on reconnect. INFO level so
-            # a missing agent run for an event has a paper trail.
+            # in flight. Drop the message. It is NOT replayed: the base
+            # marked the event in its dedup store before queueing it, and
+            # the /sync cursor was saved once the batch was queued, so a
+            # re-delivery would be dropped as a duplicate anyway. INFO
+            # level so a missing agent run for an event has a paper trail.
             logger.info(
                 f"[matrix:{credential.agent_id}] DROP: no active client "
                 f"(room={message.chat_id}, event={message.message_id})"
@@ -3451,7 +3475,11 @@ class MatrixTrigger(VoiceControlMixin, ChannelTriggerBase):
                             f"failed (non-fatal): {e}"
                         )
         finally:
-            self._clients.pop(key, None)
+            # By identity: if a newer subscribe loop for this credential
+            # has registered its own client meanwhile, it stays — every
+            # request outside the sync loop looks clients up in _clients.
+            if self._clients.get(key) is client:
+                self._clients.pop(key, None)
             try:
                 await client.close()
             except Exception:  # noqa: BLE001

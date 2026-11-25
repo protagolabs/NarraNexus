@@ -733,6 +733,63 @@ async def test_concurrent_turns_share_one_pump_and_its_refreshes():
 
 
 @pytest.mark.asyncio
+async def test_crashed_pump_is_replaced_and_its_callback_spares_the_new_one(
+    monkeypatch,
+):
+    """A pump that crashes is logged and removed by its done callback. A turn
+    entering after the crash but BEFORE that callback has run (it still sees
+    the dead pump registered) starts a new pump instead of waking the dead
+    one, and the old callback, running afterwards, leaves the new pump in
+    place."""
+    from loguru import logger
+
+    client = _TypingClient()
+    t = _trigger_with(client)
+    t.TYPING_REFRESH_SECONDS = 30.0
+    ref_key = (t._subscriber_key(_cred()), ROOM)
+    loop = asyncio.get_running_loop()
+    seen: dict = {}
+    warnings: list[str] = []
+    sink = logger.add(lambda m: warnings.append(str(m)), level="WARNING")
+    real_send = t._send_typing_bounded
+    crashed = False
+
+    def _enter_between_crash_and_callback() -> None:
+        # Queued before the crashing task finishes, so it runs after the
+        # task is done but before the task's done callbacks.
+        seen["dead"] = t._typing_pumps[ref_key].task
+        assert seen["dead"].done()
+        t._typing_refs[ref_key] = t._typing_refs.get(ref_key, 0) + 1
+        t._wake_typing_pump(_cred(), ref_key)
+        seen["new"] = t._typing_pumps[ref_key].task
+
+    async def _send(credential, room_id, typing):
+        nonlocal crashed
+        if not crashed:
+            crashed = True
+            loop.call_soon(_enter_between_crash_and_callback)
+            raise RuntimeError("pump bug")
+        await real_send(credential, room_id, typing)
+
+    monkeypatch.setattr(t, "_send_typing_bounded", _send)
+    try:
+        async with t.processing_indicator(_cred(), _msg()):
+            await _until(lambda: "new" in seen)
+            await asyncio.sleep(0.02)  # the dead pump's callback has run
+            assert seen["new"] is not seen["dead"]
+            assert t._typing_pumps[ref_key].task is seen["new"]
+            await _until(lambda: client.typing_calls)  # the new pump works
+        # Drop the reference the simulated entry added, then let it clear.
+        t._typing_refs.pop(ref_key, None)
+        t._typing_pumps[ref_key].wake.set()
+        await _settled(t)
+        assert client.states() == [True, False]
+        assert any("typing pump crashed" in w for w in warnings)
+    finally:
+        logger.remove(sink)
+
+
+@pytest.mark.asyncio
 async def test_stop_cancels_pumps_and_empties_the_tables():
     client = _TypingClient()
     client.typing_gate = asyncio.Event()  # the pump is stuck mid-request
