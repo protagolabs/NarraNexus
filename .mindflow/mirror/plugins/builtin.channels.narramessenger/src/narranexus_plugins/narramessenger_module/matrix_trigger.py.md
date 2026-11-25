@@ -4,6 +4,57 @@ stub: false
 last_verified: 2026-11-25
 ---
 
+## 2026-11-25（二）— 订阅循环之外的所有 homeserver 请求统一走 `_with_live_client`；语音判定收口
+
+**问题**：订阅循环（`connect()` 的 `finally`）在重连 / 解绑时先 `_clients.pop` 再 `client.close()`，而 nio 的 `close()` 只把
+`client_session` 置 None——此后这个对象上的任何请求（包括 nio 自己的 429 退避重试、传输重试）都会悄悄新建一个永不关闭的
+aiohttp session（`Unclosed client session`）。上一版只在 `_send_typing` 里处理了这件事，`_send_matrix_reply` /
+`_send_matrix_notice` / `joined_members` / `room_get_state_event` 都还攥着入口那一刻取到的 client，回复路径的整段重试
+（最多 `SEND_MAX_ATTEMPTS` 次 + 指数退避）都打在同一个可能已退役的对象上。
+
+**做法**：本类私有 helper `_with_live_client(credential, request)` 是 client 生命周期在「订阅循环之外」的唯一处置点：
+- 调用那一刻 `self._clients.get(key)`，取到之后到 `request(client)` 开始之间没有 await；取不到返回哨兵 `_NO_LIVE_CLIENT`
+  （**不**执行请求）。请求的返回值、异常（含取消）原样透出。
+- 请求结束（正常 / 异常 / 取消，`finally`）后，若该 client 已不是 `_clients[key]`（身份比较 `is not`），补关一次；
+  `close()` 幂等，关自身的异常只打 debug；live client 绝不关。
+- 前提写死在 docstring：`connect()` 每次（重）连都注册一个**新的** `AsyncClient` 对象。将来若改成复用同一对象，这个身份
+  判断会静默失效。
+- 哨兵而不是异常：各调用方对「没有 client」的语义不同，用返回值让调用方必须显式区分——回复是有审计的失败，typing 是
+  静默跳过，房型查询是「这次没查成、下条消息再查」。而且回复的重试循环里 `except Exception` 会把异常记成
+  `transport_exception`，哨兵不会被它吞掉。
+
+**各调用方**：
+- `_send_typing`：经 helper 发；`_NO_LIVE_CLIENT` → debug 跳过。原先写在它里面的退役补关整段搬进 helper。
+- `_send_matrix_reply`：**每次尝试都重新经 helper 取 client**，重连后的重试自动用新 client。取不到 client——第一次尝试前
+  或任一重试前——都走既有的 `no_active_client` 审计（`EVENT_TRANSPORT_SEND_FAILED`），`attempts` 是已经做过的尝试数
+  （第一次之前仍是 0，details 与原先逐字相同；重试前丢失时额外带 `previous_error_code` / `error_message`），绝不静默。
+  M_LIMIT_EXCEEDED 的 retry-after、永久鉴权失败短路、耗尽后的审计、语音 reply binding、`m.replace` 内容都不变；消息体
+  仍在 `try` 里、每次尝试构造（与原先一样，构造失败算一次 `transport_exception`）。
+- `_send_matrix_notice`：同样经 helper；取不到 client 仍是原来那条 warning、不发。
+- `_fetch_joined_members` / `_ensure_room_kind`：经 helper；取不到 client 等同一次失败的查询（名单不标权威、房型不记
+  `_room_kind_checked`，下条消息再查），所以是 fail-closed（未知房型按 group_silent）。为此 `client` 形参从整条链上去掉：
+  `_resolve_room_shape(room_id, credential)`、`_get_member_count(room_id, credential)`、`_ensure_room_kind(room_id,
+  credential)`、`_fetch_joined_members(room_id, credential)`、`_classify(message, credential, ...)`；语音控制面
+  （[[_voice_control.py]]）的 `_dispatch_voice_control_event` / `_handle_voice_control_event` /
+  `_admit_voice_session_once` / `_admit_new_voice_session` 也不再接收 client——这些 handler 是从同步循环派生出去的 task，
+  可能比那一轮同步活得久，它们手里那个 client 在请求时可能早已退役。`_process_message` 开头的「没有 client 就 DROP」
+  只做存在性判断。
+- 仍直接用 client 的只有订阅循环自己：`client.sync` / `client.join`（client 由 `connect()` 创建并拥有，在它自己的
+  `finally` 里 pop+close，请求都在循环内串行 await，不存在「退役后还在用」），以及 `stop()` 里的 `client.close()`。
+
+**语音判定收口**（review M4）：「这一轮是不是语音轮 / 取语音 stamp」统一走 [[_rtc_voice.py]] 的 `is_voice_turn(message)` /
+`rtc_voice_stamp(message)`，本文件 8 处（`_voice_profile_for`、typing 钩子、`_send_circuit_refusal`、authorize 拒绝的
+notice、`_build_and_run_agent` 的判定与取值、`_strip_voice_stamp`、`_late_voice_upgrade`）以及 [[_voice_control.py]]
+两处、[[narramessenger_context_builder.py]] 两处。按 key **剥离 / 写入** `rtc_voice` 的位置（kill switch 降级、
+`_strip_voice_stamp` 的 raw 重建、`_late_voice_upgrade` / `parse_event` 写 stamp）语义不同，保持原样。
+
+测试：新文件 `tests/narramessenger_module/test_matrix_live_client.py`（16 条）：helper 本身（无 client 不执行请求、结果透传、
+请求中被 pop / 被换新后补关、请求抛异常 / 被取消时同样补关、关自身失败不遮盖结果、live client 不关）；回复在重试间 client
+被换掉后改用新 client（旧的补关一次）、重试前 client 消失走 `no_active_client` 审计（attempts=1）、从未有 client 时审计
+details 与原先逐字相同、同一 live client 上重试三次不被关；notice 与房型查询走 live client；`is_voice_turn` /
+`rtc_voice_stamp`。实测变异：helper 不补关 → 13 红；helper 连 live client 一起关 → 6 红；回复钉住第一次的 client → 1 红；
+重试前丢 client 时静默返回 → 1 红；只在请求成功时补关 → 4 红；空 stamp 也算语音轮 → 1 红。
+
 ## 2026-11-25 — agent 处理文字轮期间上报 Matrix `m.typing`（「对方正在输入…」）
 
 OpenClaw / Hermes 接入的 agent 在处理消息时 Narra Messenger 客户端会显示「对方正在输入…」，我们没有。
@@ -47,17 +98,10 @@ OpenClaw / Hermes 接入的 agent 在处理消息时 Narra Messenger 客户端�
   也不会有请求去拿一个正在被关的 client。仍在跑的 worker 之后退出时只做计数递减（缺 key 时按 0 处理，不会写出负数）。
 - 钩子自身任何失败（进入时起泵、退出时记账）都 `except Exception` + debug，不外传；`CancelledError` 不吞。
 
-**每次发送都在发送那一刻取 live client**（与 `_send_matrix_reply` / `_send_matrix_notice` 同一写法）：`_send_typing`
-只收 `credential`（key 在函数内由 `_subscriber_key` 算出，不再和 credential 并列传两份），在函数内 `self._clients.get(key)`，
-取到之后到 `room_typing` 之间没有 await；取不到就跳过（不发、不建 client）。原因：订阅循环在重连 / 解绑时先
-`_clients.pop` 再 `client.close()`，而 nio 的 `close()` 只把 `client_session` 置 None，下一次请求会悄悄新建一个永不关闭的
-aiohttp session（`Unclosed client session`）。效果：新请求只发给 live client——重连后新 client 就绪即接着续期、false 也打到
-新 client；解绑 / 停机后不再发起新的 typing 请求，由服务端 30s 超时自行清除。
-「取 client 与发请求之间无 await」只保住第一次尝试：nio 的 `room_typing` → `_send` 内部有重试循环（429 无限退避重试、
-传输错误重试一次），每次重试都经过带 `@client_session` 的 `send()`，session 为 None 就新建。所以被拆掉的 client 若有
-在途请求或正处于 nio 退避，请求结束后（正常 / 出错 / 被取消，都在 `finally` 里）只要它已不是 `_clients` 里的当前
-client，就立即再 `close()` 一次；`close()` 幂等，关自身的异常只打 debug；仍是 live 的 client 绝不关。这依赖「重连总是
-注册一个新的 client 对象」（`connect()` 里新建后 `_clients[key] = client`，只在订阅循环 `finally` 里 pop）。
+**每次发送都在发送那一刻取 live client**：`_send_typing` 只收 `credential`（key 由 `_subscriber_key` 算出，不再和
+credential 并列传两份），经 `_with_live_client` 发送（见上一条 2026-11-25（二）：调用时取 live client、请求中被退役则请求
+结束后补关）；取不到就跳过（不发、不建 client）。效果：新请求只发给 live client——重连后新 client 就绪即接着续期、false
+也打到新 client；解绑 / 停机后不再发起新的 typing 请求，由服务端 30s 超时自行清除。
 
 **失败一律非致命**：nio 在 Matrix 层失败时返回 `RoomTypingError` 而不是抛异常，传输错误则抛——`_send_typing` 两种
 都只打 debug，不写 audit、不碰 `disable_credential`（token 失效由 sync 循环负责发现）。
@@ -67,8 +111,7 @@ client，就立即再 `close()` 一次；`close()` 幂等，关自身的异常�
   一次 HTTP 往返。
 - group_mention 轮会在群里显示输入中，这是预期的。
 - 托管（managed / Manyfold 转发）入站路径不经过 `_process_message`、也没有 live client，所以不显示输入中。
-- `_send_matrix_reply` / `_send_matrix_notice` 的 `room_send` 有同类在途窗口（发送中 client 被拆掉、nio 重试重建 session），
-  是 dev 既有问题，本 commit 不修。
+- （`_send_matrix_reply` / `_send_matrix_notice` 的同类在途窗口已在 2026-11-25（二）统一处理。）
 
 测试：`tests/narramessenger_module/test_matrix_typing_indicator.py`（假 nio client 记录 `room_typing`，真实
 `processing_indicator`；时序断言都是带上限的条件等待——退出后用「等所有泵收工」`_settled` 再断言 false 已落地，只有
@@ -1266,7 +1309,8 @@ the same agent set during migration.
 
 ## The three-way classification
 
-`_classify(client, message, credential)` returns one of:
+`_classify(message, credential)` returns one of (room-shape lookups run on
+the live client via `_with_live_client`; no live client = unknown shape):
 
 - `"dm"` — 2 members in the room. Full agent-loop path via
   `_process_message` → `_build_and_run_agent` → reply.
@@ -1312,6 +1356,11 @@ before drain would lose the silent memory writes.
   the credential. Do not burn 3 attempts against a dead token.
 - Transient (network / 5xx / unknown status) → exponential backoff,
   cap `SEND_MAX_ATTEMPTS`.
+
+Every attempt looks the client up again through `_with_live_client`, so a
+retry after a reconnect uses the new client; no live client before any
+attempt ends the send with a `no_active_client` audit row (`attempts` =
+attempts already made).
 
 Any failure that exhausts the retry budget writes an audit row of
 type `transport_send_failed` (added to

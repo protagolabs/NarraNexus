@@ -150,9 +150,8 @@ async def test_classify_dm_when_member_count_two():
     t = MatrixTrigger()
     room = "!room:h"
     _seed_verified_roster(t, room, 2)
-    fake_client = SimpleNamespace()  # not touched: roster already verified
     target = await t._classify(
-        fake_client, _msg(body="hi", chat_id=room), _cred()
+        _msg(body="hi", chat_id=room), _cred()
     )
     assert target == "dm"
 
@@ -162,9 +161,7 @@ async def test_classify_group_mention_by_msc3952_intentional_mentions():
     t = MatrixTrigger()
     room = "!bigroom:h"
     _seed_verified_roster(t, room, 5)
-    fake_client = SimpleNamespace()
     target = await t._classify(
-        fake_client,
         _msg(body="hey team, quick q", chat_id=room, mentions=[AGENT_ID]),
         _cred(),
     )
@@ -176,9 +173,7 @@ async def test_classify_group_mention_by_raw_mxid_inline():
     t = MatrixTrigger()
     room = "!bigroom:h"
     _seed_verified_roster(t, room, 5)
-    fake_client = SimpleNamespace()
     target = await t._classify(
-        fake_client,
         _msg(body=f"can {AGENT_ID} check this?", chat_id=room),
         _cred(),
     )
@@ -192,9 +187,7 @@ async def test_classify_group_mention_by_at_displayname():
     _seed_verified_roster(t, room, 5)
     # Seed our own display name.
     t._display_name_cache[(room, AGENT_ID)] = "Agent Bot"
-    fake_client = SimpleNamespace()
     target = await t._classify(
-        fake_client,
         _msg(body="@Agent Bot are you around?", chat_id=room),
         _cred(),
     )
@@ -207,9 +200,7 @@ async def test_classify_group_silent_when_no_mention():
     room = "!bigroom:h"
     _seed_verified_roster(t, room, 5)
     t._display_name_cache[(room, AGENT_ID)] = "Agent Bot"
-    fake_client = SimpleNamespace()
     target = await t._classify(
-        fake_client,
         _msg(body="hey team, how are things", chat_id=room),
         _cred(),
     )
@@ -225,9 +216,7 @@ async def test_classify_bare_word_displayname_is_not_a_mention():
     room = "!bigroom:h"
     _seed_verified_roster(t, room, 5)
     t._display_name_cache[(room, AGENT_ID)] = "Agent"
-    fake_client = SimpleNamespace()
     target = await t._classify(
-        fake_client,
         _msg(body="I already called the Agent about that", chat_id=room),
         _cred(),
     )
@@ -242,9 +231,7 @@ async def test_classify_displayname_from_other_room_is_ignored():
     other_room, this_room = "!roomA:h", "!roomB:h"
     _seed_verified_roster(t, this_room, 5)
     t._display_name_cache[(other_room, AGENT_ID)] = "Agent"  # NOT this_room
-    fake_client = SimpleNamespace()
     target = await t._classify(
-        fake_client,
         _msg(body="@Agent are you here?", chat_id=this_room),
         _cred(),
     )
@@ -264,5 +251,6 @@ async def test_classify_unknown_room_defaults_to_group_silent():
             # Simulate lookup failure — no members returned.
             return SimpleNamespace(status_code="M_UNKNOWN")
 
-    target = await t._classify(_FakeClient(), _msg(body="hi", chat_id=room), _cred())
+    t._clients[t._subscriber_key(_cred())] = _FakeClient()  # type: ignore[assignment]
+    target = await t._classify(_msg(body="hi", chat_id=room), _cred())
     assert target == "group_silent"

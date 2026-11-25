@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
-from nio import AsyncClient, UnknownEvent
+from nio import UnknownEvent
 
 from narranexus.platform.channel.channel_audit_events import (
     EVENT_DEDUP_FAIL_OPEN,
@@ -36,7 +36,7 @@ from narranexus.platform.schema.parsed_message import ParsedMessage
 
 from .._matrix_send import MatrixSendError, matrix_send_event
 from .._narramessenger_credential_manager import NarramessengerCredential
-from ._rtc_voice import voice_reply_binding
+from ._rtc_voice import rtc_voice_stamp, voice_reply_binding
 from ._voice_call import (
     EVENT_VOICE_CONTROL_DROPPED,
     EVENT_VOICE_CONTROL_HANDLED,
@@ -96,7 +96,7 @@ class VoiceControlMixin(_Base):
         ) -> Any: ...
 
         async def _resolve_room_shape(
-            self, client: Any, room_id: str, credential: Any
+            self, room_id: str, credential: Any
         ) -> tuple[Any, int]: ...
 
         def _service_sender_mxid(self, credential: Any) -> str: ...
@@ -242,7 +242,6 @@ class VoiceControlMixin(_Base):
 
     def _dispatch_voice_control_event(
         self,
-        client: AsyncClient,
         credential: NarramessengerCredential,
         room_id: str,
         event: Any,
@@ -299,7 +298,7 @@ class VoiceControlMixin(_Base):
                 self._voice_handlers_in_flight.pop(agent_id, None)
 
         if self._spawn_voice_task(
-            self._handle_voice_control_event(client, credential, room_id, event),
+            self._handle_voice_control_event(credential, room_id, event),
             label=f"control:{event.type}",
             on_done=_release,
         ):
@@ -341,7 +340,6 @@ class VoiceControlMixin(_Base):
 
     async def _handle_voice_control_event(
         self,
-        client: AsyncClient,
         credential: NarramessengerCredential,
         room_id: str,
         event: Any,
@@ -429,7 +427,7 @@ class VoiceControlMixin(_Base):
                 # has already cleared the session (the ack is optional).
                 return
             refusal = await self._admit_voice_session_once(
-                client, credential, room_id, sender, ctl.rtc_session_id
+                credential, room_id, sender, ctl.rtc_session_id
             )
             if refusal == _ADMISSION_RATE_LIMITED_QUIET:
                 return
@@ -487,7 +485,6 @@ class VoiceControlMixin(_Base):
 
     async def _admit_voice_session_once(
         self,
-        client: AsyncClient,
         credential: NarramessengerCredential,
         room_id: str,
         sender: str,
@@ -518,7 +515,7 @@ class VoiceControlMixin(_Base):
         self._voice_admitting[key] = future
         try:
             refusal = await self._admit_new_voice_session(
-                client, credential, room_id, sender
+                credential, room_id, sender
             )
         except BaseException:
             # Waiters must not hang, and must not treat a crash as a pass.
@@ -533,7 +530,6 @@ class VoiceControlMixin(_Base):
 
     async def _admit_new_voice_session(
         self,
-        client: AsyncClient,
         credential: NarramessengerCredential,
         room_id: str,
         sender: str,
@@ -549,7 +545,7 @@ class VoiceControlMixin(_Base):
         Returns "" when admitted, else the refusal reason.
         """
         room_kind, member_count = await self._resolve_room_shape(
-            client, room_id, credential
+            room_id, credential
         )
         routed_dm = room_kind == "dm" or (room_kind is None and member_count == 2)
         if not (routed_dm and member_count == 2):
@@ -612,9 +608,7 @@ class VoiceControlMixin(_Base):
         the ``turn.started`` ack is sent (off this path — receipt must not
         wait for the model, nor the model for the ack).
         """
-        binding = voice_reply_binding(
-            (getattr(message, "raw", None) or {}).get("rtc_voice")
-        )
+        binding = voice_reply_binding(rtc_voice_stamp(message))
         if binding is None:
             return True
         agent_id = getattr(credential, "agent_id", "")
@@ -699,9 +693,7 @@ class VoiceControlMixin(_Base):
         alive = []
         for entry in batch:
             message = entry[0]
-            binding = voice_reply_binding(
-                (getattr(message, "raw", None) or {}).get("rtc_voice")
-            )
+            binding = voice_reply_binding(rtc_voice_stamp(message))
             if binding is None or not self._voice_registry.turn_is_dead(
                 agent_id, message.chat_id, binding["rtc_session_id"], binding["turn_id"]
             ):

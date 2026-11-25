@@ -189,6 +189,22 @@ def is_leaf_tool(tool_name: Any, leaf: str) -> bool:
     )
 
 
+def rtc_voice_stamp(message: Any) -> Any:
+    """The voice stamp ``parse_event`` left on ``message.raw["rtc_voice"]``.
+
+    None (or another falsy value) for a text turn. The single place that
+    knows where the stamp lives; read it through this, never by hand.
+    """
+    return (getattr(message, "raw", None) or {}).get("rtc_voice")
+
+
+def is_voice_turn(message: Any) -> bool:
+    """True iff ``message`` carries a voice stamp, at either detection level
+    (strict or degraded). A detection hint, not an authorization: callers
+    keep every sender / room gate in place."""
+    return bool(rtc_voice_stamp(message))
+
+
 def voice_reply_binding(rtc_voice: Any) -> Optional[dict]:
     """The v15 reply binding for a voice turn, or None when it has none.
 

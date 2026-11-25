@@ -1,8 +1,16 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/voice/_rtc_voice.py
 stub: false
-last_verified: 2026-11-19
+last_verified: 2026-11-25
 ---
+
+## 2026-11-25 — `rtc_voice_stamp` / `is_voice_turn`：读语音 stamp 的唯一入口
+
+`parse_event` 把语音检测结果写在 `message.raw["rtc_voice"]`（严格或降级两级都写）。读它的写法原先散在
+[[matrix_trigger.py]]、[[_voice_control.py]]、[[narramessenger_context_builder.py]] 十余处，还有
+`message.raw or {}` / `getattr(message, "raw", None) or {}` 两种变体。现在统一：要值用 `rtc_voice_stamp(message)`
+（容忍 `raw` 缺失或为 None），只要判定用 `is_voice_turn(message)`（`bool(stamp)`，空 dict 不算）。和本文件其他函数一样
+它只是检测提示，不是授权：调用方的 sender / room 闸门照旧。**写入 / 按 key 剥离** stamp 的位置不走它。
 
 ## Why it exists
 

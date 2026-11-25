@@ -1,8 +1,13 @@
 ---
 code_file: plugins/builtin.channels.narramessenger/src/narranexus_plugins/narramessenger_module/narramessenger_context_builder.py
 stub: false
-last_verified: 2026-11-19
+last_verified: 2026-11-25
 ---
+
+## 2026-11-25 — 语音 stamp 改经 `rtc_voice_stamp` 读取
+
+`reply_kwargs()` 与 `get_message_info()` 不再手写 `(self._message.raw or {}).get("rtc_voice")`，改用 [[_rtc_voice.py]] 的
+`rtc_voice_stamp(message)`（全插件读 stamp 的唯一入口）。行为不变。
 
 ## 2026-11-19 — import 路径跟随 `voice/` 子包
 
