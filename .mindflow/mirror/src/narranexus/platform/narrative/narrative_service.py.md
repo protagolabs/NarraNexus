@@ -9,9 +9,10 @@ stub: false
 ## 2026-11-26 — 凭据解析改为 `await decision_endpoint_for_turn(agent_id)`
 
 解析需要 agent id(云端先取该 agent 的网关 key,冷缓存时走一次 quota-api),所以
-变成 async 调用;取不到网关 key 不算解析异常(落到下一个来源),`no_credential` /
-`credential_error` 的语义不变——但 `no_credential` 因此也包含"quota-api 暂时不可用
-且没有别的凭据"的轮次,区分要看 `[DecisionKeys] quota-api unavailable` warning。
+变成 async 调用,返回 `TurnDecisionCredential(endpoint, skip_verdict)`;没有 endpoint
+时 `merged_skip` 直接取 `skip_verdict`(`no_credential` 或新增的
+`key_service_unavailable`,词表与取值规则见 [[merged_router]]),本文件不认识免费档。
+取不到网关 key 不算解析异常(落到下一个来源);解析抛异常仍是 `credential_error`。
 解析仍在合并路径之前(快门轮次冷缓存时也付一次取 key,每进程每 agent 一次、上限
 2s);为何不后移见 [[merged_router]]。
 

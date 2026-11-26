@@ -1504,8 +1504,14 @@ async def test_many_turns_of_one_agent_ask_quota_api_once(
 
 
 async def test_two_agents_resolve_to_their_own_gateway_keys(merged_on, gateway):
-    first = [await merged_router.decision_endpoint_for_turn(a) for a in ("agent_x", "agent_y")]
-    again = [await merged_router.decision_endpoint_for_turn(a) for a in ("agent_x", "agent_y")]
+    first = [
+        (await merged_router.decision_endpoint_for_turn(a)).endpoint
+        for a in ("agent_x", "agent_y")
+    ]
+    again = [
+        (await merged_router.decision_endpoint_for_turn(a)).endpoint
+        for a in ("agent_x", "agent_y")
+    ]
 
     assert [e.api_key for e in first] == [gateway.key("agent_x"), gateway.key("agent_y")]
     assert [e.api_key for e in again] == [e.api_key for e in first]
@@ -1578,6 +1584,11 @@ async def test_no_gateway_key_falls_through_to_the_platform_key_and_the_turn_lan
     assert gateway.decisions == [{
         "url": f"{DECISION_HOST_BASE}/alpha/decisions", "auth": f"Bearer {PLATFORM_KEY}",
     }]
+    row = await _row(db_client)
+    assert row["merged_call"] == 1
+    assert row["merged_verdict"] == merged_router.VERDICT_CONTINUE_ANCHOR, (
+        "another credential qualified: nothing about the key service is stamped"
+    )
 
 
 async def test_no_gateway_key_and_no_platform_key_borrows_the_owner_key(
@@ -1596,10 +1607,19 @@ async def test_no_gateway_key_and_no_platform_key_borrows_the_owner_key(
     assert [c["auth"] for c in gateway.decisions] == ["Bearer owner-own-key"]
 
 
-async def test_no_gateway_key_and_nothing_else_takes_the_two_call_path(
-    service, db_client, merged_on_no_platform_key, monkeypatch, gateway
+@pytest.mark.parametrize("failure", ["unavailable", "refused", "no_base_url"])
+async def test_no_gateway_key_and_nothing_else_is_audited_as_key_service_unavailable(
+    service, db_client, merged_on_no_platform_key, monkeypatch, gateway, failure
 ):
-    gateway.quota_status = 502
+    """Not `no_credential`: this deployment has a key service, and the audit
+    row must say that it is what failed (a log line does not survive a
+    restart)."""
+    if failure == "unavailable":
+        gateway.quota_status = 502
+    elif failure == "refused":
+        gateway.quota_status = 422
+    else:
+        gateway.base_url = None
     anchor, _ = await _seed(service)
     _two_call_continuity(service, monkeypatch)
 
@@ -1610,7 +1630,18 @@ async def test_no_gateway_key_and_nothing_else_takes_the_two_call_path(
 
     assert result.selection_method == "continuous"
     assert gateway.decisions == []
-    assert (await _row(db_client))["merged_verdict"] == merged_router.VERDICT_NO_CREDENTIAL
+    row = await _row(db_client)
+    assert row["merged_verdict"] == merged_router.VERDICT_KEY_SERVICE_UNAVAILABLE
+    assert not row["merged_call"]
+
+
+def test_every_merged_verdict_fits_the_audit_column():
+    """`merged_verdict` is VARCHAR(32) on MySQL."""
+    verdicts = [
+        getattr(merged_router, name) for name in dir(merged_router)
+        if name.startswith("VERDICT_")
+    ]
+    assert verdicts and all(len(v) <= 32 for v in verdicts)
 
 
 async def test_the_gateway_key_books_nothing_to_the_owner(

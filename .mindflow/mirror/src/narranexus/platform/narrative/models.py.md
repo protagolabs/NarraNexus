@@ -6,6 +6,13 @@ stub: false
 
 # models.py — Narrative 模块所有数据模型的唯一来源
 
+## 2026-11-26(补)— 再多一个取值 `key_service_unavailable`
+
+本部署有 per-agent 决策 key 服务、它这一轮给不出 key、且没有别的凭据合格时,两次
+调用路径的行写 `key_service_unavailable`(而非 `no_credential`);`no_credential` 只
+留给没有 key 服务的部署。合并覆盖率的分母因此是三个取值。列宽 `VARCHAR(32)` 装得下
+(23 字符,有测试钉住全部 `VERDICT_*` 都 ≤ 32)。
+
 ## 2026-11-26 — `merged_verdict` 在两次调用路径上多了两个取值
 
 开关开但本轮没走合并路径时,两次调用路径的审计行把原因写进 `merged_verdict`:

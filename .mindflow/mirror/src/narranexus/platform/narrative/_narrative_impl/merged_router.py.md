@@ -57,13 +57,19 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
   可问且 ≥ stay → continue_anchor;否则 no_topic ≥ 阈值 → no_topic;否则 new。
   刻意偏向留下(0.2 < 0.3,457 轮人工标注集上保住 92.0% 的真续接)。缺分数抛
   KeyError,不默认。阈值是 `DecisionThresholds`,`decide` 每次从 config 取。
-- `VERDICT_NO_CREDENTIAL` / `VERDICT_CREDENTIAL_ERROR`:不是合并路径的判决,而是
-  [[narrative_service]] 在**两次调用路径**的审计行上写的"开关开但没走合并路径"的
-  原因;放在这里是因为 `merged_verdict` 的词表只在一处定义。**`no_credential` 分不清
-  "密钥服务暂时不可用"与"根本没配凭据"**:云端 quota-api 宕机/超时期间,没缓存 key
-  且既无平台 key 也无合格 owner key 的轮次同样记 `no_credential`(审计表不加列)。
-  要区分请看 `[DecisionKeys] quota-api unavailable` 那条 warning(通常每个暂停间隔
-  一条,失败那一刻正在途中的并发请求各一条);持有 key 的 agent 不受暂停影响,仍走合并路径。
+- `VERDICT_NO_CREDENTIAL` / `VERDICT_KEY_SERVICE_UNAVAILABLE` /
+  `VERDICT_CREDENTIAL_ERROR`:不是合并路径的判决,而是 [[narrative_service]] 在**两次
+  调用路径**的审计行上写的"开关开但没走合并路径"的原因;放在这里是因为
+  `merged_verdict` 的词表只在一处定义。`decision_endpoint_for_turn` 返回
+  `TurnDecisionCredential(endpoint, skip_verdict)`,service 只照抄 `skip_verdict`,
+  不知道免费档的存在。**`key_service_unavailable`(23 字符,装得进 MySQL 的
+  `VARCHAR(32)`)**:本部署**有** per-agent key 服务(issuer 存在),它这一轮给不出
+  key(quota-api 宕机/暂停中、拒绝了该 agent、回复缺可用 `base_url`),且平台 key 与
+  owner key 都不合格——把"密钥服务挂了"写进审计表,重启后仍可 SQL 查到,而不只靠一条
+  日志(`[DecisionKeys] quota-api …` warning 仍在,给出具体原因)。**`no_credential`**
+  只留给根本没有 issuer 的部署(本地/桌面、没配钱包服务的云端)且没有别的凭据。issuer
+  给不出 key 但平台 key / owner key 合格时,照常走合并路径,不额外标注。持有 key 的
+  agent 不受暂停影响,仍走合并路径。
 - `decide(inp, endpoint)`:一次调用,永不抛、永不猜。组装失败 / 调用失败 / 分数不
   可用或越出契约 → `ok=False, verdict=failed`,日志文案区分"组装失败"与"调用失败"。
   失败的 `reason` **只含固定类别**(`assembly` / `timeout` / `transport` /

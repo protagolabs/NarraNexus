@@ -519,7 +519,8 @@ class RoutingAudit(BaseModel):
     # path the write side stores 0 / "" (merged_call, merged_truncated) and
     # NULL for the rest (merged_ms, merged_input_chars, anchor_*);
     # `merged_verdict` there is "" with the flag off, and `no_credential` /
-    # `credential_error` on a flag-on turn that could not take the merged path
+    # `key_service_unavailable` / `credential_error` on a flag-on turn that
+    # could not take the merged path
     # — so merged coverage is `merged_call = 1` over those plus itself.
     # Fast-path rows (`selection_method = 'fast'`) never consult the flag and
     # always carry "". Rows
@@ -535,7 +536,9 @@ class RoutingAudit(BaseModel):
     # `merged_verdict` empty and `merged_ms` NULL.
     merged_call: bool = False
     # Merged path: continue_anchor | match | participant | new | no_topic |
-    # failed. Two-call path of a flag-on turn: no_credential | credential_error.
+    # failed. Two-call path of a flag-on turn: no_credential |
+    # key_service_unavailable (the deployment's per-agent key service could
+    # not supply a key and nothing else qualified) | credential_error.
     # `failed` is deliberately a value rather than an absence: "the model was
     # asked and could not be used" and "no model was asked" are different rows,
     # and only the first one is a provider problem.
