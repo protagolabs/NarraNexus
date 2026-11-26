@@ -294,7 +294,7 @@ class NarrativeConfig:
         "NARRATIVE_DECISION_API_BASE", netmind_inference_url("openai")
     )
     NARRATIVE_DECISION_API_KEY = _env("NARRATIVE_DECISION_API_KEY", "")
-    NARRATIVE_DECISION_MODEL = _env("NARRATIVE_DECISION_MODEL", "typesafe/jev-1.13")
+    NARRATIVE_DECISION_MODEL = _env("NARRATIVE_DECISION_MODEL", "typesafe/jev-1.14")
     # Hard total wall for the one request. No retry: on a failure the turn
     # stays where it was, which is cheaper than a second round trip.
     NARRATIVE_DECISION_TIMEOUT_SECONDS = float(

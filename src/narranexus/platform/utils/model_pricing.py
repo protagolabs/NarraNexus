@@ -104,17 +104,23 @@ class ModelPrice:
 # Add an entry only from a published rate card or an invoice, never from an
 # estimate — see design rule 2. The warning emitted by ``price_for`` names the
 # exact model id to add, so the log tells you what is missing.
-_LOCAL_OVERRIDES: Dict[str, ModelPrice] = {
-    # TypeSafe's published list rate: $0.042 per 1M input tokens, output free
-    # (list price, not the aggregator's invoice — see "Known limitation").
-    "typesafe/jev-1.13": ModelPrice(
-        input_per_token=0.042e-6,
-        output_per_token=0.0,
+def _override(model_id: str, *, input_per_1m: float, output_per_1m: float) -> ModelPrice:
+    return ModelPrice(
+        input_per_token=input_per_1m / 1e6,
+        output_per_token=output_per_1m / 1e6,
         cache_write_per_token=None,
         cache_read_per_token=None,
-        resolved_id="typesafe/jev-1.13",
+        resolved_id=model_id,
         source="override",
-    ),
+    )
+
+
+_LOCAL_OVERRIDES: Dict[str, ModelPrice] = {
+    # TypeSafe's published list rate, the same for both versions: $0.042 per 1M
+    # input tokens, output free (list price, not the aggregator's invoice — see
+    # "Known limitation").
+    model_id: _override(model_id, input_per_1m=0.042, output_per_1m=0.0)
+    for model_id in ("typesafe/jev-1.13", "typesafe/jev-1.14")
 }
 
 

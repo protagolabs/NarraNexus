@@ -316,3 +316,12 @@ def test_pricing_does_not_import_litellm_directly():
     src = Path(model_pricing.__file__).read_text(encoding="utf-8")
     hits = [ln.strip() for ln in src.splitlines() if stmt.match(ln)]
     assert hits == [], f"bare litellm import outside the seam: {hits}"
+
+
+@pytest.mark.parametrize("model_id", ["typesafe/jev-1.13", "typesafe/jev-1.14"])
+def test_the_decision_models_are_priced_at_the_published_rate(model_id):
+    """A borrowed owner key books this model's spend; unpriced, it books $0."""
+    price = price_for(model_id)
+    assert price is not None and price.source == "override"
+    assert price.input_per_token == pytest.approx(0.042e-6)
+    assert price.output_per_token == 0.0

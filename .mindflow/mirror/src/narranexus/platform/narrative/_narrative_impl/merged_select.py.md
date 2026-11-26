@@ -22,7 +22,7 @@ key 时,出钱的正是那张卡,所以 `_book_borrowed_key_usage` 经同一个
 input/output tokens;平台 key 只记 [TIMED] 行。`record_cost` 只写一行账,不扣配额、
 不动钱包(它不带任何配额/钱包钩子);这行会进 per-user 日花费熔断(job 的 B-14)的
 求和——那是真实花费,不算重复扣费。免费档网关卡按 host 规则永远不会被借,所以不会有
-决策账记到它头上(有测试钉)。`typesafe/jev-1.13` 的价格来自
+决策账记到它头上(有测试钉)。`typesafe/jev-1.13` / `typesafe/jev-1.14` 的价格来自
 `utils/model_pricing.py` 的 `_LOCAL_OVERRIDES`:厂商公开标价 $0.042 / 1M 输入 token、
 输出免费(标价,不是聚合商发票价)。换成价目表里没有的模型名(如以后的新版本)时,
 `price_for` 返回 None,tokens 照记,费用记 $0,并对每个进程警告一次,需补一条。

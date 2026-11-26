@@ -8,7 +8,7 @@ stub: false
 
 ## 为什么存在
 
-决策模型(当前是 TypeSafe `jev-1.13`,经 `/alpha/decisions` 提供)和 helper
+决策模型(当前默认是 TypeSafe `jev-1.14`,经 `/alpha/decisions` 提供)和 helper
 LLM 是两种调用形状:它不写文本,只对一个 state 回答若干 typed 问题,每题回一个
 "是"的概率。硬塞进 `helper_sdk.llm_function` 只会扭曲那个契约,所以单独一个小
 API。第一个消费者是叙事合并路由(`narrative/_narrative_impl/merged_router.py`)。

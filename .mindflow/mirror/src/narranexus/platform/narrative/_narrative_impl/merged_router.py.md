@@ -24,7 +24,7 @@ key 的响应体摘录。审计行不变(`merged_verdict='failed'`、reason=`htt
 ## 2026-11-25 — 决策者从 helper LLM 换成决策模型
 
 Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.decision_model`,
-当前 `typesafe/jev-1.13`)作出,**速度优先于准确**——agent loop 里的
+当前默认 `typesafe/jev-1.14`)作出,**速度优先于准确**——agent loop 里的
 `switch_narrative` / `create_narrative` 是误归档的兜底。本路径**没有任何 LLM
 调用,也没有 LLM 兜底**。原来的五选一 prompt(`prompts_merged.py`、
 `build_merged_prompt`、`MergedRoutingOutput`、相关字面量与测试)已整体删除。
