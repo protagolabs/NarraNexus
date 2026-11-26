@@ -115,6 +115,19 @@ async def test_a_reply_without_base_url_is_no_key_and_pauses_quota_api():
     assert quota.calls == ["agent_a"], "service-level: every uncached agent waits"
 
 
+@pytest.mark.parametrize("bad_key", ["sk-nxdm-has space", "sk-nxdm-\n", "sk-nxdm-\u00e9"])
+async def test_an_unsendable_key_is_no_key_and_pauses_quota_api(bad_key):
+    """The resolver would silently drop such a key and put the agent on an
+    uncapped credential; the issuer treats the reply as unavailable instead."""
+    quota = _QuotaApi()
+    quota.key = lambda agent_id: bad_key
+    issuer = _issuer(quota, _Clock())
+
+    assert await issuer.key_for("agent_a") is None
+    assert await issuer.key_for("agent_b") is None
+    assert quota.calls == ["agent_a"], "service-level: every uncached agent waits"
+
+
 async def test_a_moved_gateway_with_the_same_key_is_picked_up_on_recheck():
     quota = _QuotaApi()
     clock = _Clock()
@@ -194,6 +207,22 @@ async def test_an_over_age_key_is_rechecked_once_and_keeps_serving():
 
     assert fresh.api_key == quota.key("agent_a") != old.api_key
     assert quota.calls == ["agent_a", "agent_a"], "re-checked once, then a full age"
+
+
+async def test_an_unsendable_answer_on_recheck_keeps_the_old_key():
+    """The check guards the re-check too: a bad answer never replaces a good key."""
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    old = await issuer.key_for("agent_a")
+
+    quota.key = lambda agent_id: "sk-nxdm-has space"
+    clock.now += decision_keys._MAX_KEY_AGE_S + 1
+    again = await issuer.key_for("agent_a")
+
+    assert again.api_key == old.api_key
+    assert await issuer.key_for("agent_b") is None
+    assert quota.calls == ["agent_a", "agent_a"], "service-level: agent_b is not asked"
 
 
 class _ScriptedQuotaApi:

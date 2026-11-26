@@ -24,7 +24,11 @@ quota-api 响应里的 `base_url`(网关本身,如 `http://litellm:4000/v1`,路�
 `free_tier_endpoints().openai_base_url`,云端每次决策调用都会落到失败兜底——这是
 staging 联调发现的真 bug。`base_url` 是**必填**:缺失或不是绝对 http(s) URL(更老的
 quota-api、格式错)= 密钥服务不可用,与 404 同样处理(进程级暂停、落到下一个凭据源);
-不回落到任何配置地址,也没有兼容分支。复查时 key 相同但 `base_url` 变了,同样替换条目。
+不回落到任何配置地址,也没有兼容分支。quota-api 回的 key 若不可发送
+（`decision_model.is_sendable_key`：含空白/控制字符、非 ASCII）,按「服务不可用」处理并触发
+进程级暂停——否则解析器会悄悄丢掉它,让该 agent 在整个 key 寿命里落到不封顶的凭据上。
+这条检查住在这里而不是钱包客户端里:钱包客户端是 backend 与 agent 侧共用的底座,不依赖 LLM 层。
+复查时 key 相同但 `base_url` 变了,同样替换条目。
 
 ## 设计决策
 
@@ -78,7 +82,7 @@ quota-api、格式错)= 密钥服务不可用,与 404 同样处理(进程级暂�
 ## 上下游关系
 
 - **被谁用**：`narrative/_narrative_impl/merged_router.decision_endpoint_for_turn`。
-- **依赖谁**：[[wallet_client]]（`decision_key` / `DecisionKey`）、
-  `decision_model.AgentScopedKey`。
-- **测试**：`tests/integrations/free_tier/test_decision_keys.py`（缓存/寿命/401·403 后复查/两类失败/
+- **依赖谁**：[[wallet_client]]（`decision_key` / `DecisionKey` / `WalletUnavailable`）、
+  `decision_model.AgentScopedKey` 与 `is_sendable_key`。
+- **测试**：`tests/integrations/free_tier/test_decision_keys.py`（缓存/寿命/401·403 后复查/不可发送的 key/两类失败/
   超时/上限/工厂）、`tests/narrative/test_merged_routing.py`（端到端）。

@@ -29,12 +29,16 @@ from typing import Callable, Optional
 
 from loguru import logger
 
-from narranexus.platform.agent_framework.llm.decision_model import AgentScopedKey
+from narranexus.platform.agent_framework.llm.decision_model import (
+    AgentScopedKey,
+    is_sendable_key,
+)
 from narranexus.platform.integrations.free_tier.wallet_client import (
     DecisionKey,
     WalletClient,
     WalletError,
     WalletRejected,
+    WalletUnavailable,
 )
 
 #: Wall for the quota-api round trip, paid only when quota-api is asked and on
@@ -142,8 +146,10 @@ class DecisionKeyIssuer:
         """An entry whose time has come (over age, refused by the gateway, or
         refused by quota-api): the answer replaces it and is trusted for a
         full age — a different key or address is thereby picked up — and any
-        failure keeps what we had for another retry interval. Every branch
-        stores through `_store`: the entry may have been evicted meanwhile."""
+        failure keeps what we had for another retry interval. A failure
+        re-reads the cache first: a newer grant stored by a concurrent turn is
+        returned untouched, otherwise the time is pushed back through `_store`
+        (the entry may have been evicted meanwhile)."""
         answer = await self._ask(agent_id)
         if isinstance(answer, DecisionKey):
             return self._store(agent_id, self._trusted(answer))
@@ -172,7 +178,12 @@ class DecisionKeyIssuer:
         (and a service-level pause) when quota-api could not answer at all."""
         try:
             async with asyncio.timeout(_FETCH_TIMEOUT_S):
-                return await self._wallet.decision_key(agent_id)
+                grant = await self._wallet.decision_key(agent_id)
+            if not is_sendable_key(grant.api_key):
+                # The resolver would drop it silently and put the agent on an
+                # uncapped credential for the whole key age.
+                raise WalletUnavailable("wallet service returned an unsendable decision key")
+            return grant
         except WalletRejected as e:
             # About this agent only (e.g. a malformed id): others are still asked.
             _log_failure(agent_id, "refused this agent", e)
