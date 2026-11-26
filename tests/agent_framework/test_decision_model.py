@@ -644,8 +644,10 @@ async def test_an_unsendable_agent_scoped_key_falls_through_to_the_platform_key(
     assert ep is not None and ep.key_source == KEY_SOURCE_PLATFORM
 
 
-async def test_a_401_tells_the_key_issuer_and_other_failures_do_not():
-    for status, expected in ((401, ["rejected"]), (403, []), (422, []), (500, [])):
+async def test_a_refused_key_tells_the_issuer_and_other_failures_do_not():
+    """401 and 403 (some gateways answer a blocked key with 403) refuse the
+    key; 422 is the spend cap and must not trigger key lookups."""
+    for status, expected in ((401, ["rejected"]), (403, ["rejected"]), (422, []), (500, [])):
         told: list[str] = []
         endpoint = _endpoint(on_rejected=lambda: told.append("rejected"))
         async with _client(lambda req, s=status: httpx.Response(s, json={})) as client:

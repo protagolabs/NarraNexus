@@ -177,6 +177,60 @@ async def test_after_the_interval_a_rejected_key_is_rechecked_once():
     )
 
 
+async def test_an_over_age_key_is_rechecked_once_and_keeps_serving():
+    """A blocked-then-unblocked or re-issued key is noticed without a 401."""
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    old = await issuer.key_for("agent_a")
+    clock.now += decision_keys._MAX_KEY_AGE_S - 1
+    await issuer.key_for("agent_a")
+    assert quota.calls == ["agent_a"], "not before the age is reached"
+
+    quota.generation = 2  # quota-api re-issued the key
+    clock.now += 2
+    fresh = await issuer.key_for("agent_a")
+    await issuer.key_for("agent_a")
+
+    assert fresh.api_key == quota.key("agent_a") != old.api_key
+    assert quota.calls == ["agent_a", "agent_a"], "re-checked once, then a full age"
+
+
+async def test_an_over_age_key_whose_recheck_fails_keeps_serving():
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    key = await issuer.key_for("agent_a")
+    quota.status = 502
+    clock.now += decision_keys._MAX_KEY_AGE_S + 1
+
+    kept = await issuer.key_for("agent_a")
+    await issuer.key_for("agent_a")
+
+    assert kept is not None and kept.api_key == key.api_key, "never falls through"
+    assert quota.calls == ["agent_a", "agent_a"], "then waits one retry interval"
+    clock.now += decision_keys._RETRY_AFTER_S + 1
+    await issuer.key_for("agent_a")
+    assert len(quota.calls) == 3
+
+
+async def test_an_over_age_key_is_not_rechecked_while_quota_api_is_paused():
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    key = await issuer.key_for("agent_a")
+    clock.now += decision_keys._MAX_KEY_AGE_S - 10
+    quota.status = 502
+    assert await issuer.key_for("agent_b") is None  # pause past agent_a's age
+    quota.status = 200
+    clock.now += 20  # over age, pause still on
+
+    kept = await issuer.key_for("agent_a")
+
+    assert kept.api_key == key.api_key
+    assert quota.calls == ["agent_a", "agent_b"], "no per-agent call while paused"
+
+
 async def test_no_recheck_while_quota_api_is_paused():
     quota = _QuotaApi()
     clock = _Clock()

@@ -48,6 +48,8 @@ _QUESTION_TYPE = "noul"
 _DECISIONS_PATH = "/alpha/decisions"
 #: OAuth tokens are bound to their issuer and never valid elsewhere.
 _API_KEY_AUTH_TYPES = frozenset({"api_key", "bearer_token"})
+#: Statuses that mean "this key is not accepted" (`DecisionEndpoint.on_rejected`).
+_KEY_REFUSED_STATUSES = frozenset({401, 403})
 #: How much of an error body is quoted into the (log-only) detail.
 _ERROR_BODY_EXCERPT_CHARS = 200
 
@@ -100,8 +102,10 @@ class DecisionEndpoint:
     model: str
     timeout_seconds: float
     key_source: str = KEY_SOURCE_PLATFORM
-    #: Told when the endpoint answers 401, so whoever issued the key can
-    #: re-check it (rotation, revocation). Not called on any other failure.
+    #: Told when the endpoint refuses the key (401, or 403 — some gateways
+    #: answer a blocked key that way), so whoever issued it can re-check it
+    #: (rotation, revocation). Not called on any other failure: a 422 is a
+    #: spend cap, not a bad key.
     on_rejected: Optional[Callable[[], None]] = field(
         default=None, repr=False, compare=False
     )
@@ -208,7 +212,7 @@ async def ask_yes_no(
     elapsed_ms = int((time.monotonic() - started) * 1000)
 
     if response.status_code != 200:
-        if response.status_code == 401 and endpoint.on_rejected is not None:
+        if response.status_code in _KEY_REFUSED_STATUSES and endpoint.on_rejected is not None:
             endpoint.on_rejected()
         excerpt = response.text[:_ERROR_BODY_EXCERPT_CHARS]
         raise DecisionModelError(

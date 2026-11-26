@@ -24,7 +24,7 @@ import asyncio
 import functools
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Optional
 
 from loguru import logger
@@ -44,18 +44,24 @@ _FETCH_TIMEOUT_S = 2.0
 #: or older quota-api must not cost every turn the fetch timeout, and a
 #: rejected key is re-checked at most once per interval.
 _RETRY_AFTER_S = 60.0
+#: A trusted key is re-checked with quota-api after this long, so a key the
+#: operator blocked, unblocked or re-issued is noticed without waiting for the
+#: gateway to answer 401/403.
+_MAX_KEY_AGE_S = 1800.0
 #: Entries are ~100 bytes; the bound only stops a long-lived process from
 #: keeping every agent it ever routed. An evicted agent costs one more fetch.
 _MAX_CACHED_AGENTS = 4096
 
 
-@dataclass
+@dataclass(frozen=True)
 class _Entry:
     #: None: quota-api refused this agent (a per-agent 4xx).
     grant: Optional[DecisionKey]
-    #: 0 while the key is trusted; otherwise quota-api is not asked about
-    #: this agent before this clock value.
-    recheck_at: float = 0.0
+    #: quota-api is asked about this agent again from this clock value on
+    #: (the key keeps being served until then, and after, until it answers).
+    recheck_at: float
+    #: The gateway refused ``grant``; set by the first refusal only.
+    rejected: bool = False
 
 
 class _Unavailable:
@@ -66,9 +72,10 @@ _UNAVAILABLE = _Unavailable()
 
 
 class DecisionKeyIssuer:
-    """agent_id -> that agent's gateway key and address, one quota-api call
-    per agent per process. Concurrent first turns of one agent may each fetch; the endpoint
-    is idempotent, so that costs a duplicate call, never a second key."""
+    """agent_id -> that agent's gateway key and address: one quota-api call
+    per agent per key age, not per turn. Concurrent turns of one agent may
+    each ask; the endpoint is idempotent, so that costs a duplicate call,
+    never a second key."""
 
     def __init__(
         self,
@@ -83,13 +90,15 @@ class DecisionKeyIssuer:
         self._paused_until = 0.0
 
     async def key_for(self, agent_id: str) -> Optional[AgentScopedKey]:
-        """The agent's key, or None when it has none right now."""
+        """The agent's key, or None when it has none right now. A key it has
+        is served even while due for a re-check: an agent holding a key
+        never falls through to another credential."""
         if not agent_id:
             return None
         entry = self._entries.get(agent_id)
         if entry is not None:
             self._entries.move_to_end(agent_id)
-            if entry.recheck_at and self._may_ask(entry.recheck_at):
+            if self._may_ask(entry.recheck_at):
                 entry = await self._recheck(agent_id, entry)
         elif self._may_ask(0.0):
             entry = await self._first_fetch(agent_id)
@@ -102,15 +111,20 @@ class DecisionKeyIssuer:
         )
 
     def _rejected(self, agent_id: str, grant: DecisionKey) -> None:
-        """The gateway answered 401 for ``grant``. Keep sending it (a blocked
+        """The gateway refused ``grant`` (401/403). Keep sending it (a blocked
         agent must not fall through to another credential) and re-check with
-        quota-api once the interval has passed, which picks up a rotation."""
+        quota-api once the retry interval has passed, which picks up a
+        rotation."""
         entry = self._entries.get(agent_id)
-        # Only the first 401 sets the time: later ones must not push the
+        # Only the first refusal sets the time: later ones must not push the
         # re-check forward, or an agent active every few seconds would never
         # pick up a rotated key.
-        if entry is not None and entry.grant == grant and not entry.recheck_at:
-            entry.recheck_at = self._clock() + _RETRY_AFTER_S
+        if entry is not None and entry.grant == grant and not entry.rejected:
+            self._entries[agent_id] = replace(
+                entry,
+                rejected=True,
+                recheck_at=min(entry.recheck_at, self._clock() + _RETRY_AFTER_S),
+            )
 
     def _may_ask(self, recheck_at: float) -> bool:
         now = self._clock()
@@ -120,28 +134,25 @@ class DecisionKeyIssuer:
         answer = await self._ask(agent_id)
         if answer is _UNAVAILABLE:
             return None
-        return self._store(
-            agent_id,
-            _Entry(answer) if answer is not None
-            else _Entry(None, self._clock() + _RETRY_AFTER_S),
-        )
+        if answer is None:
+            return self._store(agent_id, _Entry(None, self._clock() + _RETRY_AFTER_S))
+        return self._store(agent_id, self._trusted(answer))
 
     async def _recheck(self, agent_id: str, entry: _Entry) -> _Entry:
-        """A rejected key or a refused agent, once its interval has passed:
-        a different key OR address replaces the entry, the same pair is
-        trusted again, and any failure keeps what we had for another
-        interval."""
+        """An entry whose time has come (over age, refused by the gateway, or
+        refused by quota-api): the answer replaces it and is trusted for a
+        full age — a different key or address is thereby picked up — and any
+        failure keeps what we had for another retry interval. Every branch
+        stores through `_store`: the entry may have been evicted meanwhile."""
         answer = await self._ask(agent_id)
         if isinstance(answer, DecisionKey):
-            if answer != entry.grant:
-                # Through the bound: the entry may have been evicted while
-                # quota-api was being asked.
-                entry = self._store(agent_id, _Entry(answer))
-            else:
-                entry.recheck_at = 0.0
-        else:
-            entry.recheck_at = self._clock() + _RETRY_AFTER_S
-        return entry
+            return self._store(agent_id, self._trusted(answer))
+        return self._store(
+            agent_id, replace(entry, recheck_at=self._clock() + _RETRY_AFTER_S)
+        )
+
+    def _trusted(self, grant: DecisionKey) -> _Entry:
+        return _Entry(grant, self._clock() + _MAX_KEY_AGE_S)
 
     def _store(self, agent_id: str, entry: _Entry) -> _Entry:
         self._entries[agent_id] = entry

@@ -1513,14 +1513,15 @@ async def test_two_agents_resolve_to_their_own_gateway_keys(merged_on, gateway):
     assert gateway.quota_calls == ["agent_x", "agent_y"]
 
 
-async def test_after_a_401_the_agent_stays_on_its_own_key_not_the_platform_key(
-    service, db_client, merged_on, gateway
+@pytest.mark.parametrize("status", [401, 403])
+async def test_after_a_refusal_the_agent_stays_on_its_own_key_not_the_platform_key(
+    service, db_client, merged_on, gateway, status
 ):
     """A revoked (blocked) agent must not fall through to the uncapped platform
     key, nor cost a quota-api call per turn — even when quota-api is down."""
     anchor, _ = await _seed(service)
     key = gateway.key(AGENT)
-    gateway.decision_replies = [(401, {"error": {"message": "Authentication Error"}})]
+    gateway.decision_replies = [(status, {"error": {"message": "key blocked"}})]
     lines, stop = _log_lines()
     try:
         failed = await service.select(

@@ -37,10 +37,12 @@ API。第一个消费者是叙事合并路由(`narrative/_narrative_impl/merged_
 
 ## 设计决策
 
-- **签发方的 401 钩子挂在 endpoint 上**:`DecisionEndpoint.on_rejected`(不参与
-  repr/比较)。`ask_yes_no` 收到 **401** 时先调它再抛 `http_401`——签发方借此安排
-  复查(轮换 / 吊销;如何处理是签发方的事,见 `integrations/free_tier/decision_keys`);其它任何失败(403/422/5xx/超时)都不调。客户端
-  只知道"凭据被拒",不知道是谁签发的,换签发方不动调用方。
+- **签发方的"key 被拒"钩子挂在 endpoint 上**:`DecisionEndpoint.on_rejected`(不参与
+  repr/比较)。`ask_yes_no` 收到 **401 或 403**(有的网关对被封禁的 key 回 403)时先调
+  它再抛 `http_<status>`——签发方借此安排复查(轮换 / 吊销;如何处理是签发方的事,
+  见 `integrations/free_tier/decision_keys`);其它任何失败(422/5xx/超时)都不调——
+  422 是花费上限,不是 key 坏了,不能触发 key 查询。客户端只知道"凭据被拒",不知道是
+  谁签发的,换签发方不动调用方。
 
 - **只认当前 task 上真正装好的配置**(`snapshot_user_config()`),不读 proxy 的
   进程级 holder 回落:每一轮的 ingress 在云端与本地模式下都会装 owner 的已解析
