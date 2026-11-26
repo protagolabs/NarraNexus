@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/narrative/_narrative_impl/merged_router.py
-last_verified: 2026-11-25
+last_verified: 2026-11-26
 stub: false
 ---
 
@@ -34,6 +34,9 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
   可问且 ≥ stay → continue_anchor;否则 no_topic ≥ 阈值 → no_topic;否则 new。
   刻意偏向留下(0.2 < 0.3,457 轮人工标注集上保住 92.0% 的真续接)。缺分数抛
   KeyError,不默认。阈值是 `DecisionThresholds`,`decide` 每次从 config 取。
+- `VERDICT_NO_CREDENTIAL` / `VERDICT_CREDENTIAL_ERROR`:不是合并路径的判决,而是
+  [[narrative_service]] 在**两次调用路径**的审计行上写的"开关开但没走合并路径"的
+  原因;放在这里是因为 `merged_verdict` 的词表只在一处定义。
 - `decide(inp, endpoint)`:一次调用,永不抛、永不猜。组装失败 / 调用失败 / 分数不
   可用或越出契约 → `ok=False, verdict=failed`,日志文案区分"组装失败"与"调用失败"。
   失败的 `reason` **只含固定类别**(`assembly` / `timeout` / `transport` /

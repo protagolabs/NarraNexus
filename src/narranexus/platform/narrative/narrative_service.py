@@ -303,8 +303,17 @@ class NarrativeService:
         # the turn takes the two-call path below — a normal shape, not an
         # error. An early return rather than a woven branch, so "flag off =
         # today's behaviour" stays readable.
+        #
+        # `merged_skip` is why a flag-on turn is on the two-call path anyway;
+        # it lands in the audit row's `merged_verdict` so the merged path's
+        # coverage is a SQL question, not a log search. Empty = flag off.
+        merged_skip = ""
         if config.NARRATIVE_MERGED_ROUTING_ENABLED:
-            from ._narrative_impl.merged_router import decision_endpoint_for_turn
+            from ._narrative_impl.merged_router import (
+                VERDICT_CREDENTIAL_ERROR,
+                VERDICT_NO_CREDENTIAL,
+                decision_endpoint_for_turn,
+            )
 
             try:
                 decision_endpoint = decision_endpoint_for_turn()
@@ -313,13 +322,16 @@ class NarrativeService:
                     f"[NarrativeSelect] decision credential resolution failed: "
                     f"{type(e).__name__} — two-call path"
                 )
-                decision_endpoint = None
+                decision_endpoint, merged_skip = None, VERDICT_CREDENTIAL_ERROR
             else:
                 if decision_endpoint is None:
-                    logger.info(
+                    # A normal shape on every such turn — the audit row is the
+                    # signal, so this stays out of the info stream.
+                    logger.debug(
                         "[NarrativeSelect] no qualifying decision credential "
                         "for this turn — two-call path"
                     )
+                    merged_skip = VERDICT_NO_CREDENTIAL
             if decision_endpoint is not None:
                 return await self._select_merged(
                     agent_id=agent_id,
@@ -539,6 +551,7 @@ class NarrativeService:
             # against) — a 0 there would read as "the tier is free", which is
             # the opposite of true: it is a full helper-LLM round trip.
             audit.continuity_ms = _continuity_ms
+            audit.merged_verdict = merged_skip
             await self._write_audit(audit, audit_snapshots)
 
         return NarrativeSelectionResult(

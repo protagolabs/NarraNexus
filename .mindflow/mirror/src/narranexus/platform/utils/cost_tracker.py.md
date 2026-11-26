@@ -1,10 +1,16 @@
 ---
 code_file: src/narranexus/platform/utils/cost_tracker.py
-last_verified: 2026-08-31
+last_verified: 2026-11-26
 stub: false
 ---
 
 # cost_tracker.py
+
+## 2026-11-26 — `call_type` 第三个取值 `decision_model`
+
+`record_cost` 的 `call_type` 现在有三个取值:`agent_loop` / `llm_function` /
+`decision_model`(叙事合并路由借用 owner helper key 调决策模型时记的一行)。归卡
+规则不变:除 `agent_loop` 外一律归 helper 卡。本次只补 docstring,行为未改。
 
 ## 2026-08-28 — 账目认领轮次：`cost_event_scope`
 

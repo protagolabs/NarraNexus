@@ -497,14 +497,18 @@ def _reject_invalid_decision_settings(cfg: "NarrativeConfig") -> None:
         problems.append("NARRATIVE_DECISION_TIMEOUT_SECONDS")
     if not urlparse(cfg.NARRATIVE_DECISION_API_BASE).hostname:
         problems.append("NARRATIVE_DECISION_API_BASE")
-    if cfg.NARRATIVE_DECISION_API_KEY and not is_sendable_key(cfg.NARRATIVE_DECISION_API_KEY):
+    key = cfg.NARRATIVE_DECISION_API_KEY
+    # Quotes are sendable characters, so a key that reaches the process still
+    # quoted (an env source that does not strip them, e.g. `docker run
+    # --env-file`) would boot and then 401 every turn.
+    if key and (not is_sendable_key(key) or key[0] in "\"'" or key[-1] in "\"'"):
         problems.append("NARRATIVE_DECISION_API_KEY")
     if problems:
         logger.critical(
             "STARTUP CONFIGURATION ERROR: NARRATIVE_MERGED_ROUTING_ENABLED=1 "
             f"with invalid {', '.join(problems)} — thresholds must be in [0, 1], "
             "the timeout > 0, the base an absolute URL, the key printable ASCII "
-            "without whitespace. Fix .env and restart."
+            "without whitespace or surrounding quotes. Fix .env and restart."
         )
         raise RuntimeError(f"invalid decision-model settings: {', '.join(problems)}")
 

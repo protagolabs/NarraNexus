@@ -266,7 +266,8 @@ async def record_cost(
             turn, and hard-coding None there is what kept per-turn token
             figures counting only the main loop. An explicit id always wins;
             outside a turn the fallback is None too and the column stays NULL.
-        call_type: "agent_loop" | "llm_function"
+        call_type: "agent_loop" | "llm_function" | "decision_model". Anything
+            but "agent_loop" is attributed to the helper card.
         model: Model identifier
         input_tokens: Input token count
         output_tokens: Output token count

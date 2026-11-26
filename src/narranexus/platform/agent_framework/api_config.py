@@ -724,7 +724,9 @@ cli_helper_config: CliHelperConfig = _ConfigProxy(
 
 
 def unpin_config_proxies() -> None:
-    """`_ConfigProxy.unpin` on every module-level config proxy."""
+    """Test support only — production code must not call this.
+
+    `_ConfigProxy.unpin` on every module-level config proxy."""
     for value in list(globals().values()):
         if isinstance(value, _ConfigProxy):
             value.unpin()

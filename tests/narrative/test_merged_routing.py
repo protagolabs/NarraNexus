@@ -276,6 +276,10 @@ def test_the_flag_on_without_a_platform_key_boots():
         ("NARRATIVE_DECISION_API_BASE", "not-a-url"),
         ("NARRATIVE_DECISION_API_KEY", "sk-bad key"),
         ("NARRATIVE_DECISION_API_KEY", "sk-badé"),
+        ("NARRATIVE_DECISION_API_KEY", '"sk-quoted"'),
+        ("NARRATIVE_DECISION_API_KEY", "'sk-quoted'"),
+        ("NARRATIVE_DECISION_API_KEY", '"sk-leading'),
+        ("NARRATIVE_DECISION_API_KEY", "sk-trailing'"),
     ],
 )
 def test_the_flag_on_with_unusable_decision_settings_refuses_to_boot(name, value):
@@ -1243,6 +1247,9 @@ async def test_without_a_qualifying_credential_the_turn_takes_the_two_call_path(
     row = await _row(db_client)
     assert row["continuity_ran"] == 1
     assert not row["merged_call"]
+    assert row["merged_verdict"] == merged_router.VERDICT_NO_CREDENTIAL, (
+        "a flag-on turn that skipped the merged path must not look flag-off"
+    )
 
 
 async def test_concurrent_turns_of_different_owners_each_send_their_own_key(
@@ -1311,6 +1318,9 @@ async def test_a_borrowed_owner_key_books_one_cost_row_to_the_helper_card(
         "booked under the model we asked for, not the server-reported build"
     )
     assert (row["input_tokens"], row["output_tokens"]) == (333, 55)
+    assert row["total_cost_usd"] == pytest.approx(333 * 0.042e-6), (
+        "priced at the published rate — an unpriced model books the owner's spend as $0"
+    )
     assert row["provider_card_source"] == "netmind", "attributed to the helper card that paid"
 
 
@@ -1394,6 +1404,7 @@ async def test_a_resolution_error_takes_the_two_call_path(
     assert result.selection_method == "continuous"
     row = await _row(db_client)
     assert not row["merged_call"]
+    assert row["merged_verdict"] == merged_router.VERDICT_CREDENTIAL_ERROR
 
 
 # ===================================================================== #

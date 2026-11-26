@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/narrative/narrative_service.py
-last_verified: 2026-11-25
+last_verified: 2026-11-26
 stub: false
 ---
 
@@ -11,10 +11,16 @@ stub: false
 `select()` 的提前 return 现在先调 `merged_router.decision_endpoint_for_turn()`
 (函数内 import——开关关时既不 import 也不解析):有凭据 → `_select_merged(...,
 decision_endpoint=…)`;开关开但本轮没有合格凭据(无平台 key,agent owner 的 active
-helper 槽也没有同 host 的 key)→ 记一行 info("no qualifying decision credential
-for this turn")后落到下面的两次调用路径,原样执行;解析本身抛异常 → 记 warning(只含
-类型名)后同样走两次调用路径;开关关 → 两次调用
-路径逐字节不变。`_select_merged` 不再传 `awareness`(决策请求不含它;两次调用路径
+helper 槽也没有同 host 的 key)→ 记一行 debug 后落到下面的两次调用路径,原样执行;
+解析本身抛异常 → 记 warning(只含类型名)后同样走两次调用路径;开关关 → 两次调用
+路径逐字节不变。
+
+**开关开却没走合并路径的轮次在审计行里留痕**:`select()` 用局部量 `merged_skip`
+记下原因,在两次调用路径唯一的审计写入点写进 `merged_verdict`——无合格凭据 =
+`no_credential`,解析抛异常 = `credential_error`,开关关 = 空串。`merged_call`
+仍为 0(该列标的是"走了合并路径")。于是"合并路径覆盖了多少轮"是一条 SQL,不靠
+翻日志;无凭据那条日志因此降到 debug(每轮一条且内容相同),解析异常仍是 warning。
+两次调用路径的每一行(含连续性短路行)都经过这一个写入点。`_select_merged` 不再传 `awareness`(决策请求不含它;两次调用路径
 的 continuity 照旧用)。合并路径一旦选定,调用失败走 `_land_failure`,**不**回落
 到 LLM 路径。
 

@@ -516,9 +516,14 @@ class RoutingAudit(BaseModel):
     # ── merged routing (one decision-model call instead of two) ──────────
     # Filled only on turns that took the merged path (flag on AND a decision
     # credential resolved for the turn). On the two-call
-    # path the write side stores 0 / "" (merged_call, merged_verdict,
-    # merged_truncated) and NULL for the rest (merged_ms, merged_input_chars,
-    # anchor_*); rows written BEFORE this deploy are NULL throughout. So a
+    # path the write side stores 0 / "" (merged_call, merged_truncated) and
+    # NULL for the rest (merged_ms, merged_input_chars, anchor_*);
+    # `merged_verdict` there is "" with the flag off, and `no_credential` /
+    # `credential_error` on a flag-on turn that could not take the merged path
+    # — so merged coverage is `merged_call = 1` over those plus itself.
+    # Fast-path rows (`selection_method = 'fast'`) never consult the flag and
+    # always carry "". Rows
+    # written BEFORE this deploy are NULL throughout. So a
     # filter must be NULL-safe: `merged_call = 0` evaluates NULL to false and
     # silently drops every pre-deploy row — which is the entire baseline
     # window. Use `COALESCE(merged_call, 0) <> 1` — the one form valid on BOTH
@@ -529,7 +534,8 @@ class RoutingAudit(BaseModel):
     # took the merged path and asked nobody, so it carries merged_call=1 with
     # `merged_verdict` empty and `merged_ms` NULL.
     merged_call: bool = False
-    # continue_anchor | match | participant | new | no_topic | failed.
+    # Merged path: continue_anchor | match | participant | new | no_topic |
+    # failed. Two-call path of a flag-on turn: no_credential | credential_error.
     # `failed` is deliberately a value rather than an absence: "the model was
     # asked and could not be used" and "no model was asked" are different rows,
     # and only the first one is a provider problem.

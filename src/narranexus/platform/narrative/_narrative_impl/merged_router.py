@@ -73,6 +73,12 @@ VERDICT_NO_TOPIC = "no_topic"
 #: and could not be used" and "no model was asked" are different rows, and only
 #: one of them is a provider problem.
 VERDICT_FAILED = "failed"
+#: Written on a TWO-CALL row (`merged_call = 0`) of a flag-on turn that never
+#: reached the merged path: no decision credential qualified for the turn, or
+#: resolving one raised. Without them such a row is identical to a flag-off
+#: row and the merged path's coverage cannot be read from the table.
+VERDICT_NO_CREDENTIAL = "no_credential"
+VERDICT_CREDENTIAL_ERROR = "credential_error"
 
 
 # ── candidate kinds ────────────────────────────────────────────────────────

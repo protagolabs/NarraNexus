@@ -1,10 +1,19 @@
 ---
 code_file: src/narranexus/platform/narrative/models.py
-last_verified: 2026-11-25
+last_verified: 2026-11-26
 stub: false
 ---
 
 # models.py — Narrative 模块所有数据模型的唯一来源
+
+## 2026-11-26 — `merged_verdict` 在两次调用路径上多了两个取值
+
+开关开但本轮没走合并路径时,两次调用路径的审计行把原因写进 `merged_verdict`:
+`no_credential`(没有合格的决策凭据)/ `credential_error`(解析凭据时抛异常);
+开关关仍是空串,`merged_call` 仍是 0。合并路径上的取值不变(`continue_anchor |
+match | participant | new | no_topic | failed`)。读法:合并覆盖率 =
+`merged_call = 1` 的行数 ÷(它 + 这两个取值的行数)。快速路径的行
+(`selection_method='fast'`)不看开关,始终是空串,所以空串不等于"开关关"。
 
 ## 2026-11-25 — `merged_input_chars` / `merged_truncated` 的口径随决策模型改变
 

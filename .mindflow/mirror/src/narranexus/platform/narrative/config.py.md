@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/narrative/config.py
-last_verified: 2026-11-25
+last_verified: 2026-11-26
 stub: false
 ---
 
@@ -24,7 +24,8 @@ ingress 装进 task 的配置),仅当其 base URL 的 host 等于
 规则;显式设置该变量则覆盖。启动校验跑在派生后的值上。
 
 **启动校验**(`_reject_invalid_decision_settings`,只在开关开时):阈值不在
-[0, 1]、超时 ≤ 0、base 没有 host、平台 key 不可发送 → 拒绝启动。这些错不会让某一轮失败,而是静默
+[0, 1]、超时 ≤ 0、base 没有 host、平台 key 不可发送或首尾带引号(有的环境变量
+来源不剥引号,如 `docker run --env-file`;带引号的 key 能启动但每轮 401)→ 拒绝启动。这些错不会让某一轮失败,而是静默
 关掉某个判决或所有用户 key 查找,所以在启动时拦。桶×合并互斥检查原样保留。
 
 删除 `MERGED_AWARENESS_MAX_CHARS`(决策请求不含 awareness)与

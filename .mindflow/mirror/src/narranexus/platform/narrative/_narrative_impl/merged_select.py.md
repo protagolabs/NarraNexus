@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/narrative/_narrative_impl/merged_select.py
-last_verified: 2026-11-25
+last_verified: 2026-11-26
 stub: false
 ---
 
@@ -15,9 +15,10 @@ key 时,出钱的正是那张卡,所以 `_book_borrowed_key_usage` 经同一个
 input/output tokens;平台 key 只记 [TIMED] 行。`record_cost` 只写一行账,不扣配额、
 不动钱包(它不带任何配额/钱包钩子);这行会进 per-user 日花费熔断(job 的 B-14)的
 求和——那是真实花费,不算重复扣费。免费档网关卡按 host 规则永远不会被借,所以不会有
-决策账记到它头上(有测试钉)。`typesafe/jev-1.13` 目前**没有价格条目**:
-`price_for` 返回 None,tokens 照记,费用记 $0,并对每个进程警告一次——没有在代码里
-编价格,需要时按服务商价目表加进 `utils/model_pricing.py` 的 `_LOCAL_OVERRIDES`。
+决策账记到它头上(有测试钉)。`typesafe/jev-1.13` 的价格来自
+`utils/model_pricing.py` 的 `_LOCAL_OVERRIDES`:厂商公开标价 $0.042 / 1M 输入 token、
+输出免费(标价,不是聚合商发票价)。换成价目表里没有的模型名(如以后的新版本)时,
+`price_for` 返回 None,tokens 照记,费用记 $0,并对每个进程警告一次,需补一条。
 
 记账用的模型名是我们请求的 `endpoint.model`,不是服务端回报的名字:价格查询和账本不依赖
 响应文本。`record_cost` 抛异常只记一条 warning,不让本轮失败(与 helper 调用的记账同一规则)。
