@@ -61,8 +61,8 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
   原因;放在这里是因为 `merged_verdict` 的词表只在一处定义。**`no_credential` 分不清
   "密钥服务暂时不可用"与"根本没配凭据"**:云端 quota-api 宕机/超时期间,没缓存 key
   且既无平台 key 也无合格 owner key 的轮次同样记 `no_credential`(审计表不加列)。
-  要区分请看 `[DecisionKeys] quota-api unavailable` 那条 warning(每个暂停间隔至多
-  一条);持有 key 的 agent 不受暂停影响,仍走合并路径。
+  要区分请看 `[DecisionKeys] quota-api unavailable` 那条 warning(通常每个暂停间隔
+  一条,失败那一刻正在途中的并发请求各一条);持有 key 的 agent 不受暂停影响,仍走合并路径。
 - `decide(inp, endpoint)`:一次调用,永不抛、永不猜。组装失败 / 调用失败 / 分数不
   可用或越出契约 → `ok=False, verdict=failed`,日志文案区分"组装失败"与"调用失败"。
   失败的 `reason` **只含固定类别**(`assembly` / `timeout` / `transport` /

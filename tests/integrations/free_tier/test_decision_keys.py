@@ -36,6 +36,8 @@ class _QuotaApi:
     def __init__(self, *, status: int = 200, raise_exc: Exception | None = None,
                  delay: float = 0.0, refuse: frozenset[str] = frozenset()):
         self.status = status
+        #: Per-agent extra latency, to order concurrent answers.
+        self.slow: dict[str, float] = {}
         self.refuse = set(refuse)
         self.raise_exc = raise_exc
         self.delay = delay
@@ -48,8 +50,8 @@ class _QuotaApi:
     async def __call__(self, request: httpx.Request) -> httpx.Response:
         agent_id = json.loads(request.content)["agent_id"]
         self.calls.append(agent_id)
-        if self.delay:
-            await asyncio.sleep(self.delay)
+        if self.delay or agent_id in self.slow:
+            await asyncio.sleep(self.delay + self.slow.get(agent_id, 0.0))
         if self.raise_exc is not None:
             raise self.raise_exc
         if agent_id in self.refuse:
@@ -124,9 +126,31 @@ async def test_after_the_interval_a_rejected_key_is_rechecked_once():
 
     same = await issuer.key_for("agent_a")
     await issuer.key_for("agent_a")
+    clock.now += decision_keys._RETRY_AFTER_S + 1
+    await issuer.key_for("agent_a")
 
     assert same.api_key == key.api_key, "the same key is kept"
-    assert quota.calls == ["agent_a", "agent_a"], "re-checked once, then trusted"
+    assert quota.calls == ["agent_a", "agent_a"], (
+        "re-checked once, then trusted again: no further re-check intervals"
+    )
+
+
+async def test_no_recheck_while_quota_api_is_paused():
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    key = await issuer.key_for("agent_a")
+    key.on_rejected()  # re-check due one interval from now
+    clock.now += decision_keys._RETRY_AFTER_S / 2
+    quota.status = 502
+    assert await issuer.key_for("agent_b") is None  # pause until 1.5 intervals
+    quota.status = 200
+    clock.now += decision_keys._RETRY_AFTER_S * 3 / 4  # re-check due, pause not over
+
+    kept = await issuer.key_for("agent_a")
+
+    assert kept.api_key == key.api_key
+    assert quota.calls == ["agent_a", "agent_b"], "the pause also holds re-checks"
 
 
 async def test_a_rotated_key_replaces_the_rejected_one_after_the_interval():
@@ -137,11 +161,15 @@ async def test_a_rotated_key_replaces_the_rejected_one_after_the_interval():
     quota.generation = 2  # the operator rotated the gateway admin key
     stale.on_rejected()
     assert (await issuer.key_for("agent_a")).api_key == stale.api_key
+    clock.now += decision_keys._RETRY_AFTER_S / 2
+    stale.on_rejected()  # the agent's next turn is refused too
 
-    clock.now += decision_keys._RETRY_AFTER_S + 1
+    clock.now += decision_keys._RETRY_AFTER_S / 2 + 1
     fresh = await issuer.key_for("agent_a")
 
-    assert fresh.api_key == quota.key("agent_a") != stale.api_key
+    assert fresh.api_key == quota.key("agent_a") != stale.api_key, (
+        "a repeated 401 must not postpone the re-check"
+    )
 
 
 @pytest.mark.parametrize(
@@ -242,6 +270,23 @@ async def test_recovery_after_the_ttl_caches_normally():
     assert (await issuer.key_for("agent_a")).api_key == quota.key("agent_a")
     await issuer.key_for("agent_a")
     assert quota.calls == ["agent_a", "agent_a"]
+
+
+async def test_a_recheck_replacing_an_evicted_entry_keeps_the_bound(monkeypatch):
+    monkeypatch.setattr(decision_keys, "_MAX_CACHED_AGENTS", 2)
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    stale = await issuer.key_for("a")
+    stale.on_rejected()
+    quota.generation = 2
+    quota.slow["a"] = 0.05
+    clock.now += decision_keys._RETRY_AFTER_S + 1
+
+    # "b" and "c" evict "a" while its re-check is in flight.
+    await asyncio.gather(issuer.key_for("a"), issuer.key_for("b"), issuer.key_for("c"))
+
+    assert len(issuer._entries) <= 2
 
 
 async def test_the_cache_is_bounded_least_recently_used_first(monkeypatch):

@@ -103,6 +103,9 @@ class DecisionKeyIssuer:
         agent must not fall through to another credential) and re-check with
         quota-api once the interval has passed, which picks up a rotation."""
         entry = self._entries.get(agent_id)
+        # Only the first 401 sets the time: later ones must not push the
+        # re-check forward, or an agent active every few seconds would never
+        # pick up a rotated key.
         if entry is not None and entry.key == key and not entry.recheck_at:
             entry.recheck_at = self._clock() + _RETRY_AFTER_S
 
@@ -114,14 +117,11 @@ class DecisionKeyIssuer:
         answer = await self._ask(agent_id)
         if answer is _UNAVAILABLE:
             return None
-        entry = (
+        return self._store(
+            agent_id,
             _Entry(answer) if answer is not None
-            else _Entry(None, self._clock() + _RETRY_AFTER_S)
+            else _Entry(None, self._clock() + _RETRY_AFTER_S),
         )
-        self._entries[agent_id] = entry
-        if len(self._entries) > _MAX_CACHED_AGENTS:
-            self._entries.popitem(last=False)
-        return entry
 
     async def _recheck(self, agent_id: str, entry: _Entry) -> _Entry:
         """A rejected key or a refused agent, once its interval has passed:
@@ -130,11 +130,20 @@ class DecisionKeyIssuer:
         answer = await self._ask(agent_id)
         if isinstance(answer, str):
             if answer != entry.key:
-                entry = self._entries[agent_id] = _Entry(answer)
+                # Through the bound: the entry may have been evicted while
+                # quota-api was being asked.
+                entry = self._store(agent_id, _Entry(answer))
             else:
                 entry.recheck_at = 0.0
         else:
             entry.recheck_at = self._clock() + _RETRY_AFTER_S
+        return entry
+
+    def _store(self, agent_id: str, entry: _Entry) -> _Entry:
+        self._entries[agent_id] = entry
+        self._entries.move_to_end(agent_id)
+        if len(self._entries) > _MAX_CACHED_AGENTS:
+            self._entries.popitem(last=False)
         return entry
 
     async def _ask(self, agent_id: str) -> str | None | _Unavailable:

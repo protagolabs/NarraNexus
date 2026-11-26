@@ -165,7 +165,11 @@ async def test_decision_key_404_means_an_older_quota_api_not_a_missing_wallet():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "status, error",
-    [(401, WalletDenied), (422, WalletRejected), (502, WalletUnavailable)],
+    [
+        (401, WalletDenied), (422, WalletRejected), (502, WalletUnavailable),
+        # Busy, not a bad input: service-level, so the caller pauses once.
+        (408, WalletUnavailable), (429, WalletUnavailable),
+    ],
 )
 async def test_decision_key_errors_keep_the_wallet_vocabulary(status, error):
     def handler(_request: httpx.Request) -> httpx.Response:

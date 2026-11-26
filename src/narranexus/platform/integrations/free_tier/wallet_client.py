@@ -12,14 +12,15 @@ like a user pasting their own.
 
 Errors are split so callers can react correctly rather than lumping everything
 into "it failed":
-  * ``WalletUnavailable``  — transport / 5xx. Transient; the login path
-    swallows it and the next login retries.
+  * ``WalletUnavailable``  — transport / 5xx / 408 / 429. Transient; the
+    login path swallows it and the next login retries.
   * ``WalletDenied``       — 401/403. A misconfigured shared token; retrying
     will not help, and it must be loud in the logs.
   * ``WalletMissing``      — 404 on a balance read. The user simply has no
     wallet (free tier off, or provisioning never ran).
   * ``WalletRejected``     — any other 4xx. The service is fine but refused
     THIS request's input; repeating the same input will not help.
+    408/429 are not that: they say the service is busy, not the input bad.
 """
 from __future__ import annotations
 
@@ -30,6 +31,8 @@ import httpx
 from loguru import logger
 
 _DEFAULT_TIMEOUT_S = 10.0
+#: Request timeout / rate limit: the service, not the input, is the problem.
+_BUSY_STATUSES = frozenset({408, 429})
 
 
 class WalletError(Exception):
@@ -191,11 +194,11 @@ class WalletClient:
                 "FREE_TIER_WALLET_API_TOKEN vs QUOTA_API_TOKEN"
             )
             raise WalletDenied(f"wallet service denied us ({resp.status_code})")
-        if 400 <= resp.status_code < 500:
+        if 400 <= resp.status_code < 500 and resp.status_code not in _BUSY_STATUSES:
             raise WalletRejected(
                 f"wallet service {method} {path} -> {resp.status_code}"
             )
-        if resp.status_code >= 500:
+        if resp.status_code >= 400:
             raise WalletUnavailable(
                 f"wallet service {method} {path} -> {resp.status_code}"
             )
