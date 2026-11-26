@@ -1,10 +1,39 @@
 ---
 code_file: src/narranexus/platform/narrative/narrative_service.py
-last_verified: 2026-08-27
+last_verified: 2026-11-26
 stub: false
 ---
 
 # narrative_service.py — Narrative 统一门面
+
+## 2026-11-26 — 凭据解析改为 `await decision_endpoint_for_turn(agent_id)`
+
+解析需要 agent id(云端先取该 agent 的网关 key,冷缓存时走一次 quota-api),所以
+变成 async 调用,返回 `TurnDecisionCredential(endpoint, skip_verdict)`;没有 endpoint
+时 `merged_skip` 直接取 `skip_verdict`(`no_credential` 或新增的
+`key_service_unavailable`,词表与取值规则见 [[merged_router]]),本文件不认识免费档。
+取不到网关 key 不算解析异常(落到下一个来源);解析抛异常仍是 `credential_error`。
+解析仍在合并路径之前(快门轮次冷缓存时也付一次取 key,每进程每 agent 一次、上限
+2s);为何不后移见 [[merged_router]]。
+
+## 2026-11-25 — 合并路径的进入条件:开关开 **且** 本轮解析到决策凭据
+
+`select()` 的提前 return 现在先调 `merged_router.decision_endpoint_for_turn()`
+(函数内 import——开关关时既不 import 也不解析):有凭据 → `_select_merged(...,
+decision_endpoint=…)`;开关开但本轮没有合格凭据(无平台 key,agent owner 的 active
+helper 槽也没有同 host 的 key)→ 记一行 debug 后落到下面的两次调用路径,原样执行;
+解析本身抛异常 → 记 warning(只含类型名)后同样走两次调用路径;开关关 → 两次调用
+路径逐字节不变。
+
+**开关开却没走合并路径的轮次在审计行里留痕**:`select()` 用局部量 `merged_skip`
+记下原因,在两次调用路径唯一的审计写入点写进 `merged_verdict`——无合格凭据 =
+`no_credential`,解析抛异常 = `credential_error`,开关关 = 空串。`merged_call`
+仍为 0(该列标的是"走了合并路径")。于是"合并路径覆盖了多少轮"是一条 SQL,不靠
+翻日志;无凭据那条日志因此降到 debug(每轮一条且内容相同),解析异常仍是 warning。
+两次调用路径的每一行(含连续性短路行)都经过这一个写入点。`_select_merged` 不再传 `awareness`(决策请求不含它;两次调用路径
+的 continuity 照旧用)。合并路径一旦选定,调用失败走 `_land_failure`,**不**回落
+到 LLM 路径。
+
 
 ## 2026-08-27(round 7)— 委托改传三个协作者
 
@@ -55,7 +84,7 @@ test_a_background_continuation_turn_is_not_recorded 钉住。这是范围选择
 走 `_select_merged`。刻意是提前 return 而不是把分支织进方法体 —— 它下面的
 所有代码就是今天的两次调用路径**原样**,于是"开关关 = 今天的行为"是一条
 可以读出来的性质,不是一句要人相信的话(测试 `test_with_the_switch_off_the_
-two_call_path_is_untouched` 连 `build_merged_prompt` 都设成地雷)。
+two_call_path_is_untouched` 把凭据解析与请求组装都设成地雷)。
 
 **为什么值得做**(spec `2026-08-25-merged-routing-design.md` §4):prod 7 天
 真人轮 n=189 里 43 轮付两次调用,串行 p50 8,924ms / 均值 13,004ms,而整个

@@ -60,7 +60,7 @@ Design rules
    import failure or odd entry degrades to ``None``.
 2. **Never invent a price.** Models the upstream table does not know stay
    unknown and get warned about, by name, once. ``_LOCAL_OVERRIDES`` exists
-   for the operator to fill in from an invoice — not for us to estimate.
+   to be filled in from a published rate card or an invoice — never estimated.
    The line this draws is "is there a published rate for this model id", NOT
    "is that rate what we are actually charged" — see the limitation below.
 3. **Warn once per model, not once per call.** 2254 helper calls would mean
@@ -97,14 +97,31 @@ class ModelPrice:
     source: str  # "override" | "litellm" | "litellm(alias)"
 
 
+def _override(model_id: str, *, input_per_1m: float, output_per_1m: float) -> ModelPrice:
+    return ModelPrice(
+        input_per_token=input_per_1m / 1e6,
+        output_per_token=output_per_1m / 1e6,
+        cache_write_per_token=None,
+        cache_read_per_token=None,
+        resolved_id=model_id,
+        source="override",
+    )
+
+
 # Models the upstream table does not know — chiefly aggregator-specific ids
 # (NetMind's "minimax/minimax-m2.5", "deepseek-ai/DeepSeek-V4-Flash", …) whose
 # price is set by the aggregator's own rate card, not by the model vendor.
 #
-# DELIBERATELY EMPTY. Add an entry only from a rate card or an invoice, never
-# from an estimate — see design rule 2. The warning emitted by ``price_for``
-# names the exact model id to add, so the log tells you what is missing.
-_LOCAL_OVERRIDES: Dict[str, ModelPrice] = {}
+# Add an entry only from a published rate card or an invoice, never from an
+# estimate — see design rule 2. The warning emitted by ``price_for`` names the
+# exact model id to add, so the log tells you what is missing.
+_LOCAL_OVERRIDES: Dict[str, ModelPrice] = {
+    # TypeSafe's published list rate, the same for both versions: $0.042 per 1M
+    # input tokens, output free (list price, not the aggregator's invoice — see
+    # "Known limitation").
+    model_id: _override(model_id, input_per_1m=0.042, output_per_1m=0.0)
+    for model_id in ("typesafe/jev-1.13", "typesafe/jev-1.14")
+}
 
 
 _lock = threading.Lock()

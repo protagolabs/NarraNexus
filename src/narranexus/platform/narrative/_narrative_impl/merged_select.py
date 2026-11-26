@@ -3,14 +3,14 @@
 @author: NetMind.AI
 @date: 2026-08-27
 @description: Orchestration of the merged routing path — one decision per
-              turn: BM25 first, then a shutter or ONE LLM call.
+              turn: BM25 first, then a shutter or ONE decision-model call.
 
 Moved out of NarrativeService on review (2026-08-27, Important #2): the
 service file had grown past the 800-line bound with two 250-line deciders
 side by side, and every verdict branch hand-assigned six loose locals. Here
 each landing is a small function returning a frozen ``Landing`` (defined in
 landings.py so the flag-off path can use it without importing this module's
-helper-SDK chain) — six fields constructed at once, so a new
+decision-client chain) — six fields constructed at once, so a new
 ``NarrativeSelectionResult`` field cannot be silently defaulted on one
 verdict and set on another.
 
@@ -25,7 +25,11 @@ from typing import Optional, Sequence, TYPE_CHECKING
 
 from loguru import logger
 
-from narranexus.platform.agent_framework.llm.call_tagging import tag_last_llm_call
+from narranexus.platform.agent_framework.llm.decision_model import (
+    KEY_SOURCE_HELPER_SLOT,
+    DecisionEndpoint,
+    DecisionResult,
+)
 
 from ..config import config
 from ..models import (
@@ -63,6 +67,10 @@ from .merged_router import (
 )
 from .routing_gate import pick_menu
 
+#: `cost_records.call_type` of a decision-model call. Any value other than
+#: "agent_loop" is attributed to the helper card (`get_provider_card_source`).
+DECISION_CALL_TYPE = "decision_model"
+
 if TYPE_CHECKING:
     from .crud import NarrativeCRUD
     from .retrieval import NarrativeRetrieval
@@ -78,40 +86,25 @@ async def select_merged(
     query_text: str,
     max_narratives: int,
     session: Optional[ConversationSession],
-    awareness: Optional[str],
+    decision_endpoint: DecisionEndpoint,
     is_user_chat: bool,
     trigger: str,
 ) -> NarrativeSelectionResult:
-    """One decision per turn: BM25 first, then a shutter or ONE call.
+    """One decision per turn: BM25 first, then a shutter or ONE decision call.
 
-    WHY (reference/self_notebook/specs/2026-08-25-merged-routing-design.md §4)
+    The decider changes, the executors do not: every landing below is the
+    two-call path's own code (`assemble_match_landing`,
+    `load_participant_landing`, `create_from_query`, `land_no_topic`), and
+    downstream reads `narratives` / `is_new` / `no_durable_topic` /
+    `retrieval_method` without branching on `selection_method`.
 
-    The two-call path asks continuity ("does this continue?") and then, if
-    that says no, the judge ("so where does it go?"). Prod, 7 days,
-    is_user_chat=1, n=189: 43 turns paid for both, serial p50 8,924ms / mean
-    13,004ms, while the entire non-LLM half of routing is 47.6ms mean. The
-    only lever with anything behind it is the number of round trips.
+    ``decision_endpoint`` is the credential resolved for THIS turn by the
+    caller; a turn without one never reaches this function.
 
-    THE DECIDER CHANGES, THE EXECUTORS DO NOT
-
-    Every landing below is a pre-existing code path: the continuity landing
-    (return the anchor), `assemble_match_landing` (the judge's own search
-    landing), `load_participant_landing`, `create_from_query`,
-    `_land_no_topic_turn`. Downstream — step_1, step_4, the ChatModule —
-    reads `narratives` / `is_new` / `no_durable_topic` / `retrieval_method`
-    and never branches on `selection_method`, so nothing outside this path
-    learns there was a change.
-
-    WHAT THIS OPENS, AND WHAT PAYS FOR IT (§3.2)
-
-    On the two-call path a continuity turn returned before the retrieval
-    tier: no pool, no menu, no way for a foreign thread to reach a prompt.
-    That was an unnamed defence, and it is the one that held the p07 hijack
-    specimen for eleven turns. Merging removes it, so the anchored thread is
-    injected into the prompt unconditionally and deduplicated out of the
-    menu, and `anchor_bm25_rank` / `anchor_in_menu` are recorded on every row
-    so the compensation can actually be measured in production instead of
-    assumed.
+    `anchor_bm25_rank` / `anchor_in_menu` are recorded on every row: merging
+    lets foreign threads into a decision the two-call path never built on
+    continuity turns, and these columns measure how often the unconditional
+    anchor question is what kept the anchor on the ballot.
     """
     from narranexus.platform.utils.logging import timed
 
@@ -119,7 +112,7 @@ async def select_merged(
         agent_id=agent_id, user_id=user_id, query_text=query_text,
         trigger=trigger, is_user_chat=is_user_chat,
     )
-    # The PATH, not the LLM: a turn the shutter releases took this path and
+    # The PATH, not the call: a turn the shutter releases took this path and
     # asked nobody.
     audit.merged_call = True
     snapshots: dict = {}
@@ -168,18 +161,13 @@ async def select_merged(
         menu_results = pick_menu(
             prep.ranked, exclude_ids=excluded, limit=config.MERGED_MENU_SIZE
         )
-        # The contract validates indices against inp.participants, so what
-        # enters the input must be exactly what the prompt shows (review
-        # round 2, I1: the renderer capped at 8 while the contract accepted
-        # [0, N) — a hallucinated index into the unrendered tail would land a
-        # turn on a thread that was never on the ballot). Prefix slice only:
-        # the ORDER is the P0-4 priority rule.
-        # The anchor must not sit in the participant SECTION (review round 9,
-        # I1): after a participant landing the landed thread IS the next
-        # anchor, and unfiltered it renders twice, two verdicts point at it,
-        # and a "stay" gets audited as a "switch". Filter the RENDER/INDEX
-        # copy only — prep.participant_narratives itself feeds
-        # evaluate_bypass's participant_present rule and must stay whole.
+        # One cut, here: what enters the input is exactly what gets a
+        # question, so every index the verdict can name is on the ballot.
+        # Prefix slice only — the ORDER is the P0-4 priority rule.
+        # The anchor is filtered out of the participant list (after a
+        # participant landing it is both), or a "stay" would be asked twice
+        # and audited as a switch. Only this copy is filtered:
+        # prep.participant_narratives feeds the shutter's participant rule.
         participant_pool = [
             n for n in prep.participant_narratives
             if anchor is None or n.id != anchor.id
@@ -198,32 +186,36 @@ async def select_merged(
             minutes_since_previous=minutes_since(session),
             menu=await build_menu_candidates(crud, menu_results),
             participants=shown_participants,
-            awareness=awareness,
         )
 
         with timed("narrative.merged.decide") as t:
-            decision = await decide(routing_input)
-            # Post-call by contract — see call_tagging's docstring.
-            tag_last_llm_call(t)
+            decision = await decide(routing_input, decision_endpoint)
+            # No helper LLM runs here, so the helper-call tag would name a
+            # stale model; tag from the decision model's own answer.
+            if decision.result is not None:
+                t.tag(
+                    model=decision.result.model, structured="decision",
+                    key_source=decision_endpoint.key_source,
+                    input_tokens=decision.result.input_tokens,
+                    output_tokens=decision.result.output_tokens,
+                )
+        if decision.result is not None:
+            await _book_borrowed_key_usage(decision_endpoint, decision.result)
 
         audit.merged_verdict = decision.verdict
         audit.merged_ms = decision.elapsed_ms
-        if decision.prompt is not None:
-            audit.merged_input_chars = decision.prompt.input_chars
-            truncated = list(decision.prompt.truncated)
-            # Entry truncation (above) means the renderer never sees the cut,
-            # so the audit flag is raised here instead of lost.
+        if decision.request is not None:
+            audit.merged_input_chars = decision.request.input_chars
+            truncated = list(decision.request.truncated)
+            # The participant cut happens above, before request assembly, so
+            # its flag is raised here.
             if participants_cut and "participants" not in truncated:
                 truncated.append("participants")
             audit.merged_truncated = ",".join(truncated)
 
-        # The landing pool is NOT the ballot (review round 3, I2): menu_results
-        # is capped by MERGED_MENU_SIZE (an env knob) and excludes participants
-        # — reusing it for trailing context would let a menu-size tweak
-        # silently shrink what the ChatModule receives from 3 threads to 1.
-        # The two-call path lands from the full ranking; so does this one. The
-        # anchor stays excluded by design: the model just LEFT it, re-appending
-        # it as context for leaving would argue with the verdict.
+        # The landing pool is the full ranking, not the ballot: the menu knob
+        # must not shrink the ChatModule's trailing context. The anchor stays
+        # out — the verdict just left it.
         landing_pool = [
             r for r in prep.ranked
             if anchor is None or r.narrative_id != anchor.id
@@ -274,6 +266,41 @@ async def select_merged(
         best_score=None,
         retrieval_method=landing.retrieval_method,
     )
+
+
+async def _book_borrowed_key_usage(
+    endpoint: DecisionEndpoint, result: DecisionResult
+) -> None:
+    """A borrowed helper-slot key's call is that card's spend: book it through
+    the same seam as helper calls, so the ledger attributes it to the owner's
+    helper card. The platform key and an agent-scoped gateway key are not the
+    owner's spend — their usage stays on the [TIMED] line only."""
+    if endpoint.key_source != KEY_SOURCE_HELPER_SLOT:
+        return
+    from narranexus.platform.utils.cost_tracker import (
+        get_cost_context,
+        record_cost,
+        warn_missing_usage,
+    )
+
+    ctx = get_cost_context()
+    if not ctx:
+        return
+    agent_id, db = ctx
+    if result.input_tokens <= 0 and result.output_tokens <= 0:
+        warn_missing_usage("DecisionModel", endpoint.model, DECISION_CALL_TYPE)
+        return
+    # The model we asked for, not the name the server reports back: pricing
+    # and the ledger must not depend on response text. A ledger failure must
+    # not fail the turn (same rule as helper calls).
+    try:
+        await record_cost(
+            db=db, agent_id=agent_id, event_id=None, call_type=DECISION_CALL_TYPE,
+            model=endpoint.model, input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[MergedRouting] failed to record decision cost: {type(e).__name__}")
 
 
 async def _land(

@@ -500,6 +500,25 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+
+#: NetMind's per-protocol inference sub-endpoints, under one environment-swappable
+#: base prefix (`settings.netmind_inference_base`).
+_NETMIND_INFERENCE_SUBPATHS = {"anthropic": "/anthropic", "openai": "/openai/v1"}
+
+
+def netmind_inference_url(protocol: str, inference_base: Optional[str] = None) -> str:
+    """NetMind's inference URL for ``protocol`` ("openai" / "anthropic") under
+    ``inference_base`` (default: this deployment's NETMIND_INFERENCE_BASE) —
+    the one place the base-prefix + sub-path rule lives. An empty
+    NETMIND_INFERENCE_BASE (a blank line in a deployment .env) means the
+    built-in default, not a host-less URL."""
+    base = (
+        inference_base
+        or settings.netmind_inference_base
+        or Settings.model_fields["netmind_inference_base"].default
+    )
+    return base.rstrip("/") + _NETMIND_INFERENCE_SUBPATHS[protocol]
+
 # Sync key variables to os.environ for direct use by third-party SDKs (e.g., OpenAI Agents SDK).
 # pydantic-settings only loads values into the Settings object and does not automatically write to os.environ.
 _ENV_SYNC = {

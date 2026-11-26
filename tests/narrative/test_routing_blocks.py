@@ -25,9 +25,8 @@ invalidate every one of them. Hence these are golden-string tests, transcribed
 from the pre-extraction source: they fail if the shared block renders so much as
 a different newline.
 
-The `include_score` / `summary_max_chars` / `include_bucket_note` parameters
-exist for the merged router, and each defaults to the old behaviour. This file
-asserts the DEFAULTS; `test_merged_routing_prompt.py` asserts the overrides.
+The renderers now serve only these two tiers; the read-side clamp they also
+export is pinned at the bottom of this file.
 """
 from __future__ import annotations
 
@@ -81,7 +80,6 @@ def test_the_judge_menu_rendering_is_unchanged_byte_for_byte():
         [_CANDIDATE],
         header=routing_blocks.JUDGE_MENU_HEADER,
         empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
-        include_score=True,
     ).text
 
     assert rendered == (
@@ -104,7 +102,6 @@ def test_the_judge_empty_menu_note_is_unchanged_byte_for_byte():
         [],
         header=routing_blocks.JUDGE_MENU_HEADER,
         empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
-        include_score=True,
     ).text
 
     assert rendered == (
@@ -122,14 +119,12 @@ def test_a_scored_candidate_with_no_evidence_still_trips_the_alarm(caplog):
         [{**_CANDIDATE, "matched_content": "", "matched_terms": []}],
         header=routing_blocks.JUDGE_MENU_HEADER,
         empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
-        include_score=True,
     )
     routing_blocks.render_search_candidates(
         [{**_CANDIDATE, "matched_content": "", "matched_terms": [],
           "raw_score": 0.0}],
         header=routing_blocks.JUDGE_MENU_HEADER,
         empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
-        include_score=True,
     )
 
 

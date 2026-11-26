@@ -11,7 +11,7 @@ stub: false
 (`description_if_unsummarised()` 返回空则整行消失)、`[Special Default
 Narrative]` 标签、结尾那句关于桶边界的 Note,以及**agent 主动消息变体**
 (没有上一轮用户提问时那段"the agent messaged the user proactively")。
-golden 断言在 `test_merged_routing_prompt.py`。
+golden 断言在 `test_routing_blocks.py`。
 
 为什么动一个被实测数字钉着的文件:合并调用需要**同样**这两段文本,而主动
 消息变体正是拷贝最容易丢的那种细节 —— 它只在定时任务给用户发过消息、

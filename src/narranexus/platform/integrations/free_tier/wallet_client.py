@@ -6,27 +6,36 @@
 
 The free tier's money lives on the LiteLLM gateway, and only ``quota-api``
 holds that gateway's admin credential. This client is NarraNexus's whole view
-of it: open a wallet, read a balance. We never learn what a "virtual key" is —
-we receive an opaque api_key exactly like a user pasting their own.
+of it: open a wallet, read a balance, fetch an agent's decision-route key. We
+never learn what a "virtual key" is — we receive an opaque api_key exactly
+like a user pasting their own.
 
 Errors are split so callers can react correctly rather than lumping everything
 into "it failed":
-  * ``WalletUnavailable``  — transport / 5xx. Transient; the login path
-    swallows it and the next login retries.
+  * ``WalletUnavailable``  — transport / 5xx / 408 / 429. Transient; the
+    login path swallows it and the next login retries.
   * ``WalletDenied``       — 401/403. A misconfigured shared token; retrying
     will not help, and it must be loud in the logs.
   * ``WalletMissing``      — 404 on a balance read. The user simply has no
     wallet (free tier off, or provisioning never ran).
+  * ``WalletRejected``     — any other 4xx. The service is fine but refused
+    THIS request's input; repeating the same input will not help.
+    408/429 are not that: they say the service is busy, not the input bad.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
 
+from narranexus.platform.agent_framework.llm.decision_model import is_sendable_key
+
 _DEFAULT_TIMEOUT_S = 10.0
+#: Request timeout / rate limit: the service, not the input, is the problem.
+_BUSY_STATUSES = frozenset({408, 429})
 
 
 class WalletError(Exception):
@@ -43,6 +52,10 @@ class WalletDenied(WalletError):
 
 class WalletMissing(WalletError):
     """No wallet exists for this user."""
+
+
+class WalletRejected(WalletError):
+    """The service refused this request's input (a 4xx other than auth/404)."""
 
 
 @dataclass(frozen=True)
@@ -73,6 +86,17 @@ class ProvisionedWallet:
     # why the provisioner must treat "already exists" as a no-op rather than
     # trying to re-read the key from anywhere.
     api_key: Optional[str]
+
+
+@dataclass(frozen=True)
+class DecisionKey:
+    """An agent's decision-route key and where to send it: ``base_url`` is the
+    gateway itself (``{base_url}/alpha/decisions``), NOT the deployment's LLM
+    gateway address — that one may be the sandbox proxy, which refuses this
+    route by design."""
+
+    api_key: str = field(repr=False)
+    base_url: str
 
 
 class WalletClient:
@@ -140,6 +164,39 @@ class WalletClient:
         )
         return WalletBalance.from_payload(data)
 
+    async def decision_key(self, agent_id: str) -> DecisionKey:
+        """The agent's capped key for the gateway's decision route, and the
+        route's base URL.
+
+        Idempotent: the same agent gets the same key on every call — until an
+        operator rotates the gateway admin key, so callers may cache it but
+        must re-ask once the gateway rejects it. The key is never logged. A
+        reply without a key or an absolute ``base_url`` (malformed, or a
+        quota-api that predates the field) is `WalletUnavailable`.
+        """
+        try:
+            data = await self._request(
+                "POST", "/v1/decision-keys", json={"agent_id": agent_id}
+            )
+        except WalletMissing:
+            # Unlike the wallet reads, this 404 is not "no such user": the
+            # deployed quota-api predates the endpoint.
+            raise WalletUnavailable(
+                "wallet service has no /v1/decision-keys (older quota-api)"
+            ) from None
+        if not isinstance(data, dict):
+            data = {}
+        key, base_url = data.get("api_key"), data.get("base_url")
+        if not isinstance(key, str) or not is_sendable_key(key):
+            # An unsendable key would be dropped by the resolver and put the
+            # agent on an uncapped credential for the whole key age.
+            raise WalletUnavailable("wallet service returned no usable decision key")
+        if not _is_absolute_http_url(base_url):
+            raise WalletUnavailable(
+                "wallet service returned no usable decision base_url (older quota-api?)"
+            )
+        return DecisionKey(api_key=key, base_url=base_url)
+
     # -- transport ---------------------------------------------------------
 
     async def _request(self, method: str, path: str, **kwargs) -> dict:
@@ -162,6 +219,10 @@ class WalletClient:
                 "FREE_TIER_WALLET_API_TOKEN vs QUOTA_API_TOKEN"
             )
             raise WalletDenied(f"wallet service denied us ({resp.status_code})")
+        if 400 <= resp.status_code < 500 and resp.status_code not in _BUSY_STATUSES:
+            raise WalletRejected(
+                f"wallet service {method} {path} -> {resp.status_code}"
+            )
         if resp.status_code >= 400:
             raise WalletUnavailable(
                 f"wallet service {method} {path} -> {resp.status_code}"
@@ -170,3 +231,21 @@ class WalletClient:
             return resp.json()
         except Exception as e:  # noqa: BLE001
             raise WalletUnavailable(f"wallet service returned non-JSON: {e!r}") from e
+
+
+def _is_absolute_http_url(value: object) -> bool:
+    """A plain http(s) base: host, optional port and path only. Userinfo
+    (``https://gw@other/v1`` targets ``other``), a query or a fragment would
+    make the key go somewhere the value does not plainly name."""
+    if not isinstance(value, str):
+        return False
+    parsed = urlparse(value)
+    return (
+        parsed.scheme in ("http", "https")
+        and bool(parsed.hostname)
+        and "@" not in parsed.netloc
+        and not parsed.query
+        and not parsed.fragment
+        and "?" not in value
+        and "#" not in value
+    )

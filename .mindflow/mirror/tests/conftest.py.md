@@ -1,6 +1,6 @@
 ---
 code_file: tests/conftest.py
-last_verified: 2026-10-29
+last_verified: 2026-11-26
 stub: false
 ---
 
@@ -36,3 +36,34 @@ module singleton would fill across modules and surface as an order-dependent
 swaps in a fresh limiter at the shipped/env-resolved limit around every test,
 and like `_clear_health_cache` it only touches the module if something
 already imported it.
+
+## 2026-11-25 — provider config proxies unpinned per test
+
+`api_config.openai_config` / `claude_config` / … are `_ConfigProxy` objects that
+resolve each read from the current task's ContextVar (else the global holder).
+`monkeypatch.setattr(proxy, field, x)` records the old value through the
+proxy's `__getattr__` and, on undo, writes it back as a real instance
+attribute — so the field stays pinned for every later test and per-task
+configs become invisible ("green alone, red in the full run"; hit by the
+decision-credential tests after `test_structured_blocklist_isolation.py` and
+`test_nexus_inprocess_steering.py`). An autouse teardown calls
+`api_config.unpin_config_proxies()` after each test (the class owns the
+knowledge of which attributes are its own); it runs after monkeypatch's undo
+because monkeypatch is set up later and torn down first.
+
+## 2026-11-26 — no real decision-key issuer in any test
+
+`integrations.free_tier.decision_keys.decision_key_issuer()` is built once per
+process (`functools.cache`) from the environment: cloud mode plus
+`FREE_TIER_WALLET_API_URL` / `FREE_TIER_WALLET_API_TOKEN`. It must be
+repo-wide, not narrative-local, because the tests that reach
+`NarrativeService.select` span `narrative/`, `agent_runtime/`, `module/`,
+`migration/` and `nx_kernel/`: a developer shell in cloud mode with the wallet
+variables set would otherwise freeze a real issuer — and real quota-api calls —
+into all of them. `_no_real_decision_key_issuer` removes the two
+`FREE_TIER_WALLET_*` variables from every test's environment and clears the
+factory's cache before and after each test. Same shape as
+`_clear_health_cache`: the cache is only touched when the module is already
+imported (looked up in `sys.modules`), so runs that never load it pay nothing.
+Exit: a test that wants an issuer sets the variables itself or injects one
+(the routing tests monkeypatch `merged_router.decision_key_issuer`).

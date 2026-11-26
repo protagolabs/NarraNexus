@@ -1,8 +1,14 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/__init__.py
-last_verified: 2026-09-07
+last_verified: 2026-11-25
 stub: false
 ---
+
+## 2026-11-25 — 新增 `decision_model.py`
+
+决策模型(对 state 回答 typed 是/否问题、返回概率)是与 helper LLM 不同的调用
+形状,作为本组的一个原子操作单独成文件:厂商中立的客户端 + 每轮凭据解析。
+
 
 ## 2026-09-07 — 公开 `prompt_probe_emit`（批 6c，A2-1）
 

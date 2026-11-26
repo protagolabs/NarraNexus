@@ -1,98 +1,116 @@
 ---
 code_file: src/narranexus/platform/narrative/_narrative_impl/merged_router.py
-last_verified: 2026-08-27
+last_verified: 2026-11-26
 stub: false
 ---
 
-# merged_router.py — 一次调用同时回答"续不续"和"去哪儿"
+# merged_router.py — 合并路由的决策器:一次决策模型请求回答"续不续 / 去哪儿"
 
-## 2026-08-27(round 2)— pick_menu 迁出 + input_chars 计全量
+## 2026-11-26 — 云端先用 agent 自己的网关 key
 
-`pick_menu` 是纯规则(排序/去重/零分过滤),搬去 [[routing_gate]] 与快门
-同住——它住在 LLM 模块里曾迫使 retrieval 反向 import 决策层(round 2 I6)。
-`MergedRoutingPrompt.input_chars` 从只计 user_input 改为
-instructions+user_input:指令随 2×2 变体变化数百字符,而变体与被测轮型
-相关——漏计是斜率系数上的偏差,不是常数偏移(I2);merged_truncated 仍只
-覆盖 user_input 侧(指令不受读侧预算),口径差已注明。
+`decision_endpoint_for_turn(agent_id)` 变成 async、收 agent id:若
+`integrations.free_tier.decision_keys.decision_key_issuer()` 存在(云端 + 免费档钱包
+服务已配),先 `await issuer.key_for(agent_id)` 取该 agent 的封顶网关 key 及 quota-api
+给的网关地址(不是配置里的 LLM 网关地址,那是拒绝决策路由的沙箱代理),作为
+`agent_scoped` 传给 `resolve_decision_endpoint`;优先级仍只住在那个函数里(网关 key
+→ 平台 key → owner helper 槽 key → None),本函数只收集输入。取不到 key(quota-api
+不可达 / 旧版 / 超时)时 issuer 返回 None,自然落到平台 key。issuer 以模块级名字导入,
+流程测试 monkeypatch `merged_router.decision_key_issuer` 注入真 issuer + 假网络。
 
-## 2026-08-27 — `allowed_verdicts`:本轮供什么,契约就收什么(review Critical 1)
+**解析时机没有后移到决策调用前**(评审 Minor 3 的取舍):凭据在 `select()` 里、
+合并路径之前解析,所以快门本可零调用回答的轮次在冷缓存时也付一次取 key。后移需要
+`select_merged` 在 BM25 prep 之后、审计行已标 `merged_call=1` 时再退回两次调用路径
+(重跑检索、`no_credential` / `credential_error` 的标注分散到两处),不是小而干净的
+改动,所以保留现状。代价有界:每进程每 agent 一次 quota-api 往返(失败时每个 60s
+间隔至多一次),上限 2s;热缓存只是一次字典查找。
 
-`_contract_violation` 原来单独硬编码"锚点不可续时拒 continue_anchor",而
-指令字面量永远把 continue_anchor 列为默认——两边必然打架,模型照 prompt 答
-就落 merged_fallback_new(D19 形状)。现在 `allowed_verdicts(inp)` 是唯一
-推导:`build_merged_instructions` 渲染的答案表 = 它,契约拒收的补集 = 它。
-"哪些 verdict 合法"原来散在 4 处(prompt 散文/VALID_VERDICTS/
-_contract_violation/_select_merged 分支),现在散文与契约同源,VALID_VERDICTS
-只剩"是不是我们认识的词"这一层。`MergedRoutingOutput.verdict` 的 Field
-description 改为中性("one of the verdicts offered")——structured-output
-schema 也是 prompt 面,列全五个词等于第五份邀请函。
+`decide` 的调用失败日志带上 `key_source`:网关 key 上的 `http_422`(该 agent 当月
+额度用完,`budget_exceeded`)与其它来源上的同一状态码由此可区分,日志里还有已擦除
+key 的响应体摘录。审计行不变(`merged_verdict='failed'`、reason=`http_422`)——额度
+用完就是普通的决策失败:守锚点、不换凭据、不走 LLM。
+
+## 2026-11-25 — 决策者从 helper LLM 换成决策模型
+
+Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.decision_model`,
+当前默认 `typesafe/jev-1.14`)作出,**速度优先于准确**——agent loop 里的
+`switch_narrative` / `create_narrative` 是误归档的兜底。本路径**没有任何 LLM
+调用,也没有 LLM 兜底**。原来的五选一 prompt(`prompts_merged.py`、
+`build_merged_prompt`、`MergedRoutingOutput`、相关字面量与测试)已整体删除。
 
 ## 为什么存在
 
-老路是两次串行 helper 调用:continuity 问"这一轮还属于原来那条线吗",判否
-之后 judge 再问"那它属于哪条线"。prod 7 天真人轮 n=189 里,43 轮两次都付,
-串行 p50 8,924ms;而**整个非 LLM 检索层均值 47.6ms**。也就是说这条路上唯一
-有分量的杠杆是**往返次数**,而两个问题的输入几乎完全重叠 —— 这就是合并的
-全部理由(spec `2026-08-25-merged-routing-design.md` §4)。
+两次调用路径最多串行两次 helper LLM(prod 两次都付的轮次串行 p50 8,924ms,
+非 LLM 部分均值 47.6ms)。合并成一次,再把这一次换成亚秒级、无长尾的决策模型。
 
-**别再去"修检索的 6 秒"**:那个前提是嵌套计时列被相加两遍(`retrieve_ms`
-包含 `judge_ms`),已由设计轮 146/146 行实测推翻。工单在
-`todo/2026-08-25-retrieve-ms-nests-judge-ms.md`。
+## 三个单元,各自可单测
 
-## 这个文件负责什么,不负责什么
+- `build_decision_request(inp)`:state = 本轮消息 + 上一轮(用户问 / agent 答;
+  agent 主动发起时显式标 `agent_messaged_proactively`)+ 距上一轮分钟数;问题顺序:
+  `anchor`(仅 `inp.offers_anchor`)→ `CANDIDATE_KINDS` 每一行(participant `p0..`,
+  菜单 `m0..`)→ `no_topic`。每条线的呈现字段复用 `landings.candidate_labels`
+  (所有路由候选的唯一字段选择,锚点也走它),菜单行再带 BM25 证据。共享规则只写
+  通用规则(铁律 #4)。读侧上限经 `routing_blocks.clamp_head` 保头裁剪,被裁字段码
+  进 `merged_truncated`。
+- `verdict_from_scores(scores, offers_anchor, candidate_counts, thresholds)`:纯函数
+  阈值规则。best_other(并列时按 `CANDIDATE_KINDS` 顺序——participant 先于菜单,
+  P0-4——再按下标小者)≥ switch 且 **严格大于** 锚点分 → 该类的 verdict;否则锚点
+  可问且 ≥ stay → continue_anchor;否则 no_topic ≥ 阈值 → no_topic;否则 new。
+  刻意偏向留下(0.2 < 0.3,457 轮人工标注集上保住 92.0% 的真续接)。缺分数抛
+  KeyError,不默认。阈值是 `DecisionThresholds`,`decide` 每次从 config 取。
+- `VERDICT_NO_CREDENTIAL` / `VERDICT_KEY_SERVICE_UNAVAILABLE` /
+  `VERDICT_CREDENTIAL_ERROR`:不是合并路径的判决,而是 [[narrative_service]] 在**两次
+  调用路径**的审计行上写的"开关开但没走合并路径"的原因;放在这里是因为
+  `merged_verdict` 的词表只在一处定义。`decision_endpoint_for_turn` 返回
+  `TurnDecisionCredential(endpoint, skip_verdict)`(`skip_verdict` 无默认值,"既无
+endpoint 又无判决"无法被顺手构造出来),service 只照抄 `skip_verdict`,
+  不知道免费档的存在。**`key_service_unavailable`(23 字符,装得进 MySQL 的
+  `VARCHAR(32)`)**:本部署**有** per-agent key 服务(issuer 存在),它这一轮给不出
+  key(quota-api 宕机/暂停中、拒绝了该 agent、回复缺可用 `base_url`),且平台 key 与
+  owner key 都不合格——把"密钥服务挂了"写进审计表,重启后仍可 SQL 查到,而不只靠一条
+  日志(`[DecisionKeys] quota-api …` warning 仍在,给出具体原因)。**`no_credential`**
+  只留给根本没有 issuer 的部署(本地/桌面、没配钱包服务的云端)且没有别的凭据。issuer
+  给不出 key 但平台 key / owner key 合格时,照常走合并路径,不额外标注。持有 key 的
+  agent 不受暂停影响,仍走合并路径。
+- `decide(inp, endpoint)`:一次调用,永不抛、永不猜。组装失败 / 调用失败 / 分数不
+  可用或越出契约 → `ok=False, verdict=failed`,日志文案区分"组装失败"与"调用失败"。
+  失败的 `reason` **只含固定类别**(`assembly` / `timeout` / `transport` /
+  `http_<status>` / `malformed` / `off_contract` / `unexpected` …):它会进
+  `selection_reason`,而前端执行详情会把它展示给与 agent 聊天的非 owner;服务端或
+  库给出的文本只进日志(客户端已擦除 key;非 `DecisionModelError` 的意外异常只记
+  类型名)。
+  成功日志行带全部原始分数——阈值可以离线用生产日志重调而无需重问模型(审计表没有
+  能干净承载每候选分数的列,未新增列)。
 
-**负责**:拼一份 prompt、发一次调用、解析一个答案、判定答案能不能用。
-**不负责**:轮次最终落在哪条线上 —— 那是 `narrative_service._select_merged`
-的事,而它用的每一个落点都是**既有执行器**(continuity 落点 /
-`assemble_match_landing` / `create_from_query` / `_land_no_topic_turn`)。
-本批的形状就是**换决策者,不换执行者**;这个分工别合并。
+**扩展点**:新增一种可切换的候选 = `CANDIDATE_KINDS` 加一行(verdict、key 前缀、
+输入字段、展示 flag);问题构建、阈值规则、`allowed_verdicts`、越界检查、
+`resolve_choice` 都按这张表走。key 里的序号就是对应输入列表的下标。
 
-## 承重结构:锚点无条件注入(§3.2)
-
-老路上 continuity 判 yes 就在检索层之前 return:池不加载、菜单不构造,
-外来线**没有物理途径**进入任何 prompt。这是一层从没被命名的防线,而 B-7 p07
-劫持标本正是被它接住的(第 2–12 轮 `pool=0`,BM25 从没跑)。合并把它拆了。
-
-补偿只能是结构性的,实测数字逼出来的:
-- 续接轮里锚点**不在** BM25 top-3 的比例 **26.2%–71.6%**
-- 菜单首位是外来线 **26.4%–93.8%**(其中 78–97% 是种子干扰线)
-- 锚点本轮拿 **0 分** 的比例 **8.2%–49.3%**(同一条线的连续两轮零词面重叠是常态)
-
-所以锚点**无条件渲染、独立分区、默认答案、与菜单去重**,它在不在 prompt 里
-**不是它分数的函数**。`test_merged_routing_prompt.py` 的 rule 1 就是钉这件事;
-哪天有人把它改成条件渲染,那边先红。
+`decision_endpoint_for_turn(agent_id)` 把叙事配置接到通用的凭据解析上(agent 的
+网关 key → 平台 key → agent owner 的 active helper 槽、同 host 的 provider key(该轮
+ingress 装进 task 的配置)→ None;策略本身只住在 `decision_model.resolve_decision_endpoint`),由
+`narrative_service.select()` 每轮调用;None 时该轮走两次调用路径。凭据以参数显式
+传给 `decide`,并发轮次不可能串 key。
 
 ## 设计决策
 
-**`continue_anchor` 与 `match` 是两个词,不是一个 `matched_index`。**
-judge 的 `search` 出口没有"这就是你已经在的那条线"这个概念,于是"确认续接"
-与"恰好从菜单里选中了锚点"在审计里无法区分 —— 而只有前者**不该**被记成一次
-换线判决。下游语义不同,出口就必须不同。
-
-**菜单不显示 `similarity_score`。** 它是 `raw/(raw+1)`,IDF 在本池现算,
-跨池无意义 —— 与"快门不许读总分"是同一条纪律的两个落点。真正可迁移的是
-**哪些词命中了**,那才是 rank_pool 一路带过来的东西。
-
-**失败不是答案(rule 6)。** provider 异常、超时、verdict 不在契约内、
-index 越界,全部返回 `ok=False`,由调用方兜底把轮次留在原处。把失败读成
-"新话题"就是 D19 那两记实锤的形状:新建的线成为锚点,updater 逐轮改写它的
-身份直到词法证据"变对"。所以 `decide` 永不抛、永不猜。
-
-**输入预算全在读侧。** 五个上限(上一轮回复 / 锚点 summary / awareness /
-本轮消息 / participant 条数)只裁剪 prompt 看到的东西,不改任何存储字段,
-且**保头** —— 追问的指代物("讲第一个")在回复的开头。被裁的段落名会写进
-`narrative_routing_audit.merged_truncated`:静默变短的 prompt 事后没人能解释。
+- **锚点问题无条件问**(只要可续):合并让外来线进入每一次决策,而续接轮里锚点
+  BM25 零分的比例 8.2%–49.3%,它在不在问题集里不能是分数的函数。
+- `continue_anchor` 与 `match` 是两个出口:"确认续接"不能被审计成一次换线。
+- `allowed_verdicts` / `_contract_violation` 保留:阈值规则按构造不会越界,但落点
+  绝不能拿到输入里不存在的下标。
+- **失败不是答案**(rule 6):把失败读成"新话题"就是 D19 的形状。
 
 ## 上下游关系
 
-- **被谁用**: `merged_select.select_merged`(唯一调用方;service 只持薄委托)
-- **依赖谁**: `routing_blocks`(四个共享渲染块)、`prompts_merged.build_merged_instructions`
-(按轮拼装,与 allowed_verdicts 同源)、`prompts._NO_DURABLE_TOPIC_RUBRIC`(经 prompts_merged)。
-- **测试**: `tests/narrative/test_merged_routing_prompt.py`(prompt 契约 +
-  预算 + 双变体配对)、`tests/narrative/test_merged_routing.py`(流程 / 落点 /
-  兜底)
+- **被谁用**:`merged_select.select_merged`(`decide` / `resolve_choice` /
+  verdict 常量)、`narrative_service.select`(`decision_endpoint_for_turn`)。
+- **依赖谁**:`agent_framework.llm.decision_model`、
+  `integrations.free_tier.decision_keys`、`landings.candidate_labels`、
+  `routing_blocks.clamp_head`、`config`(阈值 / 上限 / 决策端点)。
+- **测试**:`tests/narrative/test_merged_decider.py`(三个单元各自)、
+  `tests/narrative/test_merged_routing.py`(端到端落点、凭据、兜底)。
 
 ## 坑
 
-`get_helper_sdk` 在模块层导入,测试靠 monkeypatch 这个名字截住网络边界 —— 
-挪成函数内 import 会让所有流程测试变成真机调用(并开始烧钱)。
+`ask_yes_no` 在模块层导入,流程测试 monkeypatch `merged_router.ask_yes_no` 截住
+网络边界——改成函数内 import 会让流程测试打真网络。

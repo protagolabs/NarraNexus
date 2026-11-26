@@ -1,10 +1,35 @@
 ---
 code_file: src/narranexus/platform/narrative/models.py
-last_verified: 2026-09-04
+last_verified: 2026-11-26
 stub: false
 ---
 
 # models.py — Narrative 模块所有数据模型的唯一来源
+
+## 2026-11-26(补)— 再多一个取值 `key_service_unavailable`
+
+本部署有 per-agent 决策 key 服务、它这一轮给不出 key、且没有别的凭据合格时,两次
+调用路径的行写 `key_service_unavailable`(而非 `no_credential`);`no_credential` 只
+留给没有 key 服务的部署。合并覆盖率的分母因此是三个取值。列宽 `VARCHAR(32)` 装得下
+(23 字符,有测试钉住全部 `VERDICT_*` 都 ≤ 32)。
+
+## 2026-11-26 — `merged_verdict` 在两次调用路径上多了两个取值
+
+开关开但本轮没走合并路径时,两次调用路径的审计行把原因写进 `merged_verdict`:
+`no_credential`(没有合格的决策凭据)/ `credential_error`(解析凭据时抛异常);
+开关关仍是空串,`merged_call` 仍是 0。合并路径上的取值不变(`continue_anchor |
+match | participant | new | no_topic | failed`)。读法:合并覆盖率 =
+`merged_call = 1` 的行数 ÷(它 + 这两个取值的行数)。快速路径的行
+(`selection_method='fast'`)不看开关,始终是空串,所以空串不等于"开关关"。
+
+## 2026-11-25 — `merged_input_chars` / `merged_truncated` 的口径随决策模型改变
+
+合并路径的判决改由决策模型作出后:`merged_input_chars` = 序列化后的决策请求
+(state + 全部问题)的字符数(原为 LLM instructions + user_input);
+`merged_truncated` 的字段码变为 prev_response / prev_query / query / participants
+(awareness 与 anchor_summary 不再出现)。开关在 prod 从未开过,没有存量行受影响;
+列类型与可空性不变。合并行现在只写在"开关开且本轮有决策凭据"的轮上。
+
 
 ## 2026-08-26 — `RoutingAudit` 的合并路由八列(全部可空、纯增量)
 

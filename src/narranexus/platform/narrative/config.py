@@ -7,8 +7,11 @@
 All tunable parameters are centralized in this file for easy experimentation and tuning
 """
 import os
+from urllib.parse import urlparse
 
 from loguru import logger
+
+from narranexus.platform.settings import netmind_inference_url
 
 
 def _env(name: str, default: str) -> str:
@@ -244,91 +247,90 @@ class NarrativeConfig:
         _env("NARRATIVE_DEFAULT_BUCKETS_ENABLED", "0") == "1"
     )
 
-    # ==================== Merged routing (one call, four answers) ==========
-    # ON = BM25 runs FIRST on every turn, then either a zero-LLM shutter or ONE
-    # helper call decides both questions the two-tier path asks serially ("does
-    # this continue the thread?" then "so where does it go?").
+    # ==================== Merged routing (decision model) ===================
+    # ON = BM25 runs FIRST on every turn, then either a zero-call shutter or ONE
+    # decision-model request (one yes/no probability per candidate thread)
+    # decides both questions the two-call path asks serially with helper LLMs
+    # ("does this continue the thread?" then "so where does it go?"). No LLM
+    # runs on this path, and none is a fallback: a failed decision holds the
+    # anchor (or creates), and the agent loop's switch/create tools are the
+    # safety net for a misfiled turn.
     #
-    # Why it is worth a flag at all (prod, 7 days, is_user_chat=1, n=189):
-    # 43 turns paid for BOTH calls, at a serial p50 of 8,924ms / mean 13,004ms.
-    # The non-LLM half of routing is 47.6ms mean — there is nothing else in
-    # there to fix, so the only lever is the number of round trips.
+    # Why (prod, 7 days, is_user_chat=1, n=189): 43 turns paid for BOTH helper
+    # calls, at a serial p50 of 8,924ms / mean 13,004ms, while the non-LLM half
+    # of routing is 47.6ms mean.
     #
-    # ROLLBACK IS THE FLAG, and it rolls back exactly one thing: the ROUTING
-    # STRUCTURE (who decides, and in what order). Flipping it back to "0"
-    # restores the continuity → judge pair and stops the merged prompt from
-    # being built; it does NOT undo anything else in this batch, and nothing
-    # else in this batch needs undoing:
-    #   * the merged prompt constants are a NEW file section, unreferenced when
-    #     the flag is off;
+    # The decision credential is resolved PER TURN (decision_model.
+    # resolve_decision_endpoint): in the cloud with the free-tier gateway
+    # (FREE_TIER_WALLET_API_URL/_TOKEN set), the agent's own capped gateway
+    # key, sent to the gateway address quota-api returns with it; else
+    # NARRATIVE_DECISION_API_KEY if set; else the agent owner's helper-slot
+    # provider key (the configs the turn's ingress installed) when its
+    # base-URL host equals NARRATIVE_DECISION_API_BASE's host. A turn with no
+    # qualifying credential takes the two-call path — a normal deployment
+    # shape (local/desktop without that provider), not an error. A borrowed
+    # key's usage is booked to that owner's helper card; the gateway key's and
+    # the platform key's are the platform's and only logged.
+    #
+    # ROLLBACK IS THE FLAG, and it rolls back exactly the ROUTING STRUCTURE:
     #   * the shared prompt blocks (`routing_blocks.py`) render the continuity
     #     tier's and the judge's text byte for byte — pinned by test;
-    #   * the audit columns are additive and simply stay NULL;
-    #   * ⚠ ONE thing changed for BOTH arms and is NOT flag-controlled:
-    #     candidates_json[].raw_score precision. Ranking now runs at full pool
-    #     depth on every path (round 3, I1), so rank-7+ pool members carry
-    #     their real BM25 score where they used to record a hard 0.0. Prompts
-    #     are byte-identical either way; the AUDIT series has a step change at
-    #     this deploy. Any "how many candidates scored" analysis over a window
-    #     that straddles it must split at the deploy timestamp — same reading
-    #     rule as NARRATIVE_SHADOW_POOL_RECORD's window note above.
-    # (Stated this precisely because the bucket flag's comment claimed a full
-    # rollback it could not deliver, and PR #361 review caught it.)
-    #
-    # Retirement (delete the flag AND the two-call path, not the new one)
-    # when ALL of: ① the merged exam passes its pre-registration (p07 hijack
-    # 0/22 veto, DIVERTED=0, calls −≥15%); ② the flag has run ON in prod for
-    # 14 days with no flag rollback; ③ prod audit shows all five verdicts plus
-    # at least one merged_fallback_* on merged_call=1 rows (an untravelled
-    # fallback is unverified); ④ the Owner rules the two-call path need not be
-    # revivable. Full checklist: todo/2026-08-26-merged-routing-flag-
-    # retirement-condition.md (author-local).
+    #   * the audit columns are additive and stay NULL with the flag off;
+    #   * NOT flag-controlled: candidates_json[].raw_score precision. Ranking
+    #     runs at full pool depth on every path, so rank-7+ pool members carry
+    #     their real BM25 score where they used to record 0.0. The AUDIT series
+    #     has a step change at that deploy; split "how many candidates scored"
+    #     analyses at the deploy timestamp.
     NARRATIVE_MERGED_ROUTING_ENABLED = (
         _env("NARRATIVE_MERGED_ROUTING_ENABLED", "0") == "1"
     )
 
-    # ---- the merged prompt's input budget (READ-SIDE ONLY) ----
-    # Caps on what the prompt SHOWS. Nothing here rewrites a stored field: same
-    # narrative row, same session, same message. All head-preserving — see
-    # `routing_blocks.clamp_head`.
-    #
-    # Why hard caps at all, when the two-tier path had none: continuity and the
-    # judge each read a SUBSET of these fields, and the anchor block was only
-    # rendered on turns that had an anchor. The merged prompt renders the whole
-    # set on EVERY routed turn, so an unbounded field is no longer one tier's
-    # bad turn — it is every turn's latency and every turn's bill.
+    # ---- the decision model ----
+    # The base is also the host an owner's provider key must match to be
+    # borrowed (see above). Default: this deployment's NetMind inference
+    # environment (NETMIND_INFERENCE_BASE, openai sub-path); an explicit value
+    # overrides it. The key is the platform's and may stay empty.
+    NARRATIVE_DECISION_API_BASE = _env(
+        "NARRATIVE_DECISION_API_BASE", netmind_inference_url("openai")
+    )
+    NARRATIVE_DECISION_API_KEY = _env("NARRATIVE_DECISION_API_KEY", "")
+    NARRATIVE_DECISION_MODEL = _env("NARRATIVE_DECISION_MODEL", "typesafe/jev-1.14")
+    # Hard total wall for the one request. No retry: on a failure the turn
+    # stays where it was, which is cheaper than a second round trip.
+    NARRATIVE_DECISION_TIMEOUT_SECONDS = float(
+        _env("NARRATIVE_DECISION_TIMEOUT_SECONDS", "3.0")
+    )
+    # The score -> verdict rule (merged_router.verdict_from_scores). Biased
+    # toward staying: on a 457-turn human-labelled set stay=0.2 / switch=0.3
+    # keeps 92.0% of true continuations. Retune offline from the per-candidate
+    # scores logged on every [MergedRouting] line.
+    NARRATIVE_DECISION_STAY_THRESHOLD = float(_env("NARRATIVE_DECISION_STAY_THRESHOLD", "0.2"))
+    NARRATIVE_DECISION_SWITCH_THRESHOLD = float(
+        _env("NARRATIVE_DECISION_SWITCH_THRESHOLD", "0.3")
+    )
+    NARRATIVE_DECISION_NO_TOPIC_THRESHOLD = float(
+        _env("NARRATIVE_DECISION_NO_TOPIC_THRESHOLD", "0.5")
+    )
 
-    # The agent's previous reply. The tension to keep in mind if you retune it:
-    # the referent of a follow-up ("讲第一个" / "the first one") almost always
-    # sits in the FIRST sentences of that reply, which is why the clamp keeps
-    # the head — but a long reply's tail is also where a closing question can
-    # live ("要不要我继续?"). 1500 covers the p90 of prod agent replies; raising
-    # it costs latency on every merged turn, so raise it against measured
-    # misroutes, not on principle.
+    # ---- the request's input budget (READ-SIDE ONLY) ----
+    # Caps on what the request SHOWS, head-preserving (`routing_blocks.
+    # clamp_head`); nothing stored is rewritten. Every clip is reported in
+    # `merged_truncated`.
+
+    # The agent's previous reply. The referent of a follow-up ("the first
+    # one") sits in its FIRST sentences, hence the head; 1500 covers the p90 of
+    # prod agent replies.
     MERGED_PREV_RESPONSE_MAX_CHARS = int(_env("NARRATIVE_MERGED_PREV_RESPONSE_MAX_CHARS", "1500"))
 
-    # The anchored thread's summary. `current_summary` has a soft bound in the
-    # updater prompt and NO hard bound anywhere — a verbose model walks straight
-    # through it, and this block is rendered on every merged turn.
-    MERGED_ANCHOR_SUMMARY_MAX_CHARS = int(_env("NARRATIVE_MERGED_ANCHOR_SUMMARY_MAX_CHARS", "2000"))
-
-    # Agent awareness. Deliberately smaller than the message cap: awareness is
-    # the agent's standing persona, and routing needs only enough of it to read
-    # the domain the agent works in.
-    MERGED_AWARENESS_MAX_CHARS = int(_env("NARRATIVE_MERGED_AWARENESS_MAX_CHARS", "1500"))
-
-    # This turn's message, and (same cap, same reason) the previous turn's — a
-    # generous ceiling that exists only to stop a pathological paste from
-    # dominating the call. A real message never approaches it.
+    # This turn's message and the previous turn's — a ceiling that only stops
+    # a pathological paste from dominating the call.
     MERGED_QUERY_MAX_CHARS = int(_env("NARRATIVE_MERGED_QUERY_MAX_CHARS", "4000"))
 
-    # PARTICIPANT threads shown. A prefix, never a re-ranking: the ORDER is the
-    # P0-4 priority rule, so trimming to fit must not reorder.
+    # PARTICIPANT threads asked about. A prefix, never a re-ranking: the ORDER
+    # is the P0-4 priority rule.
     MERGED_PARTICIPANT_MAX_CANDIDATES = int(_env("NARRATIVE_MERGED_PARTICIPANT_MAX_CANDIDATES", "8"))
 
-    # Keyword menu rows. Three, as in the two-tier judge (`search_results[:3]`)
-    # — this batch changes the decider, not the menu size, so a menu-size change
-    # would confound the arm.
+    # Keyword menu rows asked about. Three, as in the two-call judge.
     MERGED_MENU_SIZE = int(_env("NARRATIVE_MERGED_MENU_SIZE", "3"))
 
     # ==================== Narrative LLM Dynamic Update ====================
@@ -442,8 +444,8 @@ def _reject_untested_flag_combination(cfg: "NarrativeConfig") -> None:
 
     Merged routing is built on a property bucket governance provides: with
     `NARRATIVE_DEFAULT_BUCKETS_ENABLED = False` a legacy default bucket is not a
-    reusable anchor (`is_reusable_anchor`), so it can never occupy the merged
-    prompt's anchor slot and `continue_anchor` can never re-pin a turn to a
+    reusable anchor (`is_reusable_anchor`), so it can never be the merged
+    path's anchor question and `continue_anchor` can never re-pin a turn to a
     container whose retrieval surface never updates.
 
     Turn both on and that guarantee is gone — and NOTHING has ever measured that
@@ -471,9 +473,55 @@ def _reject_untested_flag_combination(cfg: "NarrativeConfig") -> None:
         )
 
 
+def _reject_invalid_decision_settings(cfg: "NarrativeConfig") -> None:
+    """Refuse to boot merged routing with decision settings it cannot use.
+
+    A threshold outside [0, 1], a non-positive timeout, a host-less base, or
+    a platform key that is unsendable or starts/ends with a quote does not
+    fail a turn — it silently disables a verdict, every decision call, every
+    owner-key lookup, or the platform key — so it is caught here, in the
+    same fail-closed style as the check above. The key is NOT required:
+    without one, turns with neither an agent gateway key nor a qualifying
+    owner key take the two-call path.
+    """
+    if not cfg.NARRATIVE_MERGED_ROUTING_ENABLED:
+        return
+    # Function-level: only a flag-on boot pays for the client import.
+    from narranexus.platform.agent_framework.llm.decision_model import is_sendable_key
+
+    problems = [
+        name
+        for name in (
+            "NARRATIVE_DECISION_STAY_THRESHOLD",
+            "NARRATIVE_DECISION_SWITCH_THRESHOLD",
+            "NARRATIVE_DECISION_NO_TOPIC_THRESHOLD",
+        )
+        if not 0.0 <= getattr(cfg, name) <= 1.0
+    ]
+    if not cfg.NARRATIVE_DECISION_TIMEOUT_SECONDS > 0:
+        problems.append("NARRATIVE_DECISION_TIMEOUT_SECONDS")
+    if not urlparse(cfg.NARRATIVE_DECISION_API_BASE).hostname:
+        problems.append("NARRATIVE_DECISION_API_BASE")
+    key = cfg.NARRATIVE_DECISION_API_KEY
+    # Quotes are sendable characters, so a key that reaches the process still
+    # quoted (an env source that does not strip them, e.g. `docker run
+    # --env-file`) would boot and then 401 every turn.
+    if key and (not is_sendable_key(key) or key[0] in "\"'" or key[-1] in "\"'"):
+        problems.append("NARRATIVE_DECISION_API_KEY")
+    if problems:
+        logger.critical(
+            "STARTUP CONFIGURATION ERROR: NARRATIVE_MERGED_ROUTING_ENABLED=1 "
+            f"with invalid {', '.join(problems)} — thresholds must be in [0, 1], "
+            "the timeout > 0, the base an absolute URL, the key printable ASCII "
+            "without whitespace or a leading/trailing quote. Fix .env and restart."
+        )
+        raise RuntimeError(f"invalid decision-model settings: {', '.join(problems)}")
+
+
 # Export config instance (singleton)
 config = NarrativeConfig()
 
 # At import, i.e. at process start — the earliest point at which this can be
 # answered, and long before a user's turn depends on the answer.
 _reject_untested_flag_combination(config)
+_reject_invalid_decision_settings(config)

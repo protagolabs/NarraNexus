@@ -3259,8 +3259,10 @@ _register(
             # merged routing — one call replaces the continuity/judge pair.
             # All nullable and all additive: prod rows predate them. NULL means
             # "written before this deploy"; the two-call path itself writes
-            # 0 / "" for merged_call / merged_verdict / merged_truncated — so
-            # read-side filters must be NULL-safe on BOTH dialects
+            # 0 / "" for merged_call / merged_truncated, and merged_verdict ""
+            # (flag off) or no_credential / key_service_unavailable /
+            # credential_error (flag on) — so read-side filters must be
+            # NULL-safe on BOTH dialects
             # (`COALESCE(col,0) <> 1`; never `= 0`, which drops the whole
             # pre-deploy baseline window, and never `IS NOT 1` — SQLite-only).
             # `merged_call` marks the PATH; a turn released by the zero-LLM

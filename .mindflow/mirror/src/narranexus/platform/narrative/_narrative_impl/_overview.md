@@ -1,6 +1,6 @@
 ---
 code_dir: src/narranexus/platform/narrative/_narrative_impl/
-last_verified: 2026-08-27
+last_verified: 2026-11-25
 stub: false
 ---
 
@@ -10,9 +10,9 @@ stub: false
 
 这是 `narrative/` 包的内部引擎室，不对外导出。所有外部调用都经过 `NarrativeService` 门面，`_narrative_impl/` 的类不能被包外代码直接实例化（名称前缀 `_` 就是这个约定）。
 
-十七个文件各司其职：数据库 CRUD、候选召回、数值闸门、LLM 判定、后台摘要更新、连续性
+十六个文件各司其职：数据库 CRUD、候选召回、数值闸门、LLM 判定、后台摘要更新、连续性
 检测、默认 Narrative 管理、Instance 依赖处理、Prompt 构建、合并路由(编排/准备/决策/
-prompt/落点/锚点规则)。这种细粒度切分是为了让每个文件足够专注，可以独立修改而不影响
+落点/锚点规则)。这种细粒度切分是为了让每个文件足够专注，可以独立修改而不影响
 其他部分。
 
 ## 关键文件索引
@@ -33,11 +33,10 @@ prompt/落点/锚点规则)。这种细粒度切分是为了让每个文件足�
 | `default_narratives.py` | 系统预置的 8 个默认 Narrative 的定义和初始化逻辑 |
 | `prompt_builder.py` | 把 Narrative 序列化成 LLM prompt 片段（稳定半 / turn 半） |
 | `prompts.py` | LLM 调用的静态 prompt 模板 |
-| `routing_blocks.py` | 路由 prompt 的四个共享渲染块(锚点线 / 上一轮 / 菜单 / participant);三个 tier 共用,continuity 与 judge 的文本字节相同 |
-| `merged_router.py` | 合并调用的决策器:build_merged_prompt + decide + allowed_verdicts(prompt 说有的 = 契约收的) |
-| `merged_select.py` | 合并路径的**编排**(service 只留薄委托):快门或一次调用 → 按 verdict 落点 → audit |
+| `routing_blocks.py` | 路由 prompt 的四个共享渲染块(锚点线 / 上一轮 / 菜单 / participant),continuity 与 judge 共用、字节相同;外加读侧保头裁剪 `clamp_head` |
+| `merged_router.py` | 合并路由的决策器:build_decision_request(每候选一个是/否问题)+ verdict_from_scores(纯阈值规则)+ decide(一次决策模型调用)+ 每轮凭据入口 |
+| `merged_select.py` | 合并路径的**编排**(service 只留薄委托):快门或一次决策模型调用 → 按 verdict 落点 → audit |
 | `merged_prep.py` | 合并路径的 BM25 准备段:一次 _score_pool + 锚点反事实席位 + audit tier-2 填写 |
-| `prompts_merged.py` | 合并指令的片段与 per-turn 组装器 build_merged_instructions(2×2 变体拼接) |
 | `landings.py` | 所有 decider 共享的落点执行器 + candidate_labels 唯一定义 + Landing 值对象 + land_no_topic |
 | `anchor_rules.py` | 锚点规则唯一定义:is_reusable_anchor / minutes_since / advance_session_anchor |
 
@@ -53,8 +52,9 @@ prompts_merged / landings / anchor_rules),方向**单向向下**,不许反过来
 narrative_service(薄委托)
    └─> merged_select ──> merged_prep ──> retrieval._score_pool
             │                 └────────> routing_gate(pick_menu / shutter_opens)
-            ├──> merged_router ──> prompts_merged ──> prompts(_NO_DURABLE_TOPIC_RUBRIC)
-            │         └──> routing_blocks <── continuity / _retrieval_llm(字节相同)
+            ├──> merged_router ──> agent_framework.llm.decision_model
+            │         ├──> landings.candidate_labels
+            │         └──> routing_blocks.clamp_head    (routing_blocks <── continuity / _retrieval_llm,字节相同)
             ├──> landings(落点执行器 + Landing)
             └──> anchor_rules(锚点规则三件套)
 ```
@@ -63,12 +63,14 @@ narrative_service(薄委托)
 所以它是纯函数、可以逐字节 golden 测。这条方向性是"字节相同"这个契约能被
 测出来的前提;哪天让它自己去读 config,continuity 的 prompt 就会跟着开关变。
 
-`merged_router.py` 只被 `merged_select.select_merged` 调用;
+`merged_router.py` 被 `merged_select.select_merged` 调用,另有 service 每轮
+调 `decision_endpoint_for_turn`(函数内 import,开关关时不触发);
 `_narrative_impl/__init__.py` **不导出**这七个新文件(私有实现层的约定),
 服务层对 merged_select / landings 按需 function-level import。
 retrieval **不得** import merged_router(round 3 I6 拆掉的反向边);
 landings 的 `Landing` 是 flag-off 路径也用的返回类型,住这里正是为了
-不让 flag-off import 合并模块的 helper-SDK 链。
+不让 flag-off import 合并模块的决策客户端链。
+(2026-11-25:`prompts_merged.py` 随合并 LLM prompt 删除,决策者换成决策模型。)
 
 ## 和外部目录的协作
 

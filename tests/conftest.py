@@ -197,6 +197,31 @@ def _fresh_netmind_login_ip_bucket():
     _reset()
 
 
+@pytest.fixture(autouse=True)
+def _no_real_decision_key_issuer(monkeypatch):
+    """`decision_key_issuer()` is built once per process from the environment.
+    Repo-wide because the tests that reach `NarrativeService.select` span
+    narrative/, agent_runtime/, module/, migration/ and nx_kernel/: a developer
+    shell in cloud mode with the wallet variables set would otherwise freeze a
+    real issuer (and real quota-api calls) into them. Tests that want an
+    issuer set the variables themselves or inject one.
+
+    Same shape as ``_clear_health_cache``: the cache is only touched when the
+    module is already imported.
+    """
+    monkeypatch.delenv("FREE_TIER_WALLET_API_URL", raising=False)
+    monkeypatch.delenv("FREE_TIER_WALLET_API_TOKEN", raising=False)
+
+    def _reset() -> None:
+        module = sys.modules.get("narranexus.platform.integrations.free_tier.decision_keys")
+        if module is not None:
+            module.decision_key_issuer.cache_clear()
+
+    _reset()
+    yield
+    _reset()
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _channel_credential_key_dir(tmp_path_factory):
     """Channel credential secrets (channel_credentials.secret_json) are encrypted
@@ -230,3 +255,17 @@ def _clear_login_ip_throttles():
     _reset()
     yield
     _reset()
+
+
+@pytest.fixture(autouse=True)
+def _unpin_provider_config_proxies():
+    """`monkeypatch.setattr(api_config.openai_config, "base_url", ...)` reads
+    the old value THROUGH the proxy and, on undo, writes it back as an instance
+    attribute — pinning that field for every later test, so the proxy stops
+    reading the per-task ContextVars. Unpin after each test (after
+    monkeypatch's own undo, which runs first). Only touches the module when it
+    is already imported."""
+    yield
+    module = sys.modules.get("narranexus.platform.agent_framework.api_config")
+    if module is not None:
+        module.unpin_config_proxies()

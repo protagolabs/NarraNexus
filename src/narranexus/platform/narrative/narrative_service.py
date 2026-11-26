@@ -46,6 +46,7 @@ from ._narrative_impl import (
 if TYPE_CHECKING:
     from narranexus.platform.utils.db.database import AsyncDatabaseClient
     from narranexus.platform.schema.module_schema import InstanceStatus
+    from narranexus.platform.agent_framework.llm.decision_model import DecisionEndpoint
     from ._narrative_impl.landings import Landing
 
 
@@ -296,22 +297,52 @@ class NarrativeService:
         query_text = resolve_retrieval_text(retrieval_anchor, input_content)
 
         # Merged routing (off by default): BM25 runs FIRST, then either a
-        # zero-LLM shutter or ONE call answers both questions the rest of this
-        # method asks serially. An early return rather than a branch woven
-        # through the body — everything below it is the two-call path exactly as
-        # it was, which is what makes "flag off = today's behaviour" a property
-        # you can read instead of a claim you have to trust.
+        # zero-call shutter or ONE decision-model call answers both questions
+        # the rest of this method asks serially. It needs a decision credential
+        # resolved for THIS turn and agent; without one (or if resolution
+        # itself breaks) the turn takes the two-call path below — a normal
+        # shape, not an error. An early return rather than a woven branch, so
+        # "flag off = today's behaviour" stays readable.
+        #
+        # `merged_skip` is why a flag-on turn is on the two-call path anyway;
+        # it lands in the audit row's `merged_verdict` so the merged path's
+        # coverage is a SQL question, not a log search. Empty = flag off.
+        merged_skip = ""
         if config.NARRATIVE_MERGED_ROUTING_ENABLED:
-            return await self._select_merged(
-                agent_id=agent_id,
-                user_id=user_id,
-                query_text=query_text,
-                max_narratives=max_narratives,
-                session=session,
-                awareness=awareness,
-                is_user_chat=is_user_chat,
-                trigger=trigger,
+            from ._narrative_impl.merged_router import (
+                VERDICT_CREDENTIAL_ERROR,
+                decision_endpoint_for_turn,
             )
+
+            try:
+                credential = await decision_endpoint_for_turn(agent_id)
+            except Exception as e:  # noqa: BLE001 — routing must still happen
+                logger.warning(
+                    f"[NarrativeSelect] decision credential resolution failed: "
+                    f"{type(e).__name__} — two-call path"
+                )
+                decision_endpoint, merged_skip = None, VERDICT_CREDENTIAL_ERROR
+            else:
+                decision_endpoint = credential.endpoint
+                if decision_endpoint is None:
+                    # A normal shape on every such turn — the audit row is the
+                    # signal, so this stays out of the info stream.
+                    logger.debug(
+                        "[NarrativeSelect] no qualifying decision credential "
+                        f"for this turn ({credential.skip_verdict}) — two-call path"
+                    )
+                    merged_skip = credential.skip_verdict
+            if decision_endpoint is not None:
+                return await self._select_merged(
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    query_text=query_text,
+                    max_narratives=max_narratives,
+                    session=session,
+                    decision_endpoint=decision_endpoint,
+                    is_user_chat=is_user_chat,
+                    trigger=trigger,
+                )
 
         # Continuity detection — wrapped in timed() so its LLM call is visible
         # as a discrete slice of step.1 instead of getting lumped into
@@ -520,6 +551,7 @@ class NarrativeService:
             # against) — a 0 there would read as "the tier is free", which is
             # the opposite of true: it is a full helper-LLM round trip.
             audit.continuity_ms = _continuity_ms
+            audit.merged_verdict = merged_skip
             await self._write_audit(audit, audit_snapshots)
 
         return NarrativeSelectionResult(
@@ -540,7 +572,7 @@ class NarrativeService:
         query_text: str,
         max_narratives: int,
         session: Optional[ConversationSession],
-        awareness: Optional[str],
+        decision_endpoint: "DecisionEndpoint",
         is_user_chat: bool,
         trigger: str,
     ) -> NarrativeSelectionResult:
@@ -560,7 +592,7 @@ class NarrativeService:
             query_text=query_text,
             max_narratives=max_narratives,
             session=session,
-            awareness=awareness,
+            decision_endpoint=decision_endpoint,
             is_user_chat=is_user_chat,
             trigger=trigger,
         )
