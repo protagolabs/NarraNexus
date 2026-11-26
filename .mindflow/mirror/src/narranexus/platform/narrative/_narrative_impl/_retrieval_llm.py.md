@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/narrative/_narrative_impl/_retrieval_llm.py
-last_verified: 2026-08-26
+last_verified: 2026-11-25
 stub: false
 ---
+
+## 2026-11-25 — 菜单渲染不再传 `include_score`
+
+`routing_blocks.render_search_candidates` 删除了只剩一个取值的 `include_score`
+参数(judge 总是渲染分数),本文件去掉该实参;judge 的 prompt 字节不变
+(`test_routing_blocks.py` 的 golden 断言未改)。
+
 
 ## 2026-08-26 — 菜单与 participant 区改由共享块渲染(judge 输出字节不变)
 

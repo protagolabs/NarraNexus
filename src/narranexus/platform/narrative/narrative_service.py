@@ -299,14 +299,27 @@ class NarrativeService:
         # Merged routing (off by default): BM25 runs FIRST, then either a
         # zero-call shutter or ONE decision-model call answers both questions
         # the rest of this method asks serially. It needs a decision credential
-        # resolved for THIS turn; without one the turn takes the two-call path
-        # below — a normal shape (no platform key, no qualifying user key).
-        # An early return rather than a woven branch, so "flag off = today's
-        # behaviour" stays readable.
+        # resolved for THIS turn; without one (or if resolution itself breaks)
+        # the turn takes the two-call path below — a normal shape, not an
+        # error. An early return rather than a woven branch, so "flag off =
+        # today's behaviour" stays readable.
         if config.NARRATIVE_MERGED_ROUTING_ENABLED:
             from ._narrative_impl.merged_router import decision_endpoint_for_turn
 
-            decision_endpoint = decision_endpoint_for_turn()
+            try:
+                decision_endpoint = decision_endpoint_for_turn()
+            except Exception as e:  # noqa: BLE001 — routing must still happen
+                logger.warning(
+                    f"[NarrativeSelect] decision credential resolution failed: "
+                    f"{type(e).__name__} — two-call path"
+                )
+                decision_endpoint = None
+            else:
+                if decision_endpoint is None:
+                    logger.info(
+                        "[NarrativeSelect] no qualifying decision credential "
+                        "for this turn — two-call path"
+                    )
             if decision_endpoint is not None:
                 return await self._select_merged(
                     agent_id=agent_id,
@@ -318,10 +331,6 @@ class NarrativeService:
                     is_user_chat=is_user_chat,
                     trigger=trigger,
                 )
-            logger.info(
-                "[NarrativeSelect] decision model unavailable for this user "
-                "(no platform key, no qualifying provider key) — two-call path"
-            )
 
         # Continuity detection — wrapped in timed() so its LLM call is visible
         # as a discrete slice of step.1 instead of getting lumped into

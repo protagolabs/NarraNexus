@@ -263,10 +263,46 @@ async def test_the_endpoint_is_passed_through_untouched(monkeypatch):
 
 
 async def test_a_call_failure_is_not_a_verdict(monkeypatch):
-    _stub_client(monkeypatch, boom=DecisionModelError("HTTP 429"))
+    _stub_client(monkeypatch, boom=DecisionModelError("http_429", "HTTP 429: Rate limit exceeded"))
     decision = await mr.decide(_input(), ENDPOINT)
     assert not decision.ok and decision.verdict == mr.VERDICT_FAILED
     assert decision.request is not None and decision.result is None
+
+
+SERVER_TEXT = "server-said-sk-secret-123"
+
+
+@pytest.mark.parametrize(
+    "boom,category",
+    [
+        (DecisionModelError("timeout", f"timed out {SERVER_TEXT}"), "timeout"),
+        (DecisionModelError("http_403", f"HTTP 403: {SERVER_TEXT}"), "http_403"),
+        (DecisionModelError("transport", f"LocalProtocolError {SERVER_TEXT}"), "transport"),
+        (DecisionModelError("malformed", f"no answer {SERVER_TEXT}"), "malformed"),
+        (RuntimeError(SERVER_TEXT), "unexpected"),
+    ],
+    ids=["timeout", "http", "transport", "malformed", "unexpected"],
+)
+async def test_a_failures_reason_is_its_category_only(monkeypatch, boom, category):
+    """The reason reaches selection_reason, which non-owners can see: no
+    server- or library-provided text, ever."""
+    _stub_client(monkeypatch, boom=boom)
+    decision = await mr.decide(_input(), ENDPOINT)
+    assert decision.reason == f"decision model failure: {category}"
+    assert SERVER_TEXT not in decision.reason
+
+
+async def test_assembly_and_off_contract_reasons_are_categories_too(monkeypatch):
+    _stub_client(monkeypatch, {"anchor": 0.9})
+    bad = await mr.decide(_input(menu=[{"id": "x", "secret": SERVER_TEXT}]), ENDPOINT)
+    assert bad.reason == "decision model failure: assembly"
+
+    async def partial(endpoint, state, questions):
+        return DecisionResult({"no_topic": 0.1}, "m", 0, 0, 1)
+
+    monkeypatch.setattr(mr, "ask_yes_no", partial)
+    off = await mr.decide(_input(), ENDPOINT)
+    assert off.reason == "decision model failure: off_contract"
 
 
 async def test_an_assembly_failure_is_not_a_verdict(monkeypatch):

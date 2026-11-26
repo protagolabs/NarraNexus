@@ -141,7 +141,6 @@ def render_search_candidates(
     *,
     header: str,
     empty_note: str,
-    include_score: bool,
 ) -> Rendered:
     """The keyword menu, with the evidence that put each row on it.
 
@@ -161,8 +160,7 @@ def render_search_candidates(
     for i, candidate in enumerate(candidates):
         out.append(f"[Topic-{i}] {candidate['name']}\n")
         out.append(f"Description: {candidate['description']}\n")
-        if include_score:
-            out.append(f"Similarity score: {candidate['score']:.2f}\n")
+        out.append(f"Similarity score: {candidate['score']:.2f}\n")
         if candidate.get("matched_terms"):
             out.append(f"Matched terms: {', '.join(candidate['matched_terms'])}\n")
         if candidate.get("matched_content"):

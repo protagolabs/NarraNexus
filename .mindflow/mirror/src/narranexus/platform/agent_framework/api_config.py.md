@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/agent_framework/api_config.py
-last_verified: 2026-10-29
+last_verified: 2026-11-25
 stub: false
 ---
+
+## 2026-11-25 — `_ConfigProxy.unpin()` + `unpin_config_proxies()`
+
+对 proxy 对象 setattr(典型是测试的 monkeypatch,其 undo 会把经 `__getattr__` 读到的
+旧值写回成实例属性)会永久遮住 ContextVar 委托。`unpin()` 删除 proxy 自身两个属性
+以外的一切实例属性,`unpin_config_proxies()` 对模块里每个 proxy 调用它——"哪些属性
+算 proxy 自己的"只在类里定义一次,`tests/conftest.py` 每个测试后调用公开函数,
+不再依赖私有名。生产代码不调用。
+
 
 ## 2026-10-29 — `OpenAIConfig` / `AnthropicHelperConfig` 加 `user_endpoint`
 

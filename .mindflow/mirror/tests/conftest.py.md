@@ -46,6 +46,7 @@ proxy's `__getattr__` and, on undo, writes it back as a real instance
 attribute — so the field stays pinned for every later test and per-task
 configs become invisible ("green alone, red in the full run"; hit by the
 decision-credential tests after `test_structured_blocklist_isolation.py` and
-`test_nexus_inprocess_steering.py`). An autouse teardown strips any instance
-attribute other than the proxy's own two after each test; it runs after
-monkeypatch's undo because monkeypatch is set up later and torn down first.
+`test_nexus_inprocess_steering.py`). An autouse teardown calls
+`api_config.unpin_config_proxies()` after each test (the class owns the
+knowledge of which attributes are its own); it runs after monkeypatch's undo
+because monkeypatch is set up later and torn down first.

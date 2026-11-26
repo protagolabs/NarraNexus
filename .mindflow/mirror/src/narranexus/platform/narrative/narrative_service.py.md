@@ -10,8 +10,10 @@ stub: false
 
 `select()` 的提前 return 现在先调 `merged_router.decision_endpoint_for_turn()`
 (函数内 import——开关关时既不 import 也不解析):有凭据 → `_select_merged(...,
-decision_endpoint=…)`;开关开但本轮没有凭据(无平台 key、用户也没有同 host 的
-provider key)→ 记一行 info 后落到下面的两次调用路径,原样执行;开关关 → 两次调用
+decision_endpoint=…)`;开关开但本轮没有合格凭据(无平台 key,agent owner 的 active
+helper 槽也没有同 host 的 key)→ 记一行 info("no qualifying decision credential
+for this turn")后落到下面的两次调用路径,原样执行;解析本身抛异常 → 记 warning(只含
+类型名)后同样走两次调用路径;开关关 → 两次调用
 路径逐字节不变。`_select_merged` 不再传 `awareness`(决策请求不含它;两次调用路径
 的 continuity 照旧用)。合并路径一旦选定,调用失败走 `_land_failure`,**不**回落
 到 LLM 路径。

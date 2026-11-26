@@ -36,6 +36,11 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
   KeyError,不默认。阈值是 `DecisionThresholds`,`decide` 每次从 config 取。
 - `decide(inp, endpoint)`:一次调用,永不抛、永不猜。组装失败 / 调用失败 / 分数不
   可用或越出契约 → `ok=False, verdict=failed`,日志文案区分"组装失败"与"调用失败"。
+  失败的 `reason` **只含固定类别**(`assembly` / `timeout` / `transport` /
+  `http_<status>` / `malformed` / `off_contract` / `unexpected` …):它会进
+  `selection_reason`,而前端执行详情会把它展示给与 agent 聊天的非 owner;服务端或
+  库给出的文本只进日志(客户端已擦除 key;非 `DecisionModelError` 的意外异常只记
+  类型名)。
   成功日志行带全部原始分数——阈值可以离线用生产日志重调而无需重问模型(审计表没有
   能干净承载每候选分数的列,未新增列)。
 
@@ -43,9 +48,11 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
 输入字段、展示 flag);问题构建、阈值规则、`allowed_verdicts`、越界检查、
 `resolve_choice` 都按这张表走。key 里的序号就是对应输入列表的下标。
 
-`decision_endpoint_for_turn()` 把叙事配置接到通用的凭据解析上(平台 key → 用户
-同 host 的 provider key → None),由 `narrative_service.select()` 每轮调用;None
-时该轮走两次调用路径。凭据以参数显式传给 `decide`,并发轮次不可能串 key。
+`decision_endpoint_for_turn()` 把叙事配置接到通用的凭据解析上(平台 key → agent
+owner 的 active helper 槽、同 host 的 provider key(该轮 ingress 装进 task 的配置)
+→ None;策略本身只住在 `decision_model.resolve_decision_endpoint`),由
+`narrative_service.select()` 每轮调用;None 时该轮走两次调用路径。凭据以参数显式
+传给 `decide`,并发轮次不可能串 key。
 
 ## 设计决策
 

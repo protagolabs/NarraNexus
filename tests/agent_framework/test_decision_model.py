@@ -212,6 +212,7 @@ async def test_a_non_200_raises_with_the_status(status, body):
     async with _client(lambda req: httpx.Response(status, json=body)) as client:
         with pytest.raises(DecisionModelError) as exc:
             await ask_yes_no(_endpoint(), {}, QUESTIONS, client=client)
+    assert exc.value.category == f"http_{status}"
     assert str(status) in str(exc.value)
 
 
@@ -219,8 +220,9 @@ async def test_a_non_json_body_raises():
     async with _client(
         lambda req: httpx.Response(200, content=b"<html>gateway</html>")
     ) as client:
-        with pytest.raises(DecisionModelError):
+        with pytest.raises(DecisionModelError) as exc:
             await ask_yes_no(_endpoint(), {}, QUESTIONS, client=client)
+    assert exc.value.category == "malformed"
 
 
 async def test_the_total_timeout_is_hard_and_raises():
@@ -235,7 +237,7 @@ async def test_the_total_timeout_is_hard_and_raises():
             await ask_yes_no(_endpoint(timeout_seconds=0.1), {}, QUESTIONS, client=client)
         waited = loop.time() - started
     assert waited < 1.0, "the timeout is a hard wall, not a per-phase hint"
-    assert "timed out" in str(exc.value)
+    assert exc.value.category == "timeout"
 
 
 async def test_a_transport_error_raises():
@@ -243,8 +245,10 @@ async def test_a_transport_error_raises():
         raise httpx.ConnectError("connection refused", request=req)
 
     async with _client(handler) as client:
-        with pytest.raises(DecisionModelError):
+        with pytest.raises(DecisionModelError) as exc:
             await ask_yes_no(_endpoint(), {}, QUESTIONS, client=client)
+    assert exc.value.category == "transport"
+    assert "connection refused" not in str(exc.value), "transport text is never forwarded"
 
 
 async def test_no_retry_on_failure():
@@ -295,12 +299,27 @@ async def test_a_malformed_question_set_refuses_before_any_request(questions):
     assert calls == []
 
 
-def test_endpoint_configured_requires_key_base_and_model():
+UNSENDABLE_KEYS = [
+    "", "   ", "sk-abc\n", "sk-abc\r\n", "sk-\x00abc", "sk abc", "sk-\tabc", "sk-ü", "sk-\x7f",
+]
+
+
+def test_endpoint_configured_requires_a_sendable_key_base_and_model():
     assert _endpoint().configured
-    assert not _endpoint(api_key="").configured
-    assert not _endpoint(api_key="   ").configured
+    for key in UNSENDABLE_KEYS:
+        assert not _endpoint(api_key=key).configured, repr(key)
     assert not _endpoint(base_url="").configured
     assert not _endpoint(model="").configured
+
+
+@pytest.mark.parametrize("key", ["sk-abc123", "Bearer.token_-~!", "x"])
+def test_printable_ascii_keys_are_sendable(key):
+    assert dm.is_sendable_key(key)
+
+
+@pytest.mark.parametrize("key", UNSENDABLE_KEYS)
+def test_whitespace_control_and_non_ascii_keys_are_not_sendable(key):
+    assert not dm.is_sendable_key(key)
 
 
 # ── the key never leaks ────────────────────────────────────────────────────
@@ -338,12 +357,49 @@ async def test_the_key_never_appears_in_errors_or_logs():
     assert SECRET not in repr(_endpoint()), "the endpoint's repr hides the key"
 
 
+async def test_a_real_transport_failure_never_carries_the_key():
+    """A real httpx client against a closed local port — no mocked transport."""
+    endpoint = _endpoint(base_url="http://127.0.0.1:9/v1", timeout_seconds=2.0)
+    with pytest.raises(DecisionModelError) as exc:
+        await ask_yes_no(endpoint, {}, QUESTIONS)
+    assert exc.value.category in ("transport", "timeout")
+    assert SECRET not in str(exc.value) and SECRET not in repr(exc.value)
+    assert exc.value.__cause__ is None
+
+
+@pytest.mark.parametrize("key", ["sk-leak\nme", "sk-leak\r\nme", "sk-leak\x00me", "sk-leaké"])
+async def test_a_header_unsafe_key_that_slips_past_validation_never_leaks(monkeypatch, key):
+    """Defence in depth, over a REAL transport (a local TCP server, real httpx
+    + h11): if an unsendable key ever reached the wire, h11's
+    `Illegal header value` / the codec's UnicodeEncodeError quotes it — that
+    text must not surface."""
+    async def accept(reader, writer):
+        writer.close()
+
+    server = await asyncio.start_server(accept, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    monkeypatch.setattr(dm, "is_sendable_key", lambda k: bool(k))
+    try:
+        with pytest.raises(DecisionModelError) as exc:
+            await ask_yes_no(
+                _endpoint(api_key=key, base_url=f"http://127.0.0.1:{port}/v1"), {}, QUESTIONS,
+            )
+    finally:
+        server.close()
+        await server.wait_closed()
+    assert exc.value.category == "transport"
+    assert "leak" not in str(exc.value) and "leak" not in repr(exc.value)
+    assert exc.value.__cause__ is None
+
+
 # ── per-turn credential resolution ─────────────────────────────────────────
 #
-# Order: platform key (env) > the current user's own provider credential whose
-# base-URL host equals the decision base's host > nothing. Each case runs in
-# its own task so the provider ContextVars it installs cannot leak.
+# Order: a sendable platform key > the agent owner's helper-slot credential
+# INSTALLED on this task whose base-URL host equals the decision base's host >
+# nothing. Each case runs in its own task so the ContextVars it installs
+# cannot leak; a task with nothing installed sees the global holder only.
 
+from narranexus.platform.agent_framework import api_config  # noqa: E402
 from narranexus.platform.agent_framework.api_config import (  # noqa: E402
     AnthropicHelperConfig,
     ClaudeConfig,
@@ -353,58 +409,57 @@ from narranexus.platform.agent_framework.api_config import (  # noqa: E402
     set_user_config,
 )
 from narranexus.platform.agent_framework.llm.decision_model import (  # noqa: E402
+    KEY_SOURCE_HELPER_SLOT,
+    KEY_SOURCE_PLATFORM,
     resolve_decision_endpoint,
 )
 
 DECISION_BASE = "https://api.netmind.ai/inference-api/openai/v1"
 
 
-def _install(
+def _resolve(platform_key: str = "", base_url: str = DECISION_BASE):
+    return resolve_decision_endpoint(
+        base_url=base_url, platform_key=platform_key,
+        model="typesafe/jev-1.13", timeout_seconds=3.0,
+    )
+
+
+async def _resolve_in_task(
+    platform_key: str = "",
     *,
     openai: OpenAIConfig | None = None,
     claude: ClaudeConfig | None = None,
     codex: CodexConfig | None = None,
     anthropic_helper: AnthropicHelperConfig | None = None,
-) -> None:
-    set_user_config(
-        claude or ClaudeConfig(),
-        openai or OpenAIConfig(),
-        codex or CodexConfig(),
-        anthropic_helper or AnthropicHelperConfig(),
-        CliHelperConfig(),
-    )
-
-
-async def _resolve_in_task(platform_key: str = "", **providers):
+):
     async def run():
-        _install(**providers)
-        return resolve_decision_endpoint(
-            base_url=DECISION_BASE, platform_key=platform_key,
-            model="typesafe/jev-1.13", timeout_seconds=3.0,
+        set_user_config(
+            claude or ClaudeConfig(), openai or OpenAIConfig(), codex or CodexConfig(),
+            anthropic_helper, None,
         )
+        return _resolve(platform_key)
 
     return await asyncio.create_task(run())
 
 
-async def test_the_platform_key_wins_over_a_qualifying_user_key():
+async def test_the_platform_key_wins_over_a_qualifying_owner_key():
     ep = await _resolve_in_task(
         platform_key="platform-key",
-        openai=OpenAIConfig(api_key="user-key", base_url=DECISION_BASE),
+        openai=OpenAIConfig(api_key="owner-key", base_url=DECISION_BASE),
     )
     assert ep is not None and ep.api_key == "platform-key"
+    assert ep.key_source == KEY_SOURCE_PLATFORM
     assert ep.base_url == DECISION_BASE
 
 
-async def test_a_user_credential_on_the_decision_host_qualifies_with_its_own_key():
-    ep = await _resolve_in_task(
-        openai=OpenAIConfig(api_key="user-key", base_url=DECISION_BASE),
-    )
-    assert ep is not None and ep.api_key == "user-key"
-    assert ep.base_url == DECISION_BASE, "always the decision base, not the user's path"
+async def test_an_owner_helper_key_on_the_decision_host_is_borrowed_with_its_source():
+    ep = await _resolve_in_task(openai=OpenAIConfig(api_key="owner-key", base_url=DECISION_BASE))
+    assert ep is not None and ep.api_key == "owner-key"
+    assert ep.key_source == KEY_SOURCE_HELPER_SLOT
+    assert ep.base_url == DECISION_BASE, "always the decision base, not the owner's path"
 
 
-async def test_same_host_different_path_qualifies():
-    """The same vendor's other-protocol endpoint (one key, one host)."""
+async def test_the_helper_slots_anthropic_protocol_config_on_the_same_host_qualifies():
     ep = await _resolve_in_task(
         anthropic_helper=AnthropicHelperConfig(
             api_key="anthropic-proto-key",
@@ -412,6 +467,49 @@ async def test_same_host_different_path_qualifies():
         ),
     )
     assert ep is not None and ep.api_key == "anthropic-proto-key"
+    assert ep.key_source == KEY_SOURCE_HELPER_SLOT
+
+
+async def test_only_the_active_helper_config_is_considered():
+    """An installed anthropic helper is the active helper (get_helper_sdk's
+    precedence); the openai config beside it belongs to no paying card."""
+    ep = await _resolve_in_task(
+        openai=OpenAIConfig(api_key="inactive-openai", base_url=DECISION_BASE),
+        anthropic_helper=AnthropicHelperConfig(
+            api_key="active-anthropic",
+            base_url="https://api.netmind.ai/inference-api/anthropic",
+        ),
+    )
+    assert ep is not None and ep.api_key == "active-anthropic"
+
+    ep = await _resolve_in_task(
+        openai=OpenAIConfig(api_key="inactive-openai", base_url=DECISION_BASE),
+        anthropic_helper=AnthropicHelperConfig(
+            api_key="active-anthropic", base_url="https://api.anthropic.com",
+        ),
+    )
+    assert ep is None, "the active helper is off-host; the inactive one is not a fallback"
+
+
+async def test_a_subscription_cli_helper_has_no_key_to_borrow():
+    async def run():
+        set_user_config(
+            ClaudeConfig(), OpenAIConfig(api_key="owner-key", base_url=DECISION_BASE),
+            CodexConfig(), None, CliHelperConfig(),
+        )
+        return _resolve()
+
+    # CliHelperConfig() installed as the helper (non-None) -> nothing borrowed.
+    assert await asyncio.create_task(run()) is None
+
+
+async def test_agent_slot_credentials_are_never_borrowed():
+    """Their spend could not be booked to the agent card (see the resolver)."""
+    ep = await _resolve_in_task(
+        claude=ClaudeConfig(api_key="agent-claude", base_url=DECISION_BASE, auth_type="api_key"),
+        codex=CodexConfig(api_key="agent-codex", base_url=DECISION_BASE, auth_type="api_key"),
+    )
+    assert ep is None
 
 
 @pytest.mark.parametrize(
@@ -424,10 +522,8 @@ async def test_same_host_different_path_qualifies():
         "",                                    # official OpenAI (empty base)
     ],
 )
-async def test_a_user_credential_on_another_host_does_not_qualify(base_url):
-    ep = await _resolve_in_task(
-        openai=OpenAIConfig(api_key="virtual-key", base_url=base_url),
-    )
+async def test_an_owner_credential_on_another_host_does_not_qualify(base_url):
+    ep = await _resolve_in_task(openai=OpenAIConfig(api_key="virtual-key", base_url=base_url))
     assert ep is None
 
 
@@ -435,51 +531,70 @@ async def test_no_credential_at_all_resolves_to_none():
     assert await _resolve_in_task() is None
 
 
-async def test_a_qualifying_host_with_an_empty_key_does_not_qualify():
-    ep = await _resolve_in_task(openai=OpenAIConfig(api_key="", base_url=DECISION_BASE))
+async def test_an_oauth_anthropic_helper_credential_does_not_qualify():
+    ep = await _resolve_in_task(
+        anthropic_helper=AnthropicHelperConfig(
+            api_key="oauth-token", base_url=DECISION_BASE, auth_type="oauth",
+        ),
+    )
     assert ep is None
 
 
-async def test_an_oauth_agent_credential_does_not_qualify():
-    ep = await _resolve_in_task(
-        claude=ClaudeConfig(api_key="oauth-token", base_url=DECISION_BASE, auth_type="oauth"),
-    )
+@pytest.mark.parametrize("key", UNSENDABLE_KEYS)
+async def test_an_unsendable_owner_key_is_no_credential(key):
+    ep = await _resolve_in_task(openai=OpenAIConfig(api_key=key, base_url=DECISION_BASE))
     assert ep is None
 
 
-async def test_the_first_qualifying_slot_wins_in_the_documented_order():
-    """helper openai -> helper anthropic -> agent claude -> agent codex."""
-    ep = await _resolve_in_task(
-        openai=OpenAIConfig(api_key="helper-openai", base_url=DECISION_BASE),
-        anthropic_helper=AnthropicHelperConfig(
-            api_key="helper-anthropic",
-            base_url="https://api.netmind.ai/inference-api/anthropic",
-        ),
-        claude=ClaudeConfig(api_key="agent-claude", base_url=DECISION_BASE),
-        codex=CodexConfig(api_key="agent-codex", base_url=DECISION_BASE, auth_type="api_key"),
-    )
-    assert ep is not None and ep.api_key == "helper-openai"
-
-    ep = await _resolve_in_task(
-        anthropic_helper=AnthropicHelperConfig(
-            api_key="helper-anthropic",
-            base_url="https://api.netmind.ai/inference-api/anthropic",
-        ),
-        claude=ClaudeConfig(api_key="agent-claude", base_url=DECISION_BASE),
-    )
-    assert ep is not None and ep.api_key == "helper-anthropic"
-
-    ep = await _resolve_in_task(
-        codex=CodexConfig(api_key="agent-codex", base_url=DECISION_BASE, auth_type="api_key"),
-    )
-    assert ep is not None and ep.api_key == "agent-codex"
+@pytest.mark.parametrize("key", [k for k in UNSENDABLE_KEYS if k.strip()])
+async def test_an_unsendable_platform_key_is_no_credential(key):
+    assert await _resolve_in_task(platform_key=key) is None
 
 
-async def test_an_unparseable_decision_base_resolves_to_none_for_user_keys():
+async def test_an_unparseable_decision_base_resolves_to_none_for_owner_keys():
     async def run():
-        _install(openai=OpenAIConfig(api_key="user-key", base_url=DECISION_BASE))
-        return resolve_decision_endpoint(
-            base_url="not a url", platform_key="", model="m", timeout_seconds=3.0,
+        set_user_config(
+            ClaudeConfig(), OpenAIConfig(api_key="owner-key", base_url=DECISION_BASE),
+            CodexConfig(), None, None,
         )
+        return _resolve(base_url="not a url")
 
     assert await asyncio.create_task(run()) is None
+
+
+async def test_a_task_with_nothing_installed_never_borrows_the_global_fallback(monkeypatch):
+    """Cloud-shaped: no turn ingress ran, but the process-global holder holds
+    a qualifying key (the deployment's own). It must not be borrowed."""
+    monkeypatch.setattr(
+        api_config._holder, "_openai", OpenAIConfig(api_key="deployment-key", base_url=DECISION_BASE)
+    )
+    monkeypatch.setattr(api_config._holder, "_loaded", True)
+
+    async def run():
+        api_config.clear_user_config()  # nothing installed on this task
+        assert api_config.openai_config.api_key == "deployment-key"  # the proxy would see it
+        return _resolve()
+
+    assert await asyncio.create_task(run()) is None
+
+
+async def test_local_mode_turns_borrow_the_owner_key_the_ingress_installed(monkeypatch):
+    """Local/desktop mode: `ProviderResolver.resolve` returns None and the
+    owner's configs come from the strict own-config resolver — but the turn's
+    ingress still installs them on the task, so they are borrowable."""
+    from narranexus.platform.agent_framework.api_config import RuntimeLLMConfigs
+
+    owner = RuntimeLLMConfigs(
+        claude=ClaudeConfig(),
+        openai=OpenAIConfig(api_key="desktop-owner-key", base_url=DECISION_BASE),
+        codex=CodexConfig(),
+        anthropic_helper=None,
+        cli_helper=None,
+    )
+
+    async def ingress_then_resolve():
+        set_user_config(owner.claude, owner.openai, owner.codex, owner.anthropic_helper, owner.cli_helper)
+        return _resolve()
+
+    ep = await asyncio.create_task(ingress_then_resolve())
+    assert ep is not None and ep.api_key == "desktop-owner-key"

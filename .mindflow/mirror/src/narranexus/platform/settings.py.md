@@ -1,8 +1,17 @@
 ---
 code_file: src/narranexus/platform/settings.py
-last_verified: 2026-09-10
+last_verified: 2026-11-25
 stub: false
 ---
+
+## 2026-11-25 — `netmind_inference_url(protocol, inference_base=None)`
+
+NetMind 的"环境可换的 base 前缀 + 协议子路径(/openai/v1、/anthropic)"规则的唯一
+定义,从 `providers/user_service.py` 上移到这里:provider 卡的派生与叙事路由
+`NARRATIVE_DECISION_API_BASE` 的默认值共用它。不传 base 时取本部署的
+`netmind_inference_base`(`NETMIND_INFERENCE_BASE`)。放在 settings 是因为它是叶子
+模块,`narrative/config.py` 在 import 期就要用,不能为此拉起 agent_framework 包。
+
 
 ## 2026-09-09 — `claude_max_tool_use_concurrency`（默认 6，0 = CLI 默认；只对订阅 auth）
 

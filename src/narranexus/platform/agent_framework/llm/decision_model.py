@@ -22,8 +22,12 @@ Failure is never a score: anything but a finite [0, 1] number for every asked
 key raises `DecisionModelError` — a guessed 0.0 is indistinguishable
 downstream from a real answer. No retry: callers are on a latency budget.
 
-The key goes only into the Authorization header; error text is built here and
-scrubbed of it, and raw exceptions are not chained.
+The key goes only into the Authorization header. A key that is not printable
+ASCII without whitespace is never a credential (it could not be sent, and the
+transport's error would echo it). Error text is built here: transport failures
+carry only the exception type, server text is scrubbed of the key, and raw
+exceptions are not chained. `DecisionModelError.category` is the only part
+meant for user-visible surfaces.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ import json
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence
 from urllib.parse import urlparse
 
 import httpx
@@ -44,13 +48,26 @@ _QUESTION_TYPE = "noul"
 _DECISIONS_PATH = "/alpha/decisions"
 #: OAuth tokens are bound to their issuer and never valid elsewhere.
 _API_KEY_AUTH_TYPES = frozenset({"api_key", "bearer_token"})
-#: How much of an error body is quoted into the exception — enough for
-#: `{"detail":"Rate limit exceeded"}`, short enough not to dump a gateway page.
+#: How much of an error body is quoted into the (log-only) detail.
 _ERROR_BODY_EXCERPT_CHARS = 200
+
+#: Where a resolved key came from. A borrowed key's usage is the owning
+#: card's spend; the platform key's is not.
+KEY_SOURCE_PLATFORM = "platform"
+KEY_SOURCE_HELPER_SLOT = "helper_llm"
 
 
 class DecisionModelError(Exception):
-    """The decision model produced no usable answer. Carries no score."""
+    """The decision model produced no usable answer. Carries no score.
+
+    ``category`` is a fixed vocabulary (``unconfigured``, ``invalid_request``,
+    ``timeout``, ``transport``, ``http_<status>``, ``malformed``) safe to show
+    anywhere; ``str(e)`` is log-only detail.
+    """
+
+    def __init__(self, category: str, detail: str):
+        super().__init__(detail)
+        self.category = category
 
 
 @dataclass(frozen=True)
@@ -75,28 +92,31 @@ class DecisionResult:
 
 @dataclass(frozen=True)
 class DecisionEndpoint:
-    """Where and how to ask. Owned by the caller's configuration."""
+    """Where and how to ask, and whose key it is."""
 
     base_url: str
     api_key: str = field(repr=False)
     model: str
     timeout_seconds: float
+    key_source: str = KEY_SOURCE_PLATFORM
 
     @property
     def configured(self) -> bool:
-        """True when a request could be sent at all (base, key and model set)."""
-        return bool(
-            self.base_url.strip() and self.api_key.strip() and self.model.strip()
+        """True when a request could be sent at all."""
+        return bool(self.base_url.strip() and self.model.strip()) and is_sendable_key(
+            self.api_key
         )
 
 
-def serialise(value: Any) -> str:
-    """The one JSON encoding the request body uses.
+def is_sendable_key(key: str) -> bool:
+    """Non-empty printable ASCII with no whitespace — the only keys that can go
+    into a header without the transport rejecting (and echoing) them."""
+    return bool(key) and all("!" <= ch <= "~" for ch in key)
 
-    Public so a caller that records "how much did we send" counts the same
-    characters that go on the wire. ``allow_nan=False``: a NaN in a state is a
-    caller bug, and JSON has no spelling for it.
-    """
+
+def serialise(value: Any) -> str:
+    """The one JSON encoding the request body uses — public so a caller that
+    records "how much did we send" counts the same characters."""
     return json.dumps(
         value, ensure_ascii=False, separators=(",", ":"), allow_nan=False
     )
@@ -119,29 +139,24 @@ async def ask_yes_no(
 ) -> DecisionResult:
     """Ask every question about ``state`` in ONE request.
 
-    Raises `DecisionModelError` on any failure — see the module docstring.
-    ``client`` is injectable for tests; production passes none and gets a
-    short-lived client per call (the house pattern for outbound calls).
+    Raises `DecisionModelError` on any failure. ``client`` is injectable for
+    tests; production gets a short-lived client per call (the house pattern).
     """
     if not endpoint.configured:
-        raise DecisionModelError("decision model endpoint is not configured")
+        raise DecisionModelError("unconfigured", "decision model endpoint is not configured")
     keys = [q.key for q in questions]
-    if not keys:
-        raise DecisionModelError("no questions to ask")
-    if any(not k for k in keys) or len(set(keys)) != len(keys):
-        raise DecisionModelError("question keys must be non-empty and unique")
+    if not keys or any(not k for k in keys) or len(set(keys)) != len(keys):
+        raise DecisionModelError(
+            "invalid_request", "question keys must be present, non-empty and unique"
+        )
 
     try:
         body = serialise(
-            {
-                "model": endpoint.model,
-                "state": state,
-                "questions": encode_questions(questions),
-            }
+            {"model": endpoint.model, "state": state, "questions": encode_questions(questions)}
         )
     except (TypeError, ValueError) as e:
         raise DecisionModelError(
-            f"request is not JSON-serialisable: {type(e).__name__}"
+            "invalid_request", f"request is not JSON-serialisable: {type(e).__name__}"
         ) from None
 
     url = endpoint.base_url.rstrip("/") + _DECISIONS_PATH
@@ -163,27 +178,27 @@ async def ask_yes_no(
                 )
     except (TimeoutError, httpx.TimeoutException):
         raise DecisionModelError(
-            f"decision model timed out after {endpoint.timeout_seconds}s"
+            "timeout", f"decision model timed out after {endpoint.timeout_seconds}s"
         ) from None
-    except httpx.HTTPError as e:
+    except (httpx.HTTPError, UnicodeError) as e:
+        # Type name only: transport and codec errors quote the offending
+        # header value, which is the key.
         raise DecisionModelError(
-            _scrub(f"decision model transport error: {type(e).__name__}: {e}", endpoint)
+            "transport", f"decision model transport error: {type(e).__name__}"
         ) from None
     elapsed_ms = int((time.monotonic() - started) * 1000)
 
     if response.status_code != 200:
         excerpt = response.text[:_ERROR_BODY_EXCERPT_CHARS]
         raise DecisionModelError(
-            _scrub(
-                f"decision model returned HTTP {response.status_code}: {excerpt}",
-                endpoint,
-            )
+            f"http_{response.status_code}",
+            _scrub(f"decision model returned HTTP {response.status_code}: {excerpt}", endpoint),
         )
 
     try:
         payload = json.loads(response.content, parse_constant=_reject_constant)
     except ValueError:
-        raise DecisionModelError("decision model returned a non-JSON body") from None
+        raise DecisionModelError("malformed", "decision model returned a non-JSON body") from None
 
     scores = _parse_scores(payload, keys)
     usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
@@ -200,69 +215,76 @@ async def ask_yes_no(
 def resolve_decision_endpoint(
     *, base_url: str, platform_key: str, model: str, timeout_seconds: float
 ) -> Optional[DecisionEndpoint]:
-    """The credential to ask with on THIS task, or None.
+    """The credential to ask with on THIS task, or None. The ONE place the
+    credential policy lives.
 
-    1. ``platform_key`` (the deployment's own key), when set.
-    2. Else the current user's own provider credential, if it can reach
-       ``base_url``: the first api-key credential whose base-URL host equals
-       ``base_url``'s host, checked in the order helper slot (openai protocol,
-       then anthropic protocol), then agent slot (claude, then codex). The
-       request still goes to ``base_url`` — only the key is borrowed.
-       Host equality is the whole rule: an internal gateway or any other
-       aggregator holds a key the decision endpoint would reject.
+    1. ``platform_key`` (the deployment's own key), when it is sendable.
+       Applies to every turn.
+    2. Else the agent owner's ACTIVE helper-slot credential — the configs the
+       turn's ingress installed for this task, picked with `get_helper_sdk`'s
+       precedence (a subscription/CLI helper has no key to borrow; else the
+       anthropic-protocol config if installed; else the openai-protocol one)
+       — when it is api-key auth and its base-URL host equals ``base_url``'s
+       host. The request still goes to ``base_url``; only the key is
+       borrowed. Host equality is the whole rule: an internal gateway (the
+       free-tier card) or any other aggregator holds a key the decision
+       endpoint would reject.
     3. Else None.
 
-    Reads the provider configs the runtime resolver installed for this task
-    (the same per-task ContextVars, with the same global fallback, the helper
-    SDK reads), so concurrent turns of different users see their own keys.
+    Only configs actually installed on this task count (the per-task
+    snapshot), never the process-global fallback: every turn's ingress
+    installs the owner's resolved configs in both cloud and local mode, so a
+    task without them is not a turn, and the global holder would hand it the
+    deployment's own credentials. Agent-slot credentials are not borrowed:
+    the cost ledger attributes non-agent-loop rows to the helper card, so an
+    agent-slot key's spend could not be booked to the card that paid.
     """
-    if platform_key.strip():
+    if is_sendable_key(platform_key):
         return DecisionEndpoint(base_url, platform_key, model, timeout_seconds)
     target_host = urlparse(base_url).hostname
     if not target_host:
         return None
-    for user_base, user_key in _user_api_key_credentials():
-        if user_key.strip() and urlparse(user_base).hostname == target_host:
-            return DecisionEndpoint(base_url, user_key, model, timeout_seconds)
-    return None
 
-
-def _user_api_key_credentials() -> Iterator[Tuple[str, str]]:
-    """(base_url, key) of the current task's api-key provider configs, in the
-    resolution order documented on `resolve_decision_endpoint`."""
     from narranexus.platform.agent_framework.api_config import (
-        anthropic_helper_config,
-        claude_config,
-        codex_config,
-        openai_config,
+        AnthropicHelperConfig,
+        OpenAIConfig,
+        snapshot_user_config,
     )
 
-    yield openai_config.base_url, openai_config.api_key
-    if anthropic_helper_config.auth_type in _API_KEY_AUTH_TYPES:
-        yield anthropic_helper_config.base_url, anthropic_helper_config.api_key
-    if claude_config.auth_type in _API_KEY_AUTH_TYPES:
-        yield claude_config.base_url, claude_config.api_key
-    if codex_config.auth_type in _API_KEY_AUTH_TYPES:
-        yield codex_config.base_url, codex_config.api_key
+    installed = snapshot_user_config()
+    if installed["cli_helper"] is not None:
+        return None
+    helper = installed["anthropic_helper"] or installed["openai"]
+    if (
+        isinstance(helper, (OpenAIConfig, AnthropicHelperConfig))
+        and getattr(helper, "auth_type", "api_key") in _API_KEY_AUTH_TYPES
+        and is_sendable_key(helper.api_key)
+        and urlparse(helper.base_url).hostname == target_host
+    ):
+        return DecisionEndpoint(
+            base_url, helper.api_key, model, timeout_seconds,
+            key_source=KEY_SOURCE_HELPER_SLOT,
+        )
+    return None
 
 
 def _parse_scores(payload: Any, keys: Sequence[str]) -> Dict[str, float]:
     """Exactly the requested keys, each a finite probability — or raise."""
     if not isinstance(payload, dict) or not isinstance(payload.get("answers"), dict):
-        raise DecisionModelError("decision model response has no answers object")
+        raise DecisionModelError("malformed", "decision model response has no answers object")
     answers = payload["answers"]
     scores: Dict[str, float] = {}
     for key in keys:
         answer = answers.get(key)
         if not isinstance(answer, dict):
-            raise DecisionModelError(f"decision model gave no answer for {key!r}")
+            raise DecisionModelError("malformed", f"decision model gave no answer for {key!r}")
         value = answer.get(_QUESTION_TYPE)
         # bool is an int subclass; True is not a probability.
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise DecisionModelError(f"answer for {key!r} is not a number")
+            raise DecisionModelError("malformed", f"answer for {key!r} is not a number")
         value = float(value)
         if not math.isfinite(value) or not 0.0 <= value <= 1.0:
-            raise DecisionModelError(f"answer for {key!r} is outside [0, 1]")
+            raise DecisionModelError("malformed", f"answer for {key!r} is outside [0, 1]")
         scores[key] = value
     return scores
 
@@ -278,18 +300,20 @@ def _token_count(value: Any) -> int:
 
 
 def _scrub(message: str, endpoint: DecisionEndpoint) -> str:
-    """Remove the key from a message, in case a server or library echoed it."""
-    key = endpoint.api_key
-    return message.replace(key, "***") if key else message
+    """Remove the key from server-provided text, in case it was echoed."""
+    return message.replace(endpoint.api_key, "***") if endpoint.api_key else message
 
 
 __all__ = [
+    "KEY_SOURCE_HELPER_SLOT",
+    "KEY_SOURCE_PLATFORM",
     "DecisionEndpoint",
     "DecisionModelError",
     "DecisionResult",
     "YesNoQuestion",
     "ask_yes_no",
     "encode_questions",
+    "is_sendable_key",
     "resolve_decision_endpoint",
     "serialise",
 ]

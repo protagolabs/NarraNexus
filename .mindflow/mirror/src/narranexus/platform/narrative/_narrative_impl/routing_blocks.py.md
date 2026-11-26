@@ -13,8 +13,9 @@ stub: false
 include_bucket_note,`render_previous_turn` 的两个 cap 与 absent_note),
 `Rendered.truncated` 也删了——没有调用方再传 cap。continuity / judge 的渲染字节
 不变(`test_routing_blocks.py` 的 golden 断言未改动且通过)。
-`render_search_candidates` 的 header / empty_note / include_score 保留:judge 与
-golden 测试显式传它们。`clamp_head` 保留,合并决策请求仍用它做读侧保头裁剪。
+`render_search_candidates` 的 `include_score` 也已删除(judge 总是渲染分数);
+header / empty_note 保留,judge 显式传值。`Rendered` 保留为单字段返回形状:golden
+断言写的是 `.text`,断言不改。`clamp_head` 保留,合并决策请求仍用它做读侧保头裁剪。
 
 
 ## 为什么存在
@@ -38,8 +39,8 @@ BM25 菜单、participant 线**。历史上每一次"复制而不是共享",复�
 continuity 与 judge 必须渲染出**与本文件出现之前完全一样**的文本:它们的
 prompt 被一堆实测数字钉着(M6 = 20.8%、P1 校准、description 退休干跑),
 一个空格的变化就静默作废那些数字。曾经只为合并 LLM prompt 存在的具名参数已于
-2026-11-25 删除(见上);剩下的 `render_search_candidates(header, empty_note,
-include_score)` 由 judge 显式传值。
+2026-11-25 删除(见上);剩下的 `render_search_candidates(header, empty_note)` 由
+judge 显式传值。
 
 `test_routing_blocks.py` 里的 golden 断言(judge 菜单、judge 空菜单、continuity
 锚点块、continuity 上一轮块)逐字节钉住老渲染。

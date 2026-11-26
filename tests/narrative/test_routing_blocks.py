@@ -80,7 +80,6 @@ def test_the_judge_menu_rendering_is_unchanged_byte_for_byte():
         [_CANDIDATE],
         header=routing_blocks.JUDGE_MENU_HEADER,
         empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
-        include_score=True,
     ).text
 
     assert rendered == (
@@ -103,7 +102,6 @@ def test_the_judge_empty_menu_note_is_unchanged_byte_for_byte():
         [],
         header=routing_blocks.JUDGE_MENU_HEADER,
         empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
-        include_score=True,
     ).text
 
     assert rendered == (
@@ -121,14 +119,12 @@ def test_a_scored_candidate_with_no_evidence_still_trips_the_alarm(caplog):
         [{**_CANDIDATE, "matched_content": "", "matched_terms": []}],
         header=routing_blocks.JUDGE_MENU_HEADER,
         empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
-        include_score=True,
     )
     routing_blocks.render_search_candidates(
         [{**_CANDIDATE, "matched_content": "", "matched_terms": [],
           "raw_score": 0.0}],
         header=routing_blocks.JUDGE_MENU_HEADER,
         empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
-        include_score=True,
     )
 
 

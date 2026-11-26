@@ -6,6 +6,20 @@ stub: false
 
 # merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
 
+## 2026-11-25(修订)— 借来的 key 记到出钱的那张卡上
+
+此前"决策调用不进 cost_records"的理由只对平台 key 成立。借用 owner 的 helper 槽
+key 时,出钱的正是那张卡,所以 `_book_borrowed_key_usage` 经同一个
+`cost_tracker.record_cost` 接缝记一行:`call_type="decision_model"`(非
+`agent_loop` 的 call_type 一律归 helper 卡,恰是被借 key 所属的卡)、模型名、
+input/output tokens;平台 key 只记 [TIMED] 行。`record_cost` 只写一行账,不扣配额、
+不动钱包(它不带任何配额/钱包钩子);这行会进 per-user 日花费熔断(job 的 B-14)的
+求和——那是真实花费,不算重复扣费。免费档网关卡按 host 规则永远不会被借,所以不会有
+决策账记到它头上(有测试钉)。`typesafe/jev-1.13` 目前**没有价格条目**:
+`price_for` 返回 None,tokens 照记,费用记 $0,并对每个进程警告一次——没有在代码里
+编价格,需要时按服务商价目表加进 `utils/model_pricing.py` 的 `_LOCAL_OVERRIDES`。
+
+
 ## 2026-11-25 — 决策者换成决策模型;凭据每轮由调用方解析
 
 快门之外的那一次判决现在是 `merged_router.decide(input, endpoint)`(决策模型,
@@ -13,9 +27,8 @@ stub: false
 凭据的轮次根本到不了这里),不再收 `awareness`(决策请求不含它)。计时器不再
 `tag_last_llm_call`——这条路上没有 helper LLM,那个 contextvar 只会标出陈旧/
 别处的型号——改为用 `DecisionResult` 打 `model / structured=decision /
-input_tokens / output_tokens`。token 用量**只记在 [TIMED] 行,不进 cost_records**:
-`record_cost` 会把行归到用户 helper 槽的 provider card(并可能触发配额钩子),
-而这次调用不是那张卡付的钱——硬塞进去是失真。`audit.merged_input_chars /
+input_tokens / output_tokens`(以及 `key_source`)。费用记账见上一条(11-25 修订)。
+`audit.merged_input_chars /
 merged_truncated` 改读 `decision.request`。落点与兜底一个字未改。
 
 

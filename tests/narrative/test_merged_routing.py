@@ -274,6 +274,8 @@ def test_the_flag_on_without_a_platform_key_boots():
         ("NARRATIVE_DECISION_NO_TOPIC_THRESHOLD", "2"),
         ("NARRATIVE_DECISION_TIMEOUT_SECONDS", "0"),
         ("NARRATIVE_DECISION_API_BASE", "not-a-url"),
+        ("NARRATIVE_DECISION_API_KEY", "sk-bad key"),
+        ("NARRATIVE_DECISION_API_KEY", "sk-badé"),
     ],
 )
 def test_the_flag_on_with_unusable_decision_settings_refuses_to_boot(name, value):
@@ -628,7 +630,7 @@ async def test_rule6_a_failed_call_stays_on_the_anchor(
     service, db_client, merged_on, monkeypatch
 ):
     anchor, _ = await _seed(service)
-    _decider(monkeypatch, boom=DecisionModelError("decision model timed out after 3.0s"))
+    _decider(monkeypatch, boom=DecisionModelError("timeout", "decision model timed out after 3.0s"))
 
     creator_calls: list = []
     original = service._retrieval.create_from_query
@@ -659,12 +661,14 @@ async def test_rule6_a_failed_call_stays_on_the_anchor(
 @pytest.mark.parametrize(
     "error",
     [
-        DecisionModelError("decision model returned HTTP 429: Rate limit exceeded"),
-        DecisionModelError("decision model returned HTTP 500"),
-        DecisionModelError("decision model returned HTTP 403: invalid token"),
-        RuntimeError("an unexpected client bug"),
+        DecisionModelError("http_429", "HTTP 429: Rate limit exceeded sk-from-server"),
+        DecisionModelError("http_500", "HTTP 500: Internal Server Error sk-from-server"),
+        DecisionModelError("http_403", "HTTP 403: invalid token sk-from-server"),
+        DecisionModelError("transport", "LocalProtocolError sk-from-server"),
+        DecisionModelError("timeout", "timed out sk-from-server"),
+        RuntimeError("an unexpected client bug sk-from-server"),
     ],
-    ids=["429", "500", "403", "unexpected"],
+    ids=["429", "500", "403", "transport", "timeout", "unexpected"],
 )
 async def test_rule6_any_call_failure_holds_the_anchor_never_the_llm_path(
     service, db_client, merged_on, monkeypatch, error
@@ -682,6 +686,11 @@ async def test_rule6_any_call_failure_holds_the_anchor_never_the_llm_path(
 
     assert result.selection_method == "merged_fallback_anchor"
     assert [n.id for n in result.narratives] == [anchor.id]
+    category = getattr(error, "category", "unexpected")
+    assert result.selection_reason.endswith(f"decision model failure: {category}")
+    assert "sk-from-server" not in result.selection_reason, (
+        "selection_reason is shown to non-owners: categories only"
+    )
 
 
 async def test_rule6_scores_missing_a_question_are_a_failure_not_a_guess(
@@ -712,7 +721,7 @@ async def test_rule6_with_no_anchor_a_failure_may_create_but_must_say_so(
     what is forbidden is doing it SILENTLY, indistinguishable from a real
     "new topic" verdict."""
     await _seed(service)
-    _decider(monkeypatch, boom=DecisionModelError("decision model returned HTTP 500"))
+    _decider(monkeypatch, boom=DecisionModelError("http_500", "decision model returned HTTP 500"))
 
     result = await service.select(
         AGENT, USER, FOREIGN_QUERY, session=_session(None),
@@ -736,7 +745,7 @@ async def test_rule6_a_bucket_anchor_is_not_a_thread_to_fall_back_onto(
     )
     bucket.is_special = "default"
     await service.save_narrative_to_db(bucket)
-    _decider(monkeypatch, boom=DecisionModelError("boom"))
+    _decider(monkeypatch, boom=DecisionModelError("transport", "boom"))
 
     result = await service.select(
         AGENT, USER, FOREIGN_QUERY, session=_session(bucket.id),
@@ -1135,7 +1144,10 @@ def wire(monkeypatch):
             key: {"type": "noul", "noul": 0.9 if key == "anchor" else 0.0}
             for key in body["questions"]
         }
-        return httpx.Response(200, json={"answers": answers, "model": body["model"]})
+        return httpx.Response(200, json={
+            "answers": answers, "model": body["model"],
+            "usage": {"input_tokens": 333, "output_tokens": 55},
+        })
 
     transport = httpx.MockTransport(handler)
     real_client = httpx.AsyncClient
@@ -1148,13 +1160,12 @@ def wire(monkeypatch):
     return seen
 
 
-async def _as_user(openai: OpenAIConfig, turn):
-    """Run ``turn()`` in its own task with this user's provider configs
-    installed — the way the runtime resolver scopes them per turn."""
+async def _as_owner(openai: OpenAIConfig, turn):
+    """Run ``turn()`` in its own task with the agent owner's provider configs
+    installed — the way the turn's ingress scopes them per turn."""
     async def run():
         set_user_config(
-            ClaudeConfig(), openai, CodexConfig(), AnthropicHelperConfig(),
-            CliHelperConfig(),
+            ClaudeConfig(), openai, CodexConfig(), None, None,
         )
         return await turn()
 
@@ -1173,14 +1184,14 @@ def _two_call_continuity(service, monkeypatch) -> None:
     monkeypatch.setattr(service, "_get_continuity_detector", lambda: _Detector())
 
 
-async def test_the_platform_key_wins_over_the_users_key(
+async def test_the_platform_key_wins_over_the_owners_key(
     service, db_client, merged_on, monkeypatch, wire
 ):
     monkeypatch.setattr(config, "NARRATIVE_DECISION_API_BASE", DECISION_HOST_BASE)
     anchor, _ = await _seed(service)
-    user = OpenAIConfig(api_key="user-own-key", base_url=DECISION_HOST_BASE)
+    owner = OpenAIConfig(api_key="owner-own-key", base_url=DECISION_HOST_BASE)
 
-    result = await _as_user(user, lambda: service.select(
+    result = await _as_owner(owner, lambda: service.select(
         AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
         trigger="chat", is_user_chat=True,
     ))
@@ -1189,25 +1200,25 @@ async def test_the_platform_key_wins_over_the_users_key(
     assert [c["auth"] for c in wire] == [f"Bearer {PLATFORM_KEY}"]
 
 
-async def test_a_users_key_on_the_decision_host_is_sent_as_its_own(
+async def test_an_owners_helper_key_on_the_decision_host_is_sent_as_its_own(
     service, db_client, merged_on_no_platform_key, wire
 ):
     anchor, _ = await _seed(service)
-    user = OpenAIConfig(api_key="user-own-key", base_url=DECISION_HOST_BASE)
+    owner = OpenAIConfig(api_key="owner-own-key", base_url=DECISION_HOST_BASE)
 
-    result = await _as_user(user, lambda: service.select(
+    result = await _as_owner(owner, lambda: service.select(
         AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
         trigger="chat", is_user_chat=True,
     ))
 
     assert result.selection_method == "merged_continue"
-    assert [c["auth"] for c in wire] == ["Bearer user-own-key"]
+    assert [c["auth"] for c in wire] == ["Bearer owner-own-key"]
     row = await _row(db_client)
     assert row["merged_call"] == 1
 
 
 @pytest.mark.parametrize(
-    "user",
+    "owner",
     [
         OpenAIConfig(api_key="sk-virtual", base_url="http://llm-gateway:4000/v1"),
         OpenAIConfig(api_key="sk-or", base_url="https://openrouter.ai/api/v1"),
@@ -1216,12 +1227,12 @@ async def test_a_users_key_on_the_decision_host_is_sent_as_its_own(
     ids=["internal_gateway", "other_aggregator", "none"],
 )
 async def test_without_a_qualifying_credential_the_turn_takes_the_two_call_path(
-    service, db_client, merged_on_no_platform_key, monkeypatch, wire, user
+    service, db_client, merged_on_no_platform_key, monkeypatch, wire, owner
 ):
     anchor, _ = await _seed(service)
     _two_call_continuity(service, monkeypatch)
 
-    result = await _as_user(user, lambda: service.select(
+    result = await _as_owner(owner, lambda: service.select(
         AGENT, USER, ANCHOR_QUERY, session=_session(anchor.id),
         trigger="chat", is_user_chat=True,
     ))
@@ -1233,7 +1244,7 @@ async def test_without_a_qualifying_credential_the_turn_takes_the_two_call_path(
     assert not row["merged_call"]
 
 
-async def test_concurrent_turns_of_different_users_each_send_their_own_key(
+async def test_concurrent_turns_of_different_owners_each_send_their_own_key(
     service, db_client, merged_on_no_platform_key, wire
 ):
     await _seed(service)
@@ -1243,7 +1254,7 @@ async def test_concurrent_turns_of_different_users_each_send_their_own_key(
     }
 
     async def turn(user_id, message, key):
-        return await _as_user(
+        return await _as_owner(
             OpenAIConfig(api_key=key, base_url=DECISION_HOST_BASE),
             lambda: service.select(
                 AGENT, user_id, message, session=_session(None),
@@ -1255,3 +1266,150 @@ async def test_concurrent_turns_of_different_users_each_send_their_own_key(
 
     sent = {c["body"]["state"]["current_message"]: c["auth"] for c in wire}
     assert sent == {m: f"Bearer {k}" for m, k in turns.values()}
+
+
+# ===================================================================== #
+# Cost: a borrowed key is the owner's spend; the platform key is not    #
+# ===================================================================== #
+
+
+async def _cost_rows(db_client):
+    return await db_client.get("cost_records", {"agent_id": AGENT})
+
+
+async def _as_owner_with_cost_context(owner: OpenAIConfig, db_client, turn):
+    from narranexus.platform.agent_framework.api_config import set_provider_card_sources
+    from narranexus.platform.utils.cost_tracker import cost_context_scope
+
+    async def with_ledger():
+        set_provider_card_sources({"agent": "netmind", "helper_llm": "netmind"})
+        with cost_context_scope(AGENT, db_client):
+            return await turn()
+
+    return await _as_owner(owner, with_ledger)
+
+
+async def test_a_borrowed_owner_key_books_one_cost_row_to_the_helper_card(
+    service, db_client, merged_on_no_platform_key, wire
+):
+    from narranexus.platform.narrative._narrative_impl.merged_select import DECISION_CALL_TYPE
+
+    anchor, _ = await _seed(service)
+    owner = OpenAIConfig(api_key="owner-own-key", base_url=DECISION_HOST_BASE)
+
+    await _as_owner_with_cost_context(owner, db_client, lambda: service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    ))
+
+    rows = await _cost_rows(db_client)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["call_type"] == DECISION_CALL_TYPE
+    assert row["model"] == config.NARRATIVE_DECISION_MODEL
+    assert (row["input_tokens"], row["output_tokens"]) == (333, 55)
+    assert row["provider_card_source"] == "netmind", "attributed to the helper card that paid"
+
+
+async def test_the_platform_key_books_nothing_to_the_owner(
+    service, db_client, merged_on, monkeypatch, wire
+):
+    monkeypatch.setattr(config, "NARRATIVE_DECISION_API_BASE", DECISION_HOST_BASE)
+    anchor, _ = await _seed(service)
+    owner = OpenAIConfig(api_key="owner-own-key", base_url=DECISION_HOST_BASE)
+
+    await _as_owner_with_cost_context(owner, db_client, lambda: service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    ))
+
+    assert [c["auth"] for c in wire] == [f"Bearer {PLATFORM_KEY}"]
+    assert await _cost_rows(db_client) == []
+
+
+async def test_a_free_tier_gateway_owner_is_never_asked_nor_charged(
+    service, db_client, merged_on_no_platform_key, monkeypatch, wire
+):
+    """The free-tier card's base is the internal gateway: never borrowed, so
+    no decision call and no cost row can ever hit its quota."""
+    anchor, _ = await _seed(service)
+    _two_call_continuity(service, monkeypatch)
+    owner = OpenAIConfig(api_key="sk-virtual", base_url="http://llm-gateway:4000/v1")
+
+    await _as_owner_with_cost_context(owner, db_client, lambda: service.select(
+        AGENT, USER, ANCHOR_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    ))
+
+    assert wire == []
+    assert await _cost_rows(db_client) == []
+
+
+# ===================================================================== #
+# Credential resolution that breaks still routes                        #
+# ===================================================================== #
+
+
+async def test_a_resolution_error_takes_the_two_call_path(
+    service, db_client, merged_on, monkeypatch
+):
+    anchor, _ = await _seed(service)
+    _two_call_continuity(service, monkeypatch)
+    _no_decider(monkeypatch)
+
+    def _broken():
+        raise RuntimeError("provider config store unavailable")
+
+    monkeypatch.setattr(merged_router, "decision_endpoint_for_turn", _broken)
+
+    result = await service.select(
+        AGENT, USER, ANCHOR_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    )
+
+    assert result.selection_method == "continuous"
+    row = await _row(db_client)
+    assert not row["merged_call"]
+
+
+# ===================================================================== #
+# The decision base derives from the NetMind inference environment      #
+# ===================================================================== #
+
+
+def _decision_base(**env: str) -> str:
+    probe = subprocess.run(
+        [sys.executable, "-c",
+         "from narranexus.platform.narrative.config import config;"
+         "print(config.NARRATIVE_DECISION_API_BASE)"],
+        capture_output=True, text=True,
+        env={"PATH": "/usr/bin:/bin", "PYTHONPATH": ":".join(sys.path), **env},
+    )
+    assert probe.returncode == 0, probe.stderr
+    return probe.stdout.strip().splitlines()[-1]
+
+
+def test_the_decision_base_derives_from_the_netmind_inference_base():
+    assert _decision_base(NETMIND_INFERENCE_BASE="https://test.api.netmind.ai/inference-api") == (
+        "https://test.api.netmind.ai/inference-api/openai/v1"
+    )
+
+
+def test_an_explicit_decision_base_overrides_the_derivation():
+    assert _decision_base(
+        NETMIND_INFERENCE_BASE="https://test.api.netmind.ai/inference-api",
+        NARRATIVE_DECISION_API_BASE="https://decisions.example/v1",
+    ) == "https://decisions.example/v1"
+
+
+def test_with_nothing_set_the_decision_base_is_the_prod_netmind_openai_base():
+    from narranexus.platform.settings import netmind_inference_url
+
+    assert _decision_base() == netmind_inference_url("openai", "https://api.netmind.ai/inference-api")
+
+
+def test_startup_validation_runs_on_the_derived_base():
+    probe = _boot(NARRATIVE_MERGED_ROUTING_ENABLED="1", NETMIND_INFERENCE_BASE="not-a-url")
+    assert probe.returncode != 0
+    assert "NARRATIVE_DECISION_API_BASE" in probe.stderr
+

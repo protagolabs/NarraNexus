@@ -686,9 +686,20 @@ class _ConfigProxy:
     makes multi-tenant concurrent execution safe.
     """
 
+    #: The proxy's own state; any other instance attribute is a pin.
+    _OWN_ATTRIBUTES = frozenset({"_attr_name", "_ctx_var"})
+
     def __init__(self, attr_name: str, ctx_var: Optional[ContextVar] = None):
         self._attr_name = attr_name
         self._ctx_var = ctx_var
+
+    def unpin(self) -> None:
+        """Drop attributes set directly on the proxy. ``setattr(proxy, f, x)``
+        (e.g. a test's monkeypatch, whose undo writes the old value back as an
+        instance attribute) shadows ``__getattr__`` and hides the per-task
+        config for good; this restores pure delegation."""
+        for name in [n for n in vars(self) if n not in self._OWN_ATTRIBUTES]:
+            delattr(self, name)
 
     def __getattr__(self, name: str):
         # Check context-local override first (per-user in current task)
@@ -710,6 +721,13 @@ anthropic_helper_config: AnthropicHelperConfig = _ConfigProxy(
 cli_helper_config: CliHelperConfig = _ConfigProxy(
     "cli_helper", _cli_helper_ctx
 )  # type: ignore
+
+
+def unpin_config_proxies() -> None:
+    """`_ConfigProxy.unpin` on every module-level config proxy."""
+    for value in list(globals().values()):
+        if isinstance(value, _ConfigProxy):
+            value.unpin()
 
 
 def reload_llm_config() -> None:

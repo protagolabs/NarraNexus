@@ -25,7 +25,11 @@ from typing import Optional, Sequence, TYPE_CHECKING
 
 from loguru import logger
 
-from narranexus.platform.agent_framework.llm.decision_model import DecisionEndpoint
+from narranexus.platform.agent_framework.llm.decision_model import (
+    KEY_SOURCE_HELPER_SLOT,
+    DecisionEndpoint,
+    DecisionResult,
+)
 
 from ..config import config
 from ..models import (
@@ -62,6 +66,10 @@ from .merged_router import (
     resolve_choice,
 )
 from .routing_gate import pick_menu
+
+#: `cost_records.call_type` of a decision-model call. Any value other than
+#: "agent_loop" is attributed to the helper card (`get_provider_card_source`).
+DECISION_CALL_TYPE = "decision_model"
 
 if TYPE_CHECKING:
     from .crud import NarrativeCRUD
@@ -183,16 +191,16 @@ async def select_merged(
         with timed("narrative.merged.decide") as t:
             decision = await decide(routing_input, decision_endpoint)
             # No helper LLM runs here, so the helper-call tag would name a
-            # stale model; tag from the decision model's own answer. Its token
-            # usage is logged here, not booked to cost_records: that ledger
-            # attributes rows to the user's helper provider card, which did
-            # not pay for this call.
+            # stale model; tag from the decision model's own answer.
             if decision.result is not None:
                 t.tag(
                     model=decision.result.model, structured="decision",
+                    key_source=decision_endpoint.key_source,
                     input_tokens=decision.result.input_tokens,
                     output_tokens=decision.result.output_tokens,
                 )
+        if decision.result is not None:
+            await _book_borrowed_key_usage(decision_endpoint, decision.result)
 
         audit.merged_verdict = decision.verdict
         audit.merged_ms = decision.elapsed_ms
@@ -257,6 +265,35 @@ async def select_merged(
         # return) — and matching a wrong claim had INVERTED the difference.
         best_score=None,
         retrieval_method=landing.retrieval_method,
+    )
+
+
+async def _book_borrowed_key_usage(
+    endpoint: DecisionEndpoint, result: DecisionResult
+) -> None:
+    """A borrowed helper-slot key's call is that card's spend: book it through
+    the same seam as helper calls, so the ledger attributes it to the owner's
+    helper card. The platform key is not the owner's spend — its usage stays
+    on the [TIMED] line only."""
+    if endpoint.key_source != KEY_SOURCE_HELPER_SLOT:
+        return
+    from narranexus.platform.utils.cost_tracker import (
+        get_cost_context,
+        record_cost,
+        warn_missing_usage,
+    )
+
+    ctx = get_cost_context()
+    if not ctx:
+        return
+    agent_id, db = ctx
+    if result.input_tokens <= 0 and result.output_tokens <= 0:
+        warn_missing_usage("DecisionModel", result.model, DECISION_CALL_TYPE)
+        return
+    await record_cost(
+        db=db, agent_id=agent_id, event_id=None, call_type=DECISION_CALL_TYPE,
+        model=result.model, input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
     )
 
 

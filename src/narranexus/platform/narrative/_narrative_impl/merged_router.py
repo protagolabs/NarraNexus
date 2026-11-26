@@ -35,6 +35,7 @@ from loguru import logger
 
 from narranexus.platform.agent_framework.llm.decision_model import (
     DecisionEndpoint,
+    DecisionModelError,
     DecisionResult,
     YesNoQuestion,
     ask_yes_no,
@@ -336,8 +337,9 @@ def verdict_from_scores(
 
 def decision_endpoint_for_turn() -> Optional[DecisionEndpoint]:
     """This turn's decision credential, or None (the turn then takes the
-    two-call path). Order: `NARRATIVE_DECISION_API_KEY`, else the user's own
-    provider key on the host of `NARRATIVE_DECISION_API_BASE` — see
+    two-call path). Order: `NARRATIVE_DECISION_API_KEY`, else the agent
+    owner's helper-slot provider key (installed by the turn's ingress) on the
+    host of `NARRATIVE_DECISION_API_BASE` — the policy itself lives in
     `decision_model.resolve_decision_endpoint`."""
     return resolve_decision_endpoint(
         base_url=config.NARRATIVE_DECISION_API_BASE,
@@ -354,11 +356,14 @@ async def decide(
 
     ``endpoint`` is passed explicitly, never read from process state, so
     concurrent turns of different users cannot use each other's key.
+
+    A failure's ``reason`` is a fixed category only (it reaches
+    `selection_reason`, which non-owners can see); the detail goes to the log.
     """
-    def failed(reason: str, elapsed_ms: int = 0, **kw: Any) -> MergedRoutingDecision:
+    def failed(category: str, elapsed_ms: int = 0, **kw: Any) -> MergedRoutingDecision:
         return MergedRoutingDecision(
-            ok=False, verdict=VERDICT_FAILED, reason=reason, match_index=-1,
-            elapsed_ms=elapsed_ms, **kw,
+            ok=False, verdict=VERDICT_FAILED, reason=f"decision model failure: {category}",
+            match_index=-1, elapsed_ms=elapsed_ms, **kw,
         )
 
     try:
@@ -370,19 +375,28 @@ async def decide(
             f"[MergedRouting] decision request assembly failed: "
             f"{type(e).__name__}: {e} (the turn stays where it was)"
         )
-        return failed(f"decision request assembly failed: {e}")
+        return failed("assembly")
 
     # Timed after assembly: merged_ms is the call's own cost.
     started = _perf.monotonic()
     try:
         result = await ask_yes_no(endpoint, request.state, request.questions)
-    except Exception as e:  # noqa: BLE001 — a provider failure is not a verdict
+    except DecisionModelError as e:
         elapsed_ms = int((_perf.monotonic() - started) * 1000)
+        # The client builds and scrubs this detail; it carries no key.
         logger.warning(
             f"[MergedRouting] decision call failed after {elapsed_ms}ms: "
-            f"{type(e).__name__}: {e} (the turn stays where it was)"
+            f"{e.category}: {e} (the turn stays where it was)"
         )
-        return failed(f"decision call failed: {e}", elapsed_ms, request=request)
+        return failed(e.category, elapsed_ms, request=request)
+    except Exception as e:  # noqa: BLE001 — a client bug is not a verdict either
+        elapsed_ms = int((_perf.monotonic() - started) * 1000)
+        # Type only: an unexpected exception's text is not known to be key-free.
+        logger.warning(
+            f"[MergedRouting] decision call failed after {elapsed_ms}ms: "
+            f"unexpected {type(e).__name__} (the turn stays where it was)"
+        )
+        return failed("unexpected", elapsed_ms, request=request)
     elapsed_ms = int((_perf.monotonic() - started) * 1000)
 
     try:
@@ -400,8 +414,7 @@ async def decide(
             f"[MergedRouting] off-contract answer ({invalid}): "
             f"scores={result.scores} (the turn stays where it was)"
         )
-        return failed(f"off-contract answer ({invalid})", elapsed_ms,
-                      request=request, result=result)
+        return failed("off_contract", elapsed_ms, request=request, result=result)
 
     # Raw per-question scores on the log line: thresholds can be re-tuned
     # offline without re-asking the model.

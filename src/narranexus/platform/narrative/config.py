@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
+from narranexus.platform.settings import netmind_inference_url
+
 
 def _env(name: str, default: str) -> str:
     """Read an env override for a config knob, falling back to `default`.
@@ -258,12 +260,14 @@ class NarrativeConfig:
     # calls, at a serial p50 of 8,924ms / mean 13,004ms, while the non-LLM half
     # of routing is 47.6ms mean.
     #
-    # The decision credential is resolved PER TURN (merged_router.
-    # decision_endpoint_for_turn): NARRATIVE_DECISION_API_KEY if set, else the
-    # current user's own provider key when its base-URL host equals
-    # NARRATIVE_DECISION_API_BASE's host. A turn with no credential takes the
-    # two-call path — a normal deployment shape (local/desktop without that
-    # provider, free-tier users on the internal gateway), not an error.
+    # The decision credential is resolved PER TURN (decision_model.
+    # resolve_decision_endpoint): NARRATIVE_DECISION_API_KEY if set, else the
+    # agent owner's helper-slot provider key (the configs the turn's ingress
+    # installed) when its base-URL host equals NARRATIVE_DECISION_API_BASE's
+    # host. A turn with no qualifying credential takes the two-call path — a
+    # normal deployment shape (local/desktop without that provider, free-tier
+    # owners on the internal gateway), not an error. A borrowed key's usage is
+    # booked to that owner's helper card; the platform key's is only logged.
     #
     # ROLLBACK IS THE FLAG, and it rolls back exactly the ROUTING STRUCTURE:
     #   * the shared prompt blocks (`routing_blocks.py`) render the continuity
@@ -279,10 +283,12 @@ class NarrativeConfig:
     )
 
     # ---- the decision model ----
-    # The base is also the host a user's own provider key must match to be
-    # borrowed (see above); the key is the platform's and may stay empty.
+    # The base is also the host an owner's provider key must match to be
+    # borrowed (see above). Default: this deployment's NetMind inference
+    # environment (NETMIND_INFERENCE_BASE, openai sub-path); an explicit value
+    # overrides it. The key is the platform's and may stay empty.
     NARRATIVE_DECISION_API_BASE = _env(
-        "NARRATIVE_DECISION_API_BASE", "https://api.netmind.ai/inference-api/openai/v1"
+        "NARRATIVE_DECISION_API_BASE", netmind_inference_url("openai")
     )
     NARRATIVE_DECISION_API_KEY = _env("NARRATIVE_DECISION_API_KEY", "")
     NARRATIVE_DECISION_MODEL = _env("NARRATIVE_DECISION_MODEL", "typesafe/jev-1.13")
@@ -467,14 +473,17 @@ def _reject_untested_flag_combination(cfg: "NarrativeConfig") -> None:
 def _reject_invalid_decision_settings(cfg: "NarrativeConfig") -> None:
     """Refuse to boot merged routing with decision settings it cannot use.
 
-    A threshold outside [0, 1] or a host-less base does not fail a turn — it
-    silently disables a verdict or every user-key lookup — so it is caught
-    here, in the same fail-closed style as the check above. The key is NOT
-    required: without one, turns of users with no qualifying provider key
-    take the two-call path.
+    A threshold outside [0, 1], a host-less base or an unsendable platform
+    key does not fail a turn — it silently disables a verdict, every owner-key
+    lookup, or the platform key — so it is caught here, in the same
+    fail-closed style as the check above. The key is NOT required: without
+    one, turns with no qualifying owner key take the two-call path.
     """
     if not cfg.NARRATIVE_MERGED_ROUTING_ENABLED:
         return
+    # Function-level: only a flag-on boot pays for the client import.
+    from narranexus.platform.agent_framework.llm.decision_model import is_sendable_key
+
     problems = [
         name
         for name in (
@@ -488,11 +497,14 @@ def _reject_invalid_decision_settings(cfg: "NarrativeConfig") -> None:
         problems.append("NARRATIVE_DECISION_TIMEOUT_SECONDS")
     if not urlparse(cfg.NARRATIVE_DECISION_API_BASE).hostname:
         problems.append("NARRATIVE_DECISION_API_BASE")
+    if cfg.NARRATIVE_DECISION_API_KEY and not is_sendable_key(cfg.NARRATIVE_DECISION_API_KEY):
+        problems.append("NARRATIVE_DECISION_API_KEY")
     if problems:
         logger.critical(
             "STARTUP CONFIGURATION ERROR: NARRATIVE_MERGED_ROUTING_ENABLED=1 "
             f"with invalid {', '.join(problems)} — thresholds must be in [0, 1], "
-            "the timeout > 0, the base an absolute URL. Fix .env and restart."
+            "the timeout > 0, the base an absolute URL, the key printable ASCII "
+            "without whitespace. Fix .env and restart."
         )
         raise RuntimeError(f"invalid decision-model settings: {', '.join(problems)}")
 

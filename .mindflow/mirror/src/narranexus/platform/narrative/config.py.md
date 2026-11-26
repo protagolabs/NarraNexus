@@ -11,13 +11,20 @@ LLM 兜底)。新增 `NARRATIVE_DECISION_API_BASE / _API_KEY / _MODEL /
 _TIMEOUT_SECONDS` 与三个阈值 `NARRATIVE_DECISION_STAY / SWITCH / NO_TOPIC_THRESHOLD`
 (0.2 / 0.3 / 0.5),是这些值的**唯一定义**;客户端本身不读环境变量。
 
-**凭据每轮解析**(`merged_router.decision_endpoint_for_turn`):平台 key 非空用
-平台 key;否则当前用户自己的 provider key,仅当其 base URL 的 host 等于
+**凭据每轮解析**(策略唯一住处 `decision_model.resolve_decision_endpoint`):平台
+key 可发送就用平台 key;否则 agent owner 的 active helper 槽 provider key(该轮
+ingress 装进 task 的配置),仅当其 base URL 的 host 等于
 `NARRATIVE_DECISION_API_BASE` 的 host;都没有 → 该轮走两次调用路径(正常部署形态,
-不是错误)。所以**开关开而平台 key 为空是合法的**,不做 key 的启动校验。
+不是错误)。所以**开关开而平台 key 为空是合法的**;但平台 key 一旦设置就必须可发送
+(可打印 ASCII、无空白/控制字符),否则拒绝启动。
+
+**`NARRATIVE_DECISION_API_BASE` 的默认值不是硬编码**:取
+`settings.netmind_inference_url("openai")`,即本部署的 `NETMIND_INFERENCE_BASE`
+(dev 指 test.api.netmind.ai)+ openai 子路径——与 provider 卡生成 NetMind 地址同一条
+规则;显式设置该变量则覆盖。启动校验跑在派生后的值上。
 
 **启动校验**(`_reject_invalid_decision_settings`,只在开关开时):阈值不在
-[0, 1]、超时 ≤ 0、base 没有 host → 拒绝启动。这些错不会让某一轮失败,而是静默
+[0, 1]、超时 ≤ 0、base 没有 host、平台 key 不可发送 → 拒绝启动。这些错不会让某一轮失败,而是静默
 关掉某个判决或所有用户 key 查找,所以在启动时拦。桶×合并互斥检查原样保留。
 
 删除 `MERGED_AWARENESS_MAX_CHARS`(决策请求不含 awareness)与
