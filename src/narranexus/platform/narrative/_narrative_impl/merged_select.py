@@ -288,13 +288,19 @@ async def _book_borrowed_key_usage(
         return
     agent_id, db = ctx
     if result.input_tokens <= 0 and result.output_tokens <= 0:
-        warn_missing_usage("DecisionModel", result.model, DECISION_CALL_TYPE)
+        warn_missing_usage("DecisionModel", endpoint.model, DECISION_CALL_TYPE)
         return
-    await record_cost(
-        db=db, agent_id=agent_id, event_id=None, call_type=DECISION_CALL_TYPE,
-        model=result.model, input_tokens=result.input_tokens,
-        output_tokens=result.output_tokens,
-    )
+    # The model we asked for, not the name the server reports back: pricing
+    # and the ledger must not depend on response text. A ledger failure must
+    # not fail the turn (same rule as helper calls).
+    try:
+        await record_cost(
+            db=db, agent_id=agent_id, event_id=None, call_type=DECISION_CALL_TYPE,
+            model=endpoint.model, input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[MergedRouting] failed to record decision cost: {type(e).__name__}")
 
 
 async def _land(

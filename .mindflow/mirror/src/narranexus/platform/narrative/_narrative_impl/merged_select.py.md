@@ -19,6 +19,9 @@ input/output tokens;平台 key 只记 [TIMED] 行。`record_cost` 只写一行�
 `price_for` 返回 None,tokens 照记,费用记 $0,并对每个进程警告一次——没有在代码里
 编价格,需要时按服务商价目表加进 `utils/model_pricing.py` 的 `_LOCAL_OVERRIDES`。
 
+记账用的模型名是我们请求的 `endpoint.model`,不是服务端回报的名字:价格查询和账本不依赖
+响应文本。`record_cost` 抛异常只记一条 warning,不让本轮失败(与 helper 调用的记账同一规则)。
+
 
 ## 2026-11-25 — 决策者换成决策模型;凭据每轮由调用方解析
 

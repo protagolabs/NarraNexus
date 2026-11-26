@@ -12,6 +12,9 @@ NetMind 的"环境可换的 base 前缀 + 协议子路径(/openai/v1、/anthropi
 `netmind_inference_base`(`NETMIND_INFERENCE_BASE`)。放在 settings 是因为它是叶子
 模块,`narrative/config.py` 在 import 期就要用,不能为此拉起 agent_framework 包。
 
+`NETMIND_INFERENCE_BASE` 被设成空字符串(部署 `.env` 里的空模板行)时回落到字段的内置
+默认值,而不是派生出没有 host 的 URL——否则打开合并路由开关的部署会在启动校验处被拒。
+
 
 ## 2026-09-09 — `claude_max_tool_use_concurrency`（默认 6，0 = CLI 默认；只对订阅 auth）
 

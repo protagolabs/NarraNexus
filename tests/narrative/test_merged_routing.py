@@ -1145,7 +1145,8 @@ def wire(monkeypatch):
             for key in body["questions"]
         }
         return httpx.Response(200, json={
-            "answers": answers, "model": body["model"],
+            # A server reports its resolved build, not the requested name.
+            "answers": answers, "model": body["model"] + ".0",
             "usage": {"input_tokens": 333, "output_tokens": 55},
         })
 
@@ -1306,9 +1307,32 @@ async def test_a_borrowed_owner_key_books_one_cost_row_to_the_helper_card(
     assert len(rows) == 1
     row = rows[0]
     assert row["call_type"] == DECISION_CALL_TYPE
-    assert row["model"] == config.NARRATIVE_DECISION_MODEL
+    assert row["model"] == config.NARRATIVE_DECISION_MODEL, (
+        "booked under the model we asked for, not the server-reported build"
+    )
     assert (row["input_tokens"], row["output_tokens"]) == (333, 55)
     assert row["provider_card_source"] == "netmind", "attributed to the helper card that paid"
+
+
+async def test_a_ledger_failure_does_not_fail_the_turn(
+    service, db_client, merged_on_no_platform_key, wire, monkeypatch
+):
+    from narranexus.platform.utils import cost_tracker
+
+    async def broken(**_):
+        raise RuntimeError("ledger down")
+
+    monkeypatch.setattr(cost_tracker, "record_cost", broken)
+    anchor, _ = await _seed(service)
+    owner = OpenAIConfig(api_key="owner-own-key", base_url=DECISION_HOST_BASE)
+
+    result = await _as_owner_with_cost_context(owner, db_client, lambda: service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    ))
+
+    assert result.selection_method == "merged_continue"
+    assert await _cost_rows(db_client) == []
 
 
 async def test_the_platform_key_books_nothing_to_the_owner(
@@ -1406,6 +1430,16 @@ def test_with_nothing_set_the_decision_base_is_the_prod_netmind_openai_base():
     from narranexus.platform.settings import netmind_inference_url
 
     assert _decision_base() == netmind_inference_url("openai", "https://api.netmind.ai/inference-api")
+
+
+def test_an_empty_netmind_inference_base_means_the_default_and_still_boots():
+    """A blank `NETMIND_INFERENCE_BASE=` line must not derive a host-less base
+    and refuse to boot a deployment that turned the flag on."""
+    assert _decision_base(NETMIND_INFERENCE_BASE="") == (
+        "https://api.netmind.ai/inference-api/openai/v1"
+    )
+    probe = _boot(NARRATIVE_MERGED_ROUTING_ENABLED="1", NETMIND_INFERENCE_BASE="")
+    assert probe.returncode == 0, probe.stderr
 
 
 def test_startup_validation_runs_on_the_derived_base():
