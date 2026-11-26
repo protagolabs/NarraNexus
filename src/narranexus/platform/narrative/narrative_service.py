@@ -301,8 +301,8 @@ class NarrativeService:
         # the rest of this method asks serially. It needs a decision credential
         # resolved for THIS turn and agent; without one (or if resolution
         # itself breaks) the turn takes the two-call path below — a normal
-        # shape, not an error. An early return rather than a woven branch, so "flag off =
-        # today's behaviour" stays readable.
+        # shape, not an error. An early return rather than a woven branch, so
+        # "flag off = today's behaviour" stays readable.
         #
         # `merged_skip` is why a flag-on turn is on the two-call path anyway;
         # it lands in the audit row's `merged_verdict` so the merged path's

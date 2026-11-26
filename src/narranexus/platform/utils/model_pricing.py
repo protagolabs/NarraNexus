@@ -97,13 +97,6 @@ class ModelPrice:
     source: str  # "override" | "litellm" | "litellm(alias)"
 
 
-# Models the upstream table does not know — chiefly aggregator-specific ids
-# (NetMind's "minimax/minimax-m2.5", "deepseek-ai/DeepSeek-V4-Flash", …) whose
-# price is set by the aggregator's own rate card, not by the model vendor.
-#
-# Add an entry only from a published rate card or an invoice, never from an
-# estimate — see design rule 2. The warning emitted by ``price_for`` names the
-# exact model id to add, so the log tells you what is missing.
 def _override(model_id: str, *, input_per_1m: float, output_per_1m: float) -> ModelPrice:
     return ModelPrice(
         input_per_token=input_per_1m / 1e6,
@@ -115,6 +108,13 @@ def _override(model_id: str, *, input_per_1m: float, output_per_1m: float) -> Mo
     )
 
 
+# Models the upstream table does not know — chiefly aggregator-specific ids
+# (NetMind's "minimax/minimax-m2.5", "deepseek-ai/DeepSeek-V4-Flash", …) whose
+# price is set by the aggregator's own rate card, not by the model vendor.
+#
+# Add an entry only from a published rate card or an invoice, never from an
+# estimate — see design rule 2. The warning emitted by ``price_for`` names the
+# exact model id to add, so the log tells you what is missing.
 _LOCAL_OVERRIDES: Dict[str, ModelPrice] = {
     # TypeSafe's published list rate, the same for both versions: $0.042 per 1M
     # input tokens, output free (list price, not the aggregator's invoice — see
