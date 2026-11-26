@@ -31,6 +31,8 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
+from narranexus.platform.agent_framework.llm.decision_model import is_sendable_key
+
 _DEFAULT_TIMEOUT_S = 10.0
 #: Request timeout / rate limit: the service, not the input, is the problem.
 _BUSY_STATUSES = frozenset({408, 429})
@@ -185,8 +187,10 @@ class WalletClient:
         if not isinstance(data, dict):
             data = {}
         key, base_url = data.get("api_key"), data.get("base_url")
-        if not isinstance(key, str) or not key:
-            raise WalletUnavailable("wallet service returned no decision key")
+        if not isinstance(key, str) or not is_sendable_key(key):
+            # An unsendable key would be dropped by the resolver and put the
+            # agent on an uncapped credential for the whole key age.
+            raise WalletUnavailable("wallet service returned no usable decision key")
         if not _is_absolute_http_url(base_url):
             raise WalletUnavailable(
                 "wallet service returned no usable decision base_url (older quota-api?)"
@@ -230,7 +234,18 @@ class WalletClient:
 
 
 def _is_absolute_http_url(value: object) -> bool:
+    """A plain http(s) base: host, optional port and path only. Userinfo
+    (``https://gw@other/v1`` targets ``other``), a query or a fragment would
+    make the key go somewhere the value does not plainly name."""
     if not isinstance(value, str):
         return False
     parsed = urlparse(value)
-    return parsed.scheme in ("http", "https") and bool(parsed.hostname)
+    return (
+        parsed.scheme in ("http", "https")
+        and bool(parsed.hostname)
+        and "@" not in parsed.netloc
+        and not parsed.query
+        and not parsed.fragment
+        and "?" not in value
+        and "#" not in value
+    )

@@ -61,7 +61,8 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
   `VERDICT_CREDENTIAL_ERROR`:不是合并路径的判决,而是 [[narrative_service]] 在**两次
   调用路径**的审计行上写的"开关开但没走合并路径"的原因;放在这里是因为
   `merged_verdict` 的词表只在一处定义。`decision_endpoint_for_turn` 返回
-  `TurnDecisionCredential(endpoint, skip_verdict)`,service 只照抄 `skip_verdict`,
+  `TurnDecisionCredential(endpoint, skip_verdict)`(`skip_verdict` 无默认值,"既无
+endpoint 又无判决"无法被顺手构造出来),service 只照抄 `skip_verdict`,
   不知道免费档的存在。**`key_service_unavailable`(23 字符,装得进 MySQL 的
   `VARCHAR(32)`)**:本部署**有** per-agent key 服务(issuer 存在),它这一轮给不出
   key(quota-api 宕机/暂停中、拒绝了该 agent、回复缺可用 `base_url`),且平台 key 与

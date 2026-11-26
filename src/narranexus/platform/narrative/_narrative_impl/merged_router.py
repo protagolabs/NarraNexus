@@ -353,8 +353,8 @@ class TurnDecisionCredential:
 
     endpoint: Optional[DecisionEndpoint]
     #: The `merged_verdict` for the two-call row when ``endpoint`` is None;
-    #: "" when there is an endpoint.
-    skip_verdict: str = ""
+    #: "" when there is an endpoint. No default: a caller must say which.
+    skip_verdict: str
 
 
 async def decision_endpoint_for_turn(agent_id: str) -> TurnDecisionCredential:
@@ -374,7 +374,7 @@ async def decision_endpoint_for_turn(agent_id: str) -> TurnDecisionCredential:
         agent_scoped=await issuer.key_for(agent_id) if issuer is not None else None,
     )
     if endpoint is not None:
-        return TurnDecisionCredential(endpoint)
+        return TurnDecisionCredential(endpoint, "")
     # An issuer's key would have won, so with an issuer present "nothing
     # qualified" means it could not supply one.
     return TurnDecisionCredential(

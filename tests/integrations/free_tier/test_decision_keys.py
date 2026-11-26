@@ -196,6 +196,47 @@ async def test_an_over_age_key_is_rechecked_once_and_keeps_serving():
     assert quota.calls == ["agent_a", "agent_a"], "re-checked once, then a full age"
 
 
+class _ScriptedQuotaApi:
+    """Answers each call from a script of (delay, status, key generation)."""
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.calls: list[str] = []
+
+    async def __call__(self, request: httpx.Request) -> httpx.Response:
+        agent_id = json.loads(request.content)["agent_id"]
+        self.calls.append(agent_id)
+        delay, status, generation = self.script.pop(0)
+        await asyncio.sleep(delay)
+        if status != 200:
+            return httpx.Response(status, json={"detail": "nope"})
+        return httpx.Response(200, json={
+            "agent_id": agent_id, "api_key": f"sk-nxdm-{agent_id}-g{generation}",
+            "base_url": GATEWAY,
+        })
+
+
+@pytest.mark.parametrize("failure_status", [502, 422], ids=["unavailable", "refused"])
+async def test_a_slow_failed_recheck_does_not_overwrite_a_fresher_key(failure_status):
+    """Two turns hit the over-age entry: the fast one stores the re-issued
+    key, the slow one then fails — it must not write the old key back."""
+    quota = _ScriptedQuotaApi([
+        (0.0, 200, 1),               # first fetch
+        (0.05, failure_status, 0),   # turn A: slow failure
+        (0.0, 200, 2),               # turn B: fast success, re-issued key
+    ])
+    clock = _Clock()
+    wallet = WalletClient("http://quota-api", "tok", transport=httpx.MockTransport(quota))
+    issuer = DecisionKeyIssuer(wallet, clock=clock)
+    await issuer.key_for("agent_a")
+    clock.now += decision_keys._MAX_KEY_AGE_S + 1
+
+    await asyncio.gather(issuer.key_for("agent_a"), issuer.key_for("agent_a"))
+    now = await issuer.key_for("agent_a")
+
+    assert now.api_key == "sk-nxdm-agent_a-g2"
+
+
 async def test_an_over_age_key_whose_recheck_fails_keeps_serving():
     quota = _QuotaApi()
     clock = _Clock()
@@ -308,18 +349,18 @@ async def test_a_late_rejection_of_an_old_key_does_not_mark_the_fresh_one():
 
 
 async def test_a_per_agent_refusal_does_not_pause_other_agents():
-    quota = _QuotaApi(refuse=frozenset({"bad id"}))
+    quota = _QuotaApi(refuse=frozenset({"bad-id"}))
     clock = _Clock()
     issuer = _issuer(quota, clock)
 
-    assert await issuer.key_for("bad id") is None
+    assert await issuer.key_for("bad-id") is None
     assert (await issuer.key_for("agent_b")).api_key == quota.key("agent_b")
-    assert await issuer.key_for("bad id") is None
-    assert quota.calls == ["bad id", "agent_b"], "the refused agent is not re-probed"
+    assert await issuer.key_for("bad-id") is None
+    assert quota.calls == ["bad-id", "agent_b"], "the refused agent is not re-probed"
 
     clock.now += decision_keys._RETRY_AFTER_S + 1
     quota.refuse.clear()
-    assert (await issuer.key_for("bad id")).api_key == quota.key("bad id")
+    assert (await issuer.key_for("bad-id")).api_key == quota.key("bad-id")
 
 
 @pytest.mark.parametrize(

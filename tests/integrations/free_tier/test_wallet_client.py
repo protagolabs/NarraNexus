@@ -195,6 +195,16 @@ async def test_decision_key_errors_keep_the_wallet_vocabulary(status, error):
         {"api_key": DECISION_KEY, "base_url": "/v1"},
         {"api_key": DECISION_KEY, "base_url": "ftp://litellm/v1"},
         {"api_key": DECISION_KEY, "base_url": 7},
+        # Userinfo, a query or a fragment: the key could go elsewhere.
+        {"api_key": DECISION_KEY, "base_url": "https://gw@other/v1"},
+        {"api_key": DECISION_KEY, "base_url": "http://user:pw@litellm:4000/v1"},
+        {"api_key": DECISION_KEY, "base_url": "http://litellm:4000/v1?to=other"},
+        {"api_key": DECISION_KEY, "base_url": "http://litellm:4000/v1?"},
+        {"api_key": DECISION_KEY, "base_url": "http://litellm:4000/v1#frag"},
+        # A key the resolver would silently drop (uncapped fallback): refused.
+        {"api_key": "sk-nxdm-has space", "base_url": GATEWAY},
+        {"api_key": "sk-nxdm-\n", "base_url": GATEWAY},
+        {"api_key": "sk-nxdm-\u00e9", "base_url": GATEWAY},
     ],
 )
 async def test_decision_key_without_a_key_or_an_absolute_base_url_is_unavailable(body):

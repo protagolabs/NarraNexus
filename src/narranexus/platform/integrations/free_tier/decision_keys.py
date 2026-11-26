@@ -147,8 +147,14 @@ class DecisionKeyIssuer:
         answer = await self._ask(agent_id)
         if isinstance(answer, DecisionKey):
             return self._store(agent_id, self._trusted(answer))
+        current = self._entries.get(agent_id)
+        if current is not None and current.grant != entry.grant:
+            # A concurrent turn stored a newer answer while this one waited:
+            # writing the old grant back would resurrect a dead key.
+            return current
         return self._store(
-            agent_id, replace(entry, recheck_at=self._clock() + _RETRY_AFTER_S)
+            agent_id,
+            replace(current or entry, recheck_at=self._clock() + _RETRY_AFTER_S),
         )
 
     def _trusted(self, grant: DecisionKey) -> _Entry:

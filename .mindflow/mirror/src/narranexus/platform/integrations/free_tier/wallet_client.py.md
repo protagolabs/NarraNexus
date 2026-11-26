@@ -43,8 +43,11 @@ agent 包、反过来不行，所以共用的那块必须落在这里。
 自己发 LLM 请求的地址（部署里那是沙箱代理，按设计拒绝决策路由）。调用方
 [[decision_keys]] 按进程缓存。错误沿用分类词表，唯一例外：这里的 **404 不是
 「没有钱包」**，而是部署的 quota-api 早于这个端点，所以转成 `WalletUnavailable`
-（消息点名端点）；回复里没有非空字符串 `api_key`、或没有绝对 http(s) `base_url`
-（早于该字段的 quota-api / 格式错）同样是 `WalletUnavailable`，不猜地址。key 不进
+（消息点名端点）；回复里的 `api_key` 不可发送（`decision_model.is_sendable_key`：
+空、含空白/控制字符、非 ASCII——否则解析器会悄悄丢掉它，让该 agent 在整个 key 寿命里
+落到不封顶的凭据上）、或 `base_url` 不是**朴素**的绝对 http(s) 地址（缺失 = 早于该字段的
+quota-api；带 userinfo 如 `https://gw@other/v1` 实际指向 `other`；带 query / fragment）
+同样是 `WalletUnavailable`，不猜地址。key 不进
 任何日志、异常文本或 `repr`。
 
 ## served_models() 为什么问网关而不是上游
