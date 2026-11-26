@@ -16,7 +16,7 @@ key 可发送就用平台 key;否则 agent owner 的 active helper 槽 provider 
 ingress 装进 task 的配置),仅当其 base URL 的 host 等于
 `NARRATIVE_DECISION_API_BASE` 的 host;都没有 → 该轮走两次调用路径(正常部署形态,
 不是错误)。所以**开关开而平台 key 为空是合法的**;但平台 key 一旦设置就必须可发送
-(可打印 ASCII、无空白/控制字符),否则拒绝启动。
+(可打印 ASCII、无空白/控制字符、首尾不带引号),否则拒绝启动。
 
 **`NARRATIVE_DECISION_API_BASE` 的默认值不是硬编码**:取
 `settings.netmind_inference_url("openai")`,即本部署的 `NETMIND_INFERENCE_BASE`
@@ -25,7 +25,7 @@ ingress 装进 task 的配置),仅当其 base URL 的 host 等于
 
 **启动校验**(`_reject_invalid_decision_settings`,只在开关开时):阈值不在
 [0, 1]、超时 ≤ 0、base 没有 host、平台 key 不可发送或首尾带引号(有的环境变量
-来源不剥引号,如 `docker run --env-file`;带引号的 key 能启动但每轮 401)→ 拒绝启动。这些错不会让某一轮失败,而是静默
+来源不剥引号,如 `docker run --env-file`;不拦的话带引号的 key 能启动但每轮 401)→ 拒绝启动。这些错不会让某一轮失败,而是静默
 关掉某个判决或所有用户 key 查找,所以在启动时拦。桶×合并互斥检查原样保留。
 
 删除 `MERGED_AWARENESS_MAX_CHARS`(决策请求不含 awareness)与

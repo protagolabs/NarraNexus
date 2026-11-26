@@ -473,11 +473,12 @@ def _reject_untested_flag_combination(cfg: "NarrativeConfig") -> None:
 def _reject_invalid_decision_settings(cfg: "NarrativeConfig") -> None:
     """Refuse to boot merged routing with decision settings it cannot use.
 
-    A threshold outside [0, 1], a host-less base or an unsendable platform
-    key does not fail a turn — it silently disables a verdict, every owner-key
-    lookup, or the platform key — so it is caught here, in the same
-    fail-closed style as the check above. The key is NOT required: without
-    one, turns with no qualifying owner key take the two-call path.
+    A threshold outside [0, 1], a non-positive timeout, a host-less base, or
+    a platform key that is unsendable or starts/ends with a quote does not
+    fail a turn — it silently disables a verdict, every decision call, every
+    owner-key lookup, or the platform key — so it is caught here, in the
+    same fail-closed style as the check above. The key is NOT required:
+    without one, turns with no qualifying owner key take the two-call path.
     """
     if not cfg.NARRATIVE_MERGED_ROUTING_ENABLED:
         return
@@ -508,7 +509,7 @@ def _reject_invalid_decision_settings(cfg: "NarrativeConfig") -> None:
             "STARTUP CONFIGURATION ERROR: NARRATIVE_MERGED_ROUTING_ENABLED=1 "
             f"with invalid {', '.join(problems)} — thresholds must be in [0, 1], "
             "the timeout > 0, the base an absolute URL, the key printable ASCII "
-            "without whitespace or surrounding quotes. Fix .env and restart."
+            "without whitespace or a leading/trailing quote. Fix .env and restart."
         )
         raise RuntimeError(f"invalid decision-model settings: {', '.join(problems)}")
 

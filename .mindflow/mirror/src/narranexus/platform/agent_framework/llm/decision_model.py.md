@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/decision_model.py
-last_verified: 2026-11-25
+last_verified: 2026-11-26
 stub: false
 ---
 
@@ -50,7 +50,7 @@ API。第一个消费者是叙事合并路由(`narrative/_narrative_impl/merged_
 - **key 必须可发送**:非空、可打印 ASCII、无空白/控制字符。含 `\n`/`\r\n`/`\x00`
   的 key 会让 h11 抛 `Illegal header value b'Bearer sk-...'`,非 ASCII 会抛
   `UnicodeEncodeError`——两者的文本都会把 key(repr 转义后,擦除不到)带出来。所以
-  这样的 key 一律**不算凭据**(平台 key 无效时叙事启动校验直接拒绝启动),不做
+  这样的 key 一律**不算凭据**(平台 key 不可发送或首尾带引号时叙事启动校验直接拒绝启动),不做
   strip-and-use。
 - **失败永远不是分数**:缺 key、非数字、bool、NaN、越界、非 200、非 JSON、传输/编码
   错误、超时一律 `DecisionModelError`。`category` 是固定词表(`unconfigured` /
