@@ -115,6 +115,19 @@ async def test_a_reply_without_base_url_is_no_key_and_pauses_quota_api():
     assert quota.calls == ["agent_a"], "service-level: every uncached agent waits"
 
 
+@pytest.mark.parametrize("bad_key", ["sk-nxdm-has space", "sk-nxdm-\n", "sk-nxdm-\u00e9"])
+async def test_an_unsendable_key_is_no_key_and_pauses_quota_api(bad_key):
+    """The resolver would silently drop such a key and put the agent on an
+    uncapped credential; the issuer treats the reply as unavailable instead."""
+    quota = _QuotaApi()
+    quota.key = lambda agent_id: bad_key
+    issuer = _issuer(quota, _Clock())
+
+    assert await issuer.key_for("agent_a") is None
+    assert await issuer.key_for("agent_b") is None
+    assert quota.calls == ["agent_a"], "service-level: every uncached agent waits"
+
+
 async def test_a_moved_gateway_with_the_same_key_is_picked_up_on_recheck():
     quota = _QuotaApi()
     clock = _Clock()

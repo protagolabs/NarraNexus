@@ -31,7 +31,6 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
-from narranexus.platform.agent_framework.llm.decision_model import is_sendable_key
 
 _DEFAULT_TIMEOUT_S = 10.0
 #: Request timeout / rate limit: the service, not the input, is the problem.
@@ -187,10 +186,8 @@ class WalletClient:
         if not isinstance(data, dict):
             data = {}
         key, base_url = data.get("api_key"), data.get("base_url")
-        if not isinstance(key, str) or not is_sendable_key(key):
-            # An unsendable key would be dropped by the resolver and put the
-            # agent on an uncapped credential for the whole key age.
-            raise WalletUnavailable("wallet service returned no usable decision key")
+        if not isinstance(key, str) or not key:
+            raise WalletUnavailable("wallet service returned no decision key")
         if not _is_absolute_http_url(base_url):
             raise WalletUnavailable(
                 "wallet service returned no usable decision base_url (older quota-api?)"
