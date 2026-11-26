@@ -82,7 +82,7 @@ quota-api、格式错)= 密钥服务不可用,与 404 同样处理(进程级暂�
 ## 上下游关系
 
 - **被谁用**：`narrative/_narrative_impl/merged_router.decision_endpoint_for_turn`。
-- **依赖谁**：[[wallet_client]]（`decision_key` / `DecisionKey`）、
-  `decision_model.AgentScopedKey`。
-- **测试**：`tests/integrations/free_tier/test_decision_keys.py`（缓存/寿命/401·403 后复查/两类失败/
+- **依赖谁**：[[wallet_client]]（`decision_key` / `DecisionKey` / `WalletUnavailable`）、
+  `decision_model.AgentScopedKey` 与 `is_sendable_key`。
+- **测试**：`tests/integrations/free_tier/test_decision_keys.py`（缓存/寿命/401·403 后复查/不可发送的 key/两类失败/
   超时/上限/工厂）、`tests/narrative/test_merged_routing.py`（端到端）。

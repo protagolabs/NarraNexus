@@ -209,6 +209,22 @@ async def test_an_over_age_key_is_rechecked_once_and_keeps_serving():
     assert quota.calls == ["agent_a", "agent_a"], "re-checked once, then a full age"
 
 
+async def test_an_unsendable_answer_on_recheck_keeps_the_old_key():
+    """The check guards the re-check too: a bad answer never replaces a good key."""
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    old = await issuer.key_for("agent_a")
+
+    quota.key = lambda agent_id: "sk-nxdm-has space"
+    clock.now += decision_keys._MAX_KEY_AGE_S + 1
+    again = await issuer.key_for("agent_a")
+
+    assert again.api_key == old.api_key
+    assert await issuer.key_for("agent_b") is None
+    assert quota.calls == ["agent_a", "agent_a"], "service-level: agent_b is not asked"
+
+
 class _ScriptedQuotaApi:
     """Answers each call from a script of (delay, status, key generation)."""
 
