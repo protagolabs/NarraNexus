@@ -100,8 +100,8 @@ class DecisionEndpoint:
     model: str
     timeout_seconds: float
     key_source: str = KEY_SOURCE_PLATFORM
-    #: Told when the endpoint answers 401, so whoever issued the key can stop
-    #: handing it out. Not called on any other failure.
+    #: Told when the endpoint answers 401, so whoever issued the key can
+    #: re-check it (rotation, revocation). Not called on any other failure.
     on_rejected: Optional[Callable[[], None]] = field(
         default=None, repr=False, compare=False
     )
@@ -117,8 +117,8 @@ class DecisionEndpoint:
 @dataclass(frozen=True)
 class AgentScopedKey:
     """A key issued for ONE agent by the endpoint it must be sent to (e.g. a
-    capped gateway key). ``on_rejected`` lets the issuer drop a key the
-    endpoint no longer accepts."""
+    capped gateway key). ``on_rejected`` tells the issuer the endpoint
+    refused it."""
 
     base_url: str
     api_key: str = field(repr=False)

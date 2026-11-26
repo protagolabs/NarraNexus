@@ -16,6 +16,13 @@ stub: false
 不可达 / 旧版 / 超时)时 issuer 返回 None,自然落到平台 key。issuer 以模块级名字导入,
 流程测试 monkeypatch `merged_router.decision_key_issuer` 注入真 issuer + 假网络。
 
+**解析时机没有后移到决策调用前**(评审 Minor 3 的取舍):凭据在 `select()` 里、
+合并路径之前解析,所以快门本可零调用回答的轮次在冷缓存时也付一次取 key。后移需要
+`select_merged` 在 BM25 prep 之后、审计行已标 `merged_call=1` 时再退回两次调用路径
+(重跑检索、`no_credential` / `credential_error` 的标注分散到两处),不是小而干净的
+改动,所以保留现状。代价有界:每进程每 agent 一次 quota-api 往返(失败时每个 60s
+间隔至多一次),上限 2s;热缓存只是一次字典查找。
+
 `decide` 的调用失败日志带上 `key_source`:网关 key 上的 `http_422`(该 agent 当月
 额度用完,`budget_exceeded`)与其它来源上的同一状态码由此可区分,日志里还有已擦除
 key 的响应体摘录。审计行不变(`merged_verdict='failed'`、reason=`http_422`)——额度
@@ -51,7 +58,11 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
   KeyError,不默认。阈值是 `DecisionThresholds`,`decide` 每次从 config 取。
 - `VERDICT_NO_CREDENTIAL` / `VERDICT_CREDENTIAL_ERROR`:不是合并路径的判决,而是
   [[narrative_service]] 在**两次调用路径**的审计行上写的"开关开但没走合并路径"的
-  原因;放在这里是因为 `merged_verdict` 的词表只在一处定义。
+  原因;放在这里是因为 `merged_verdict` 的词表只在一处定义。**`no_credential` 分不清
+  "密钥服务暂时不可用"与"根本没配凭据"**:云端 quota-api 宕机/超时期间,没缓存 key
+  且既无平台 key 也无合格 owner key 的轮次同样记 `no_credential`(审计表不加列)。
+  要区分请看 `[DecisionKeys] quota-api unavailable` 那条 warning(每个暂停间隔至多
+  一条);持有 key 的 agent 不受暂停影响,仍走合并路径。
 - `decide(inp, endpoint)`:一次调用,永不抛、永不猜。组装失败 / 调用失败 / 分数不
   可用或越出契约 → `ok=False, verdict=failed`,日志文案区分"组装失败"与"调用失败"。
   失败的 `reason` **只含固定类别**(`assembly` / `timeout` / `transport` /

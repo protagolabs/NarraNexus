@@ -19,6 +19,7 @@ from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletClient,
     WalletDenied,
     WalletMissing,
+    WalletRejected,
     WalletUnavailable,
 )
 
@@ -164,7 +165,7 @@ async def test_decision_key_404_means_an_older_quota_api_not_a_missing_wallet():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "status, error",
-    [(401, WalletDenied), (422, WalletUnavailable), (502, WalletUnavailable)],
+    [(401, WalletDenied), (422, WalletRejected), (502, WalletUnavailable)],
 )
 async def test_decision_key_errors_keep_the_wallet_vocabulary(status, error):
     def handler(_request: httpx.Request) -> httpx.Response:

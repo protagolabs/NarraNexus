@@ -20,7 +20,7 @@ quota-api 持有**（这正是那个服务存在的理由：后端不该拿到�
 问「这个用户还有没有免费余额」。按铁律 #21 的单向依赖，backend 可以 import
 agent 包、反过来不行，所以共用的那块必须落在这里。
 
-## 错误分成三类，是有代价才分的
+## 错误分成四类，是有代价才分的
 
 调用方对三者的反应完全不同，合并成一个异常就等于把「部署配错了」伪装成
 「这个用户没有免费额度」：
@@ -28,12 +28,16 @@ agent 包、反过来不行，所以共用的那块必须落在这里。
 - `WalletUnavailable` —— 传输层 / 5xx。瞬时，登录路径吞掉，下次登录重试。
 - `WalletDenied` —— 401/403。共享 token 配错了，重试没用，必须在日志里刺眼。
 - `WalletMissing` —— 余额 404。用户就是还没开钱包（新用户会有几秒处于此态）。
+- `WalletRejected` —— 其它 4xx。服务正常，但拒绝了**这次请求的输入**（如 422），
+  原样重试无用。此前它混在 `WalletUnavailable` 里，与模块头"Unavailable = 传输 /
+  5xx"的定义不符；拆开后决策 key 的调用方才能区分"服务挂了（暂停所有 agent）"与
+  "这个 agent 被拒（只记在它身上）"。其它调用方都按 `WalletError` 捕获，行为不变。
 
 ## decision_key(agent_id)
 
 `POST /v1/decision-keys` 取该 agent 在网关决策路由上的封顶 key（deploy 侧 quota-api
 签发，幂等：同一 agent 每次同一把，admin key 轮换后才会变）。调用方
-[[decision_keys]] 按进程缓存。错误沿用三分类词表，唯一例外：这里的 **404 不是
+[[decision_keys]] 按进程缓存。错误沿用分类词表，唯一例外：这里的 **404 不是
 「没有钱包」**，而是部署的 quota-api 早于这个端点，所以转成 `WalletUnavailable`
 （消息点名端点）；回复里没有非空字符串 `api_key` 同样是 `WalletUnavailable`。key
 不进任何日志或异常文本。

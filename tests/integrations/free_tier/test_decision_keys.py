@@ -2,9 +2,11 @@
 @file_name: test_decision_keys.py
 @description: The per-agent decision-key cache in front of quota-api.
 
-One quota-api round trip per agent per process; a key the gateway rejected is
-dropped so the next turn re-fetches; a failure to get a key is a None (the
-resolver falls through) and quota-api is not re-probed on every turn. The
+One quota-api round trip per agent per process. A key the gateway rejected
+keeps being sent (a revoked agent never falls through to an uncapped
+credential) and is re-checked at most once per interval. A service failure
+pauses lookups for uncached agents; a per-agent refusal is remembered for that
+agent only. The
 issuer under test is real; only quota-api is faked (httpx.MockTransport).
 """
 from __future__ import annotations
@@ -32,8 +34,9 @@ class _QuotaApi:
     admin-key rotation), or a canned failure. Counts calls per agent."""
 
     def __init__(self, *, status: int = 200, raise_exc: Exception | None = None,
-                 delay: float = 0.0):
+                 delay: float = 0.0, refuse: frozenset[str] = frozenset()):
         self.status = status
+        self.refuse = set(refuse)
         self.raise_exc = raise_exc
         self.delay = delay
         self.generation = 1
@@ -49,6 +52,8 @@ class _QuotaApi:
             await asyncio.sleep(self.delay)
         if self.raise_exc is not None:
             raise self.raise_exc
+        if agent_id in self.refuse:
+            return httpx.Response(422, json={"detail": "bad agent_id"})
         if self.status != 200:
             return httpx.Response(self.status, json={"detail": "nope"})
         return httpx.Response(200, json={
@@ -92,31 +97,105 @@ async def test_two_agents_get_their_own_keys():
     assert quota.calls == ["agent_a", "agent_b"]
 
 
-async def test_a_rejected_key_is_dropped_and_the_next_turn_refetches():
+async def test_a_rejected_key_keeps_being_sent_and_quota_api_is_not_asked():
+    """A blocked agent must never fall through to an uncapped credential, and
+    must not cost a quota-api call per turn — even while quota-api is paused."""
     quota = _QuotaApi()
-    issuer = _issuer(quota)
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    key = await issuer.key_for("agent_a")
+    quota.status = 502
+    assert await issuer.key_for("agent_b") is None  # trips the service pause
+
+    key.on_rejected()
+    for _ in range(3):
+        again = await issuer.key_for("agent_a")
+        assert again is not None and again.api_key == key.api_key
+    assert quota.calls == ["agent_a", "agent_b"]
+
+
+async def test_after_the_interval_a_rejected_key_is_rechecked_once():
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    key = await issuer.key_for("agent_a")
+    key.on_rejected()
+    clock.now += decision_keys._RETRY_AFTER_S + 1
+
+    same = await issuer.key_for("agent_a")
+    await issuer.key_for("agent_a")
+
+    assert same.api_key == key.api_key, "the same key is kept"
+    assert quota.calls == ["agent_a", "agent_a"], "re-checked once, then trusted"
+
+
+async def test_a_rotated_key_replaces_the_rejected_one_after_the_interval():
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
     stale = await issuer.key_for("agent_a")
     quota.generation = 2  # the operator rotated the gateway admin key
-
     stale.on_rejected()
+    assert (await issuer.key_for("agent_a")).api_key == stale.api_key
+
+    clock.now += decision_keys._RETRY_AFTER_S + 1
     fresh = await issuer.key_for("agent_a")
 
-    assert quota.calls == ["agent_a", "agent_a"]
     assert fresh.api_key == quota.key("agent_a") != stale.api_key
 
 
-async def test_a_late_rejection_of_an_old_key_keeps_the_fresh_one():
+@pytest.mark.parametrize(
+    "failure", ["unavailable", "refused"],
+)
+async def test_a_failed_recheck_keeps_the_rejected_key_for_another_interval(failure):
     quota = _QuotaApi()
-    issuer = _issuer(quota)
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    key = await issuer.key_for("agent_a")
+    key.on_rejected()
+    clock.now += decision_keys._RETRY_AFTER_S + 1
+    if failure == "unavailable":
+        quota.status = 502
+    else:
+        quota.refuse.add("agent_a")
+
+    kept = await issuer.key_for("agent_a")
+    await issuer.key_for("agent_a")
+
+    assert kept is not None and kept.api_key == key.api_key
+    assert quota.calls == ["agent_a", "agent_a"], "not re-asked inside the interval"
+
+
+async def test_a_late_rejection_of_an_old_key_does_not_mark_the_fresh_one():
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
     stale = await issuer.key_for("agent_a")
     stale.on_rejected()
     quota.generation = 2
-    await issuer.key_for("agent_a")
+    clock.now += decision_keys._RETRY_AFTER_S + 1
+    await issuer.key_for("agent_a")  # picks up the rotated key
 
     stale.on_rejected()  # a slow turn still holding the old key reports late
+    clock.now += decision_keys._RETRY_AFTER_S + 1
     await issuer.key_for("agent_a")
 
     assert quota.calls == ["agent_a", "agent_a"]
+
+
+async def test_a_per_agent_refusal_does_not_pause_other_agents():
+    quota = _QuotaApi(refuse=frozenset({"bad id"}))
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+
+    assert await issuer.key_for("bad id") is None
+    assert (await issuer.key_for("agent_b")).api_key == quota.key("agent_b")
+    assert await issuer.key_for("bad id") is None
+    assert quota.calls == ["bad id", "agent_b"], "the refused agent is not re-probed"
+
+    clock.now += decision_keys._RETRY_AFTER_S + 1
+    quota.refuse.clear()
+    assert (await issuer.key_for("bad id")).api_key == quota.key("bad id")
 
 
 @pytest.mark.parametrize(
@@ -129,7 +208,7 @@ async def test_a_late_rejection_of_an_old_key_keeps_the_fresh_one():
     ],
     ids=["older_quota_api", "gateway_down", "bad_token", "unreachable"],
 )
-async def test_a_failure_is_no_key_and_quota_api_is_not_reprobed_until_the_ttl(quota):
+async def test_a_service_failure_pauses_every_uncached_agent_until_the_ttl(quota):
     clock = _Clock()
     issuer = _issuer(quota, clock)
 
@@ -191,9 +270,8 @@ async def test_the_key_never_appears_in_logs():
         quota = _QuotaApi()
         issuer = _issuer(quota)
         key = await issuer.key_for("agent_a")
-        key.on_rejected()
         quota.status = 502
-        await issuer.key_for("agent_a")
+        await issuer.key_for("agent_b")
     finally:
         logger.remove(sink)
     assert lines, "the failure must be logged"
@@ -203,30 +281,25 @@ async def test_the_key_never_appears_in_logs():
 # ── which deployments have an issuer at all ────────────────────────────────
 
 
-@pytest.fixture
-def fresh_factory():
-    decision_key_issuer.cache_clear()
-    yield
-    decision_key_issuer.cache_clear()
+# The repo-wide `_no_real_decision_key_issuer` fixture clears the factory's
+# cache and the wallet variables around every test.
 
 
-def test_local_mode_has_no_issuer_even_with_wallet_settings(monkeypatch, fresh_factory):
+def test_local_mode_has_no_issuer_even_with_wallet_settings(monkeypatch):
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "local")
     monkeypatch.setenv("FREE_TIER_WALLET_API_URL", "http://quota-api:8110")
     monkeypatch.setenv("FREE_TIER_WALLET_API_TOKEN", "tok")
     assert decision_key_issuer() is None
 
 
-def test_cloud_without_the_wallet_service_has_no_issuer(monkeypatch, fresh_factory):
+def test_cloud_without_the_wallet_service_has_no_issuer(monkeypatch):
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     monkeypatch.delenv("FREE_TIER_WALLET_API_URL", raising=False)
     monkeypatch.delenv("FREE_TIER_WALLET_API_TOKEN", raising=False)
     assert decision_key_issuer() is None
 
 
-def test_cloud_with_the_wallet_service_sends_to_the_gateway_openai_base(
-    monkeypatch, fresh_factory
-):
+def test_cloud_with_the_wallet_service_sends_to_the_gateway_openai_base(monkeypatch):
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     monkeypatch.setenv("FREE_TIER_WALLET_API_URL", "http://quota-api:8110")
     monkeypatch.setenv("FREE_TIER_WALLET_API_TOKEN", "tok")

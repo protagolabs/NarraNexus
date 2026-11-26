@@ -37,9 +37,9 @@ API。第一个消费者是叙事合并路由(`narrative/_narrative_impl/merged_
 
 ## 设计决策
 
-- **签发方的回收钩子挂在 endpoint 上**:`DecisionEndpoint.on_rejected`(不参与
-  repr/比较)。`ask_yes_no` 收到 **401** 时先调它再抛 `http_401`——签发方借此丢掉
-  被轮换/删除的 key,下一轮重取;其它任何失败(403/422/5xx/超时)都不调。客户端
+- **签发方的 401 钩子挂在 endpoint 上**:`DecisionEndpoint.on_rejected`(不参与
+  repr/比较)。`ask_yes_no` 收到 **401** 时先调它再抛 `http_401`——签发方借此安排
+  复查(轮换 / 吊销;如何处理是签发方的事,见 `integrations/free_tier/decision_keys`);其它任何失败(403/422/5xx/超时)都不调。客户端
   只知道"凭据被拒",不知道是谁签发的,换签发方不动调用方。
 
 - **只认当前 task 上真正装好的配置**(`snapshot_user_config()`),不读 proxy 的

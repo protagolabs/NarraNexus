@@ -1507,11 +1507,13 @@ async def test_two_agents_resolve_to_their_own_gateway_keys(merged_on, gateway):
     assert gateway.quota_calls == ["agent_x", "agent_y"]
 
 
-async def test_a_401_from_the_gateway_evicts_the_key_and_the_next_turn_refetches(
+async def test_after_a_401_the_agent_stays_on_its_own_key_not_the_platform_key(
     service, db_client, merged_on, gateway
 ):
+    """A revoked (blocked) agent must not fall through to the uncapped platform
+    key, nor cost a quota-api call per turn — even when quota-api is down."""
     anchor, _ = await _seed(service)
-    stale = gateway.key(AGENT)
+    key = gateway.key(AGENT)
     gateway.decision_replies = [(401, {"error": {"message": "Authentication Error"}})]
     lines, stop = _log_lines()
     try:
@@ -1520,9 +1522,9 @@ async def test_a_401_from_the_gateway_evicts_the_key_and_the_next_turn_refetches
             trigger="chat", is_user_chat=True,
         )
         assert (await _row(db_client))["merged_verdict"] == merged_router.VERDICT_FAILED
-        gateway.generation = 2  # the operator rotated the gateway admin key
+        gateway.quota_status = 502  # quota-api blips while the agent is revoked
 
-        recovered = await service.select(
+        await service.select(
             AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
             trigger="chat", is_user_chat=True,
         )
@@ -1530,11 +1532,11 @@ async def test_a_401_from_the_gateway_evicts_the_key_and_the_next_turn_refetches
         stop()
 
     assert failed.selection_method == "merged_fallback_anchor"
-    assert len(gateway.decisions) == 2, "no retry within the failing turn"
-    assert gateway.quota_calls == [AGENT, AGENT]
-    assert gateway.decisions[1]["auth"] == f"Bearer {gateway.key(AGENT)}"
-    assert recovered.selection_method == "merged_continue"
-    assert not any(stale in line or gateway.key(AGENT) in line for line in lines)
+    assert [c["auth"] for c in gateway.decisions] == [f"Bearer {key}"] * 2, (
+        "no retry within the failing turn, and never the platform key after it"
+    )
+    assert gateway.quota_calls == [AGENT]
+    assert not any(key in line for line in lines)
 
 
 @pytest.mark.parametrize(

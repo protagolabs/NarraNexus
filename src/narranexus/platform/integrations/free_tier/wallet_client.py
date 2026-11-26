@@ -18,6 +18,8 @@ into "it failed":
     will not help, and it must be loud in the logs.
   * ``WalletMissing``      — 404 on a balance read. The user simply has no
     wallet (free tier off, or provisioning never ran).
+  * ``WalletRejected``     — any other 4xx. The service is fine but refused
+    THIS request's input; repeating the same input will not help.
 """
 from __future__ import annotations
 
@@ -44,6 +46,10 @@ class WalletDenied(WalletError):
 
 class WalletMissing(WalletError):
     """No wallet exists for this user."""
+
+
+class WalletRejected(WalletError):
+    """The service refused this request's input (a 4xx other than auth/404)."""
 
 
 @dataclass(frozen=True)
@@ -185,7 +191,11 @@ class WalletClient:
                 "FREE_TIER_WALLET_API_TOKEN vs QUOTA_API_TOKEN"
             )
             raise WalletDenied(f"wallet service denied us ({resp.status_code})")
-        if resp.status_code >= 400:
+        if 400 <= resp.status_code < 500:
+            raise WalletRejected(
+                f"wallet service {method} {path} -> {resp.status_code}"
+            )
+        if resp.status_code >= 500:
             raise WalletUnavailable(
                 f"wallet service {method} {path} -> {resp.status_code}"
             )
