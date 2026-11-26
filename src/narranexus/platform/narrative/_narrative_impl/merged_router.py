@@ -1,63 +1,51 @@
 """
 @file_name: merged_router.py
 @date: 2026-08-26
-@description: One helper call that answers both routing questions — "does this
-message continue the thread?" and "if not, where does it go?".
+@description: The merged-routing decider — one decision-model request that
+answers "does this message continue the thread?" and "if not, where does it
+go?" with one yes/no probability per candidate thread.
 
-WHY (reference/self_notebook/specs/2026-08-25-merged-routing-design.md §2-§4)
+Why: the two-call path pays up to two serial helper-LLM calls per turn (prod
+p50 8,924ms when both run). A decision model returns calibrated probabilities
+in well under a second, and speed beats accuracy here — the agent loop's
+`switch_narrative` / `create_narrative` tools catch a misfiled turn. On this
+path the decision model is the ONLY decider: no LLM call, no LLM fallback.
 
-The two questions were two serial LLM calls. On prod (7 days, is_user_chat=1,
-n=189) 43 turns paid for both, at a serial p50 of 8,924ms; the entire non-LLM
-half of routing is 47.6ms mean. So the only lever with anything behind it is the
-NUMBER OF ROUND TRIPS, and the two questions share almost all of their input.
+Three units, each testable alone: `build_decision_request` (the questions),
+`verdict_from_scores` (a pure threshold rule), `decide` (one call, never
+raises). Where the turn lands is `merged_select`'s job, through the same
+executors the two-call path uses.
 
-WHAT THIS FILE IS RESPONSIBLE FOR, AND WHAT IT IS NOT
+The anchor question is asked whenever the anchor is continuable, whatever BM25
+thinks of it: merging lets foreign threads into every decision, and on
+continuity turns the anchor scores zero in 8.2%-49.3% of turns.
 
-It builds one prompt and parses one answer. It does not decide where a turn
-lands: `merged_select.select_merged` owns that, and every landing it uses is
-a pre-existing executor (the continuity landing, the judge's match landing,
-`create_from_query`, `_land_no_topic_turn`). The decider changes; the executors
-do not.
-
-THE STRUCTURAL CONSTRAINT THAT SHAPES THE PROMPT (§3.2)
-
-On the two-call path, a continuity turn returns BEFORE the retrieval tier: no
-pool, no menu, no way for a foreign thread to reach any prompt. Merging opens
-that door on every turn — and the measurement says what is behind it. On
-continuity turns the anchored thread is NOT in the BM25 top-3 in 26.2%-71.6% of
-turns, the menu's first row is a foreign thread in 26.4%-93.8% (78-97% of those
-being seeded distractor threads), and the anchor scores literally zero in
-8.2%-49.3%. The p07 hijack specimen was held by exactly the defence merging
-removes: `pool=0`, BM25 never ran.
-
-Hence: the anchor is rendered UNCONDITIONALLY, in its own section, as the
-default answer, and deduplicated out of the menu. Its presence is not a
-function of its score. That is data-forced, not stylistic — and
-`test_merged_routing_prompt.py` fails if it ever becomes conditional again.
-
-FAILURE IS NOT AN ANSWER
-
-`decide` never raises and never guesses. A provider error, a timeout, a verdict
-outside the contract or an index past the menu all return `ok=False`, and the
-caller's fallback keeps the turn where it already was. Reading a failed call as
-"new topic" is the D19 shape: the created thread becomes the anchor and the
-updater rewrites it until the lexical evidence agrees.
+A failure is never a verdict: anything unusable returns `ok=False` and the
+caller keeps the turn where it was. Reading a failure as "new topic" is the
+D19 shape — the created thread becomes the anchor and gets rewritten to fit.
 """
 
 from __future__ import annotations
 
 import time as _perf
 from dataclasses import dataclass, field
-from typing import FrozenSet, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
-from pydantic import BaseModel, Field
 
-from narranexus.platform.agent_framework.llm.helper_sdk import get_helper_sdk
+from narranexus.platform.agent_framework.llm.decision_model import (
+    DecisionEndpoint,
+    DecisionResult,
+    YesNoQuestion,
+    ask_yes_no,
+    encode_questions,
+    resolve_decision_endpoint,
+    serialise,
+)
 
 from ..config import config
 from . import routing_blocks
-from .prompts_merged import build_merged_instructions
+from .landings import candidate_labels
 
 if TYPE_CHECKING:
     from ..models import Narrative
@@ -79,16 +67,6 @@ VERDICT_NEW = "new"
 #: Nothing worth remembering as its own thread — the verdict, not a destination.
 VERDICT_NO_TOPIC = "no_topic"
 
-VALID_VERDICTS = frozenset(
-    {
-        VERDICT_CONTINUE_ANCHOR,
-        VERDICT_MATCH,
-        VERDICT_PARTICIPANT,
-        VERDICT_NEW,
-        VERDICT_NO_TOPIC,
-    }
-)
-
 #: Written to `narrative_routing_audit.merged_verdict` when the call produced
 #: nothing usable. A distinct value, not an empty string: "the model was asked
 #: and could not be used" and "no model was asked" are different rows, and only
@@ -96,58 +74,63 @@ VALID_VERDICTS = frozenset(
 VERDICT_FAILED = "failed"
 
 
-class MergedRoutingOutput(BaseModel):
-    """What the helper LLM returns. Mirrors `UnifiedMatchOutput`'s shape.
-
-    One shared `match_index` across the verdicts that name a candidate, as the
-    judge already does — two index fields would let a model fill the wrong one.
-    """
-
-    reason: str = Field(default="", description="Reasoning for the verdict")
-    verdict: str = Field(
-        default="",
-        description="one of the verdicts offered in the instructions",
-    )
-    match_index: int = Field(default=-1, description="0-based index, -1 when none")
+# ── candidate kinds ────────────────────────────────────────────────────────
 
 
-# ── prompt input ───────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class CandidateKind:
+    """One kind of switch target. Adding a kind = one row in CANDIDATE_KINDS."""
 
-ANCHOR_ABSENT_NOTE = (
-    "\nThe anchored thread: none — this conversation is not currently on any "
-    "thread, so there is nothing to continue.\n"
+    verdict: str
+    #: Question keys are ``f"{key_prefix}{index}"``; the index IS the index
+    #: into the input list named by ``field`` — `resolve_choice` relies on it.
+    key_prefix: str
+    field: str
+    #: Extra facts shown on every thread of this kind.
+    flags: Mapping[str, bool]
+
+
+#: Order is the tie-break priority: participants before menu rows (P0-4).
+CANDIDATE_KINDS: Tuple[CandidateKind, ...] = (
+    CandidateKind(VERDICT_PARTICIPANT, "p", "participants",
+                  {"user_was_invited_into_this_thread": True}),
+    CandidateKind(VERDICT_MATCH, "m", "menu", {}),
 )
-ANCHOR_NOT_CONTINUABLE_NOTE = (
-    "\nThe anchored thread: the previous turn was filed into a legacy container "
-    "rather than a real thread, so it cannot be continued. Route this message "
-    "on its own merits.\n"
+_KIND_BY_VERDICT = {kind.verdict: kind for kind in CANDIDATE_KINDS}
+
+ANCHOR_KEY = "anchor"
+NO_TOPIC_KEY = "no_topic"
+
+
+# ── question text (generic only — binding rule #4) ─────────────────────────
+
+THREAD_QUESTION = (
+    "Does the current message belong to this thread, i.e. serve the same user "
+    "goal?"
 )
-NO_PREVIOUS_TURN_NOTE = (
-    "Previous conversation turn: none — this is the first message of the "
-    "conversation."
+NO_TOPIC_QUESTION = (
+    "Is the current message only a greeting, acknowledgement or venting with "
+    "no subject worth remembering as its own thread?"
 )
-#: `## `-prefixed like the menu and awareness sections, so the model sees one
-#: consistent section grammar. The previous-turn block keeps its own inherited
-#: self-label instead of gaining a header — it is shared verbatim with the
-#: continuity tier, and that byte-identity is worth more than the symmetry.
-_MERGED_ANCHOR_HEADER = (
-    "## The thread you are already on — staying here is the DEFAULT answer:"
-)
-_MERGED_MENU_HEADER = "## Other candidate threads (needed only to switch):"
-_MERGED_MENU_EMPTY_NOTE = (
-    "(none — no other thread of this user shares any wording with this "
-    "message)\n\n"
+#: Shared by every thread question; scenario-specific routing belongs in the
+#: agent's Awareness, never here.
+ROUTING_RULES: Tuple[str, ...] = (
+    "Threads are split by the user's GOAL, not by surface wording.",
+    "A short acknowledgement or follow-up rides the thread it answers.",
+    "A time gap alone never starts a new thread.",
+    "Sub-tasks of one project stay in that project's thread.",
+    "A one-off unrelated factual question is a new thread.",
+    "A new task that merely reuses the same tool is a new thread.",
 )
 
 
 @dataclass(frozen=True)
 class MergedRoutingInput:
-    """Everything the merged call reads, in priority order.
+    """Everything the merged decision reads.
 
-    ``anchor_is_continuable`` is `narrative_service.is_reusable_anchor` applied
-    by the caller — THE one definition, consumed here rather than re-derived, so
-    the merged path cannot disagree with the fast path and the no-topic landing
-    about what counts as a thread.
+    ``anchor_is_continuable`` is `anchor_rules.is_reusable_anchor`, applied by
+    the caller so the merged path cannot disagree with the fast path about
+    what counts as a thread.
     """
 
     query: str
@@ -156,32 +139,57 @@ class MergedRoutingInput:
     previous_query: str
     previous_response: str
     minutes_since_previous: Optional[float]
-    #: Judge-shaped candidate dicts (see `landings.candidate_labels`), already
-    #: deduplicated against the anchor and the participants by `pick_menu`.
+    #: Candidate dicts labelled by `landings.candidate_labels`, already
+    #: deduplicated against the anchor (and the menu against participants).
     menu: List[dict] = field(default_factory=list)
     participants: List[dict] = field(default_factory=list)
-    awareness: Optional[str] = None
+
+    @property
+    def offers_anchor(self) -> bool:
+        return self.anchor is not None and self.anchor_is_continuable
+
+    def candidates(self, kind: CandidateKind) -> List[dict]:
+        return getattr(self, kind.field)
 
 
 @dataclass(frozen=True)
-class MergedRoutingPrompt:
-    instructions: str
-    user_input: str
-    #: Section codes whose content hit its cap, for `merged_truncated`.
+class MergedRoutingRequest:
+    """The one decision-model request, as sent."""
+
+    state: Dict[str, Any]
+    questions: Tuple[YesNoQuestion, ...]
+    #: Field codes whose content hit its read-side cap, for `merged_truncated`.
     truncated: Tuple[str, ...]
 
     @property
     def input_chars(self) -> int:
-        """Every character this call sends — instructions AND user input.
+        """Serialised state + questions, in the client's own encoding — the
+        x axis of the latency model (`audit.merged_input_chars`)."""
+        return len(
+            serialise({"state": self.state, "questions": encode_questions(self.questions)})
+        )
 
-        The instructions vary by variant (answer table 2-5 entries, priority
-        list 2-4 lines, participant preamble present or not), and the variant
-        correlates with the turn shape being measured — omitting them would
-        bias the latency slope's x axis, not just offset it (review round 2,
-        I2). `merged_truncated` covers only the user-input side: instructions
-        are not subject to the read-side budgets.
-        """
-        return len(self.instructions) + len(self.user_input)
+
+@dataclass(frozen=True)
+class DecisionThresholds:
+    stay: float
+    switch: float
+    no_topic: float
+
+    @classmethod
+    def from_config(cls) -> "DecisionThresholds":
+        return cls(
+            stay=config.NARRATIVE_DECISION_STAY_THRESHOLD,
+            switch=config.NARRATIVE_DECISION_SWITCH_THRESHOLD,
+            no_topic=config.NARRATIVE_DECISION_NO_TOPIC_THRESHOLD,
+        )
+
+
+@dataclass(frozen=True)
+class ScoredVerdict:
+    verdict: str
+    match_index: int
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -193,244 +201,246 @@ class MergedRoutingDecision:
     reason: str
     match_index: int
     elapsed_ms: int
-    prompt: Optional[MergedRoutingPrompt] = None
+    request: Optional[MergedRoutingRequest] = None
+    #: The model's raw answer (scores, model, usage); None when no call returned.
+    result: Optional[DecisionResult] = None
 
 
-def build_merged_prompt(inp: MergedRoutingInput) -> MergedRoutingPrompt:
-    """Assemble the one prompt. Order in the body IS priority order.
+# ── question building ──────────────────────────────────────────────────────
 
-    Sections, and why they sit where they do:
-      1. the previous turn — the continuity tier's exclusive input, and the only
-         thing that can route a zero-overlap follow-up ("那第二步呢");
-      2. the anchored thread — unconditional, see §3.2 above;
-      3. the participant section (variant only) — P0-4 priority, structural;
-      4. the keyword menu — evidence for LEAVING, deduplicated;
-      5. awareness — the agent's standing domain;
-      6. this turn's message.
+
+def build_decision_request(inp: MergedRoutingInput) -> MergedRoutingRequest:
+    """The state, and one question per candidate thread plus ``no_topic``.
+
+    Question order: ``anchor`` (only when offered), then each CANDIDATE_KINDS
+    row in order, then ``no_topic``. Read-side caps keep the head
+    (`routing_blocks.clamp_head`) and every clip is reported.
     """
     truncated: List[str] = []
 
-    previous = routing_blocks.render_previous_turn(
-        inp.previous_query,
-        inp.previous_response,
-        query_max_chars=config.MERGED_QUERY_MAX_CHARS,
-        response_max_chars=config.MERGED_PREV_RESPONSE_MAX_CHARS,
-        absent_note=NO_PREVIOUS_TURN_NOTE,
-    )
-    truncated.extend(previous.truncated)
+    def clamp(text: str, cap: int, code: str) -> str:
+        clipped_text, clipped = routing_blocks.clamp_head(text or "", cap)
+        if clipped:
+            truncated.append(code)
+        return clipped_text
 
-    if inp.anchor is None:
-        anchor_block = routing_blocks.Rendered(ANCHOR_ABSENT_NOTE)
-    elif not inp.anchor_is_continuable:
-        # Shown, not offered: the model must know where the previous turn was
-        # filed, and C-1 says a legacy container is a verdict about that turn
-        # rather than a thread anyone may continue.
-        anchor_block = routing_blocks.Rendered(
-            ANCHOR_NOT_CONTINUABLE_NOTE
-            + routing_blocks.render_anchor_context(
-                inp.anchor,
-                header="## Where the previous turn was filed:",
-                summary_max_chars=config.MERGED_ANCHOR_SUMMARY_MAX_CHARS,
-                include_bucket_note=False,
-            ).text
-        )
-    else:
-        anchor_block = routing_blocks.render_anchor_context(
-            inp.anchor,
-            header=_MERGED_ANCHOR_HEADER,
-            summary_max_chars=config.MERGED_ANCHOR_SUMMARY_MAX_CHARS,
-            include_bucket_note=False,
-        )
-    truncated.extend(anchor_block.truncated)
+    previous_query = clamp(inp.previous_query, config.MERGED_QUERY_MAX_CHARS, "prev_query")
+    previous_response = clamp(
+        inp.previous_response, config.MERGED_PREV_RESPONSE_MAX_CHARS, "prev_response"
+    )
+    previous_turn: Optional[Dict[str, Any]] = None
+    if previous_query:
+        previous_turn = {"user_query": previous_query, "agent_response": previous_response}
+    elif previous_response:
+        # The agent messaged first (a scheduled job): a short reply most
+        # likely answers THAT message, so say so instead of an empty query.
+        previous_turn = {
+            "user_query": None,
+            "agent_response": previous_response,
+            "agent_messaged_proactively": True,
+        }
 
-    # No renderer-side cap (round 6, minor 2): inp.participants IS what the
-    # contract bounds on, so the entry truncation in merged_select is the one
-    # cut — re-capping here would let a different MergedRoutingInput
-    # constructor reopen the ballot/render split (round 2, I1).
-    participants = routing_blocks.render_participant_candidates(
-        inp.participants,
-    )
-    truncated.extend(participants.truncated)
+    state: Dict[str, Any] = {
+        "current_message": clamp(inp.query, config.MERGED_QUERY_MAX_CHARS, "query"),
+        "previous_turn": previous_turn,
+        "minutes_since_previous_turn": (
+            round(inp.minutes_since_previous, 1)
+            if inp.minutes_since_previous is not None
+            else None
+        ),
+    }
 
-    menu = routing_blocks.render_search_candidates(
-        inp.menu,
-        header=_MERGED_MENU_HEADER,
-        empty_note=_MERGED_MENU_EMPTY_NOTE,
-        # The squashed score is `raw/(raw+1)` over an IDF table computed on this
-        # pool alone: it means nothing the model can use, and showing it invites
-        # exactly the "0.91 must be a match" reading the judge's own evidence
-        # lines were added to prevent.
-        include_score=False,
-    )
-    truncated.extend(menu.truncated)
+    questions: List[YesNoQuestion] = []
+    if inp.offers_anchor:
+        name, summary = candidate_labels(inp.anchor)  # type: ignore[arg-type]
+        questions.append(_thread_question(
+            ANCHOR_KEY, {"name": name, "description": summary},
+            {"is_thread_of_previous_turn": True},
+        ))
+    for kind in CANDIDATE_KINDS:
+        for i, candidate in enumerate(inp.candidates(kind)):
+            questions.append(_thread_question(f"{kind.key_prefix}{i}", candidate, kind.flags))
+    questions.append(YesNoQuestion(key=NO_TOPIC_KEY, instructions=NO_TOPIC_QUESTION))
 
-    awareness_text, awareness_clipped = routing_blocks.clamp_head(
-        inp.awareness or "", config.MERGED_AWARENESS_MAX_CHARS
-    )
-    if awareness_clipped:
-        truncated.append("awareness")
-    awareness_block = (
-        f"\n## Agent Awareness\n{awareness_text}\n" if awareness_text else ""
-    )
-
-    query_text, query_clipped = routing_blocks.clamp_head(
-        inp.query, config.MERGED_QUERY_MAX_CHARS
-    )
-    if query_clipped:
-        truncated.append("query")
-
-    elapsed = (
-        f"\nTime elapsed since that turn: {inp.minutes_since_previous:.1f} minutes\n"
-        if inp.minutes_since_previous is not None
-        else ""
-    )
-
-    user_input = (
-        f"{previous.text}\n"
-        f"{elapsed}"
-        f"{anchor_block.text}\n"
-        f"{participants.text}"
-        f"{menu.text}"
-        f"{awareness_block}"
-        f"\n## The user's current message\n{query_text}\n"
-    )
-
-    instructions = build_merged_instructions(
-        anchor_is_continuable=bool(inp.anchor is not None and inp.anchor_is_continuable),
-        with_participants=bool(inp.participants),
-        with_menu=bool(inp.menu),
-    )
-    return MergedRoutingPrompt(
-        instructions=instructions,
-        user_input=user_input,
+    return MergedRoutingRequest(
+        state=state,
+        questions=tuple(questions),
         truncated=tuple(dict.fromkeys(truncated)),
     )
 
 
-async def decide(inp: MergedRoutingInput) -> MergedRoutingDecision:
+def _thread_question(
+    key: str, candidate: Mapping[str, Any], flags: Mapping[str, bool]
+) -> YesNoQuestion:
+    """Shows the fields `landings.candidate_labels` chose for every routing
+    candidate, plus the BM25 evidence a menu row carries."""
+    thread: Dict[str, Any] = {"name": candidate["name"], "summary": candidate["description"]}
+    if candidate.get("matched_terms"):
+        thread["matched_terms"] = list(candidate["matched_terms"])
+    if candidate.get("matched_content"):
+        thread["matched_excerpt"] = candidate["matched_content"]
+    thread.update(flags)
+    return YesNoQuestion(
+        key=key,
+        instructions={"question": THREAD_QUESTION, "rules": list(ROUTING_RULES), "thread": thread},
+    )
+
+
+# ── scores -> verdict ──────────────────────────────────────────────────────
+
+
+def verdict_from_scores(
+    scores: Mapping[str, float],
+    *,
+    offers_anchor: bool,
+    candidate_counts: Mapping[str, int],
+    thresholds: DecisionThresholds,
+) -> ScoredVerdict:
+    """The deterministic threshold rule. Pure; a missing score raises KeyError.
+
+    ``candidate_counts`` maps a CANDIDATE_KINDS verdict to how many of that
+    kind were asked about.
+
+    1. best_other = the highest-scoring non-anchor candidate; ties go to the
+       earlier kind (participants first, P0-4), then the lower index.
+    2. best_other >= switch AND best_other > anchor -> that kind's verdict.
+    3. elif anchor offered AND anchor >= stay -> continue_anchor.
+    4. elif no_topic >= no_topic threshold -> no_topic.
+    5. else -> new.
+    """
+    best: Optional[Tuple[CandidateKind, int, str, float]] = None
+    for kind in CANDIDATE_KINDS:
+        for i in range(candidate_counts.get(kind.verdict, 0)):
+            key = f"{kind.key_prefix}{i}"
+            # Strictly greater, so the earlier candidate keeps a tie.
+            if best is None or scores[key] > best[3]:
+                best = (kind, i, key, scores[key])
+
+    anchor = scores[ANCHOR_KEY] if offers_anchor else None
+    no_topic = scores[NO_TOPIC_KEY]
+    anchor_text = f"anchor={anchor:.2f}" if anchor is not None else "no anchor"
+    best_text = f"{best[2]}={best[3]:.2f}" if best else "no other thread"
+    seen = f"{anchor_text}, {best_text}, no_topic={no_topic:.2f}"
+
+    if best and best[3] >= thresholds.switch and (anchor is None or best[3] > anchor):
+        return ScoredVerdict(best[0].verdict, best[1], f"decision model: switch — {seen}")
+    if anchor is not None and anchor >= thresholds.stay:
+        return ScoredVerdict(VERDICT_CONTINUE_ANCHOR, -1, f"decision model: stay — {seen}")
+    if no_topic >= thresholds.no_topic:
+        return ScoredVerdict(VERDICT_NO_TOPIC, -1, f"decision model: no topic — {seen}")
+    return ScoredVerdict(VERDICT_NEW, -1, f"decision model: new — {seen}")
+
+
+# ── the call ───────────────────────────────────────────────────────────────
+
+
+def decision_endpoint_for_turn() -> Optional[DecisionEndpoint]:
+    """This turn's decision credential, or None (the turn then takes the
+    two-call path). Order: `NARRATIVE_DECISION_API_KEY`, else the user's own
+    provider key on the host of `NARRATIVE_DECISION_API_BASE` — see
+    `decision_model.resolve_decision_endpoint`."""
+    return resolve_decision_endpoint(
+        base_url=config.NARRATIVE_DECISION_API_BASE,
+        platform_key=config.NARRATIVE_DECISION_API_KEY,
+        model=config.NARRATIVE_DECISION_MODEL,
+        timeout_seconds=config.NARRATIVE_DECISION_TIMEOUT_SECONDS,
+    )
+
+
+async def decide(
+    inp: MergedRoutingInput, endpoint: DecisionEndpoint
+) -> MergedRoutingDecision:
     """Ask once. Never raise, never guess.
 
-    Validation is part of the answer, not a courtesy: an index past the menu or
-    a verdict outside the contract is indistinguishable, downstream, from a
-    confident wrong routing — so both come back as `ok=False` and the caller
-    keeps the turn where it already was.
+    ``endpoint`` is passed explicitly, never read from process state, so
+    concurrent turns of different users cannot use each other's key.
     """
-    try:
-        prompt = build_merged_prompt(inp)
-    except Exception as e:  # noqa: BLE001 — an assembly failure is not a verdict
-        # Rule 6 covers the WHOLE decider, assembly included (review round 5,
-        # I2): un-caught, a bad candidate field would kill the user's turn
-        # here, while the same defect on the two-call path is one warning and
-        # a degrade. Distinct log text from the call failure below — during
-        # the grey period, "our prompt bug" and "provider problem" must be
-        # tellable apart on the merged_verdict='failed' rows.
-        logger.warning(
-            f"[MergedRouting] prompt build failed: {type(e).__name__}: {e} "
-            f"(the turn stays where it was)"
-        )
+    def failed(reason: str, elapsed_ms: int = 0, **kw: Any) -> MergedRoutingDecision:
         return MergedRoutingDecision(
-            ok=False, verdict=VERDICT_FAILED,
-            reason=f"prompt build failed: {e}",
-            match_index=-1, elapsed_ms=0, prompt=None,
+            ok=False, verdict=VERDICT_FAILED, reason=reason, match_index=-1,
+            elapsed_ms=elapsed_ms, **kw,
         )
-    # Timing starts AFTER assembly, before the await: merged_ms is the CALL's
-    # self time (models.py), and folding assembly in would tilt the
-    # input_chars -> merged_ms regression this column exists to feed.
+
+    try:
+        request = build_decision_request(inp)
+    except Exception as e:  # noqa: BLE001 — an assembly failure is not a verdict
+        # Distinct log text from the call failure: "our bug" vs "provider
+        # problem" must be tellable apart on merged_verdict='failed' rows.
+        logger.warning(
+            f"[MergedRouting] decision request assembly failed: "
+            f"{type(e).__name__}: {e} (the turn stays where it was)"
+        )
+        return failed(f"decision request assembly failed: {e}")
+
+    # Timed after assembly: merged_ms is the call's own cost.
     started = _perf.monotonic()
     try:
-        result = await get_helper_sdk().llm_function(
-            instructions=prompt.instructions,
-            user_input=prompt.user_input,
-            output_type=MergedRoutingOutput,
-            model=config.NARRATIVE_JUDGE_LLM_MODEL,
-            reasoning_effort=config.NARRATIVE_JUDGE_LLM_REASONING_EFFORT or None,
-        )
-        output: MergedRoutingOutput = result.final_output
+        result = await ask_yes_no(endpoint, request.state, request.questions)
     except Exception as e:  # noqa: BLE001 — a provider failure is not a verdict
         elapsed_ms = int((_perf.monotonic() - started) * 1000)
         logger.warning(
-            f"[MergedRouting] call failed after {elapsed_ms}ms: "
+            f"[MergedRouting] decision call failed after {elapsed_ms}ms: "
             f"{type(e).__name__}: {e} (the turn stays where it was)"
         )
-        return MergedRoutingDecision(
-            ok=False, verdict=VERDICT_FAILED, reason=f"merged call failed: {e}",
-            match_index=-1, elapsed_ms=elapsed_ms, prompt=prompt,
-        )
-
+        return failed(f"decision call failed: {e}", elapsed_ms, request=request)
     elapsed_ms = int((_perf.monotonic() - started) * 1000)
-    invalid = _contract_violation(output, inp)
+
+    try:
+        answer = verdict_from_scores(
+            result.scores,
+            offers_anchor=inp.offers_anchor,
+            candidate_counts={k.verdict: len(inp.candidates(k)) for k in CANDIDATE_KINDS},
+            thresholds=DecisionThresholds.from_config(),
+        )
+        invalid = _contract_violation(answer, inp)
+    except Exception as e:  # noqa: BLE001 — an unreadable answer is not a verdict
+        invalid = f"scores unusable: {type(e).__name__}: {e}"
     if invalid:
         logger.warning(
             f"[MergedRouting] off-contract answer ({invalid}): "
-            f"verdict={output.verdict!r} index={output.match_index} "
-            f"(the turn stays where it was)"
+            f"scores={result.scores} (the turn stays where it was)"
         )
-        return MergedRoutingDecision(
-            ok=False, verdict=VERDICT_FAILED,
-            reason=f"off-contract answer ({invalid}): {output.reason}",
-            match_index=-1, elapsed_ms=elapsed_ms, prompt=prompt,
-        )
+        return failed(f"off-contract answer ({invalid})", elapsed_ms,
+                      request=request, result=result)
 
+    # Raw per-question scores on the log line: thresholds can be re-tuned
+    # offline without re-asking the model.
     logger.info(
-        f"[MergedRouting] {output.verdict}"
-        f"{f' #{output.match_index}' if output.match_index >= 0 else ''} — "
-        f"{output.reason[:120]}"
+        f"[MergedRouting] {answer.verdict}"
+        f"{f' #{answer.match_index}' if answer.match_index >= 0 else ''} — "
+        f"{answer.reason} | scores={result.scores}"
     )
     return MergedRoutingDecision(
-        ok=True, verdict=output.verdict, reason=output.reason,
-        match_index=output.match_index, elapsed_ms=elapsed_ms, prompt=prompt,
+        ok=True, verdict=answer.verdict, reason=answer.reason,
+        match_index=answer.match_index, elapsed_ms=elapsed_ms,
+        request=request, result=result,
     )
 
 
 def allowed_verdicts(inp: MergedRoutingInput) -> FrozenSet[str]:
-    """The verdicts THIS turn actually offers — one derivation.
-
-    `build_merged_instructions` renders exactly these into the answer table,
-    and `_contract_violation` refuses anything outside them, so the prose and
-    the contract cannot disagree (review Critical 1: they used to — the shared
-    core offered continue_anchor on turns the contract was guaranteed to
-    refuse, and every obedient model landed in merged_fallback_new).
-    """
+    """The verdicts THIS turn offers — the questions actually asked."""
     offered = {VERDICT_NEW, VERDICT_NO_TOPIC}
-    if inp.menu:
-        offered.add(VERDICT_MATCH)
-    if inp.anchor is not None and inp.anchor_is_continuable:
+    if inp.offers_anchor:
         offered.add(VERDICT_CONTINUE_ANCHOR)
-    if inp.participants:
-        offered.add(VERDICT_PARTICIPANT)
+    offered.update(k.verdict for k in CANDIDATE_KINDS if inp.candidates(k))
     return frozenset(offered)
 
 
-def _contract_violation(
-    output: MergedRoutingOutput, inp: MergedRoutingInput
-) -> Optional[str]:
-    """Why this answer is unusable, or None if it is fine."""
-    if output.verdict not in VALID_VERDICTS:
-        return "unknown verdict"
-    if output.verdict not in allowed_verdicts(inp):
-        # The prompt did not offer this verdict on this turn (no continuable
-        # anchor, or no participant section) — picking it is not an answer we
-        # can land, and landing it anyway would be a guess.
-        return f"verdict '{output.verdict}' was not offered on this turn"
-    if output.verdict == VERDICT_MATCH and not 0 <= output.match_index < len(inp.menu):
-        return "match index outside the menu"
-    if output.verdict == VERDICT_PARTICIPANT and not (
-        0 <= output.match_index < len(inp.participants)
-    ):
-        return "participant index outside the participant list"
+def _contract_violation(answer: ScoredVerdict, inp: MergedRoutingInput) -> Optional[str]:
+    """Why this answer cannot be landed, or None. The threshold rule cannot
+    produce these by construction; the landing still must never receive an
+    index the input does not hold."""
+    if answer.verdict not in allowed_verdicts(inp):
+        return f"verdict '{answer.verdict}' was not offered on this turn"
+    kind = _KIND_BY_VERDICT.get(answer.verdict)
+    if kind and not 0 <= answer.match_index < len(inp.candidates(kind)):
+        return f"{answer.verdict} index outside the asked candidates"
     return None
 
 
 def resolve_choice(
     decision: MergedRoutingDecision, inp: MergedRoutingInput
 ) -> Optional[str]:
-    """The narrative id a `match` / `participant` verdict names.
-
-    Bounds were already validated in `decide`; this is the lookup, kept next to
-    the contract it depends on rather than inlined at the call site.
-    """
-    if decision.verdict == VERDICT_MATCH:
-        return inp.menu[decision.match_index]["id"]
-    if decision.verdict == VERDICT_PARTICIPANT:
-        return inp.participants[decision.match_index]["id"]
-    return None
+    """The narrative id a switch verdict names (bounds checked in `decide`)."""
+    kind = _KIND_BY_VERDICT.get(decision.verdict)
+    return inp.candidates(kind)[decision.match_index]["id"] if kind else None

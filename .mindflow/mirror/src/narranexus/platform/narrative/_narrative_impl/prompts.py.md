@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/narrative/_narrative_impl/prompts.py
-last_verified: 2026-08-27
+last_verified: 2026-11-25
 stub: false
 ---
+
+## 2026-11-25 — 合并路由的 prompt 已删除
+
+合并路径改用决策模型(无 LLM)后,`prompts_merged.py` 及其全部指令片段被删除;
+下面 08-26 / 08-27 关于合并指令的条目是历史记录。本文件剩下的
+`_NO_DURABLE_TOPIC_RUBRIC` 只被两个 judge 变体逐字 splice。
+
 
 ## 2026-08-27 — 合并指令改为按轮拼装(review Critical 1)
 

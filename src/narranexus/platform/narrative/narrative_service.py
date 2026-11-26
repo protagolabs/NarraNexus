@@ -46,6 +46,7 @@ from ._narrative_impl import (
 if TYPE_CHECKING:
     from narranexus.platform.utils.db.database import AsyncDatabaseClient
     from narranexus.platform.schema.module_schema import InstanceStatus
+    from narranexus.platform.agent_framework.llm.decision_model import DecisionEndpoint
     from ._narrative_impl.landings import Landing
 
 
@@ -296,21 +297,30 @@ class NarrativeService:
         query_text = resolve_retrieval_text(retrieval_anchor, input_content)
 
         # Merged routing (off by default): BM25 runs FIRST, then either a
-        # zero-LLM shutter or ONE call answers both questions the rest of this
-        # method asks serially. An early return rather than a branch woven
-        # through the body — everything below it is the two-call path exactly as
-        # it was, which is what makes "flag off = today's behaviour" a property
-        # you can read instead of a claim you have to trust.
+        # zero-call shutter or ONE decision-model call answers both questions
+        # the rest of this method asks serially. It needs a decision credential
+        # resolved for THIS turn; without one the turn takes the two-call path
+        # below — a normal shape (no platform key, no qualifying user key).
+        # An early return rather than a woven branch, so "flag off = today's
+        # behaviour" stays readable.
         if config.NARRATIVE_MERGED_ROUTING_ENABLED:
-            return await self._select_merged(
-                agent_id=agent_id,
-                user_id=user_id,
-                query_text=query_text,
-                max_narratives=max_narratives,
-                session=session,
-                awareness=awareness,
-                is_user_chat=is_user_chat,
-                trigger=trigger,
+            from ._narrative_impl.merged_router import decision_endpoint_for_turn
+
+            decision_endpoint = decision_endpoint_for_turn()
+            if decision_endpoint is not None:
+                return await self._select_merged(
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    query_text=query_text,
+                    max_narratives=max_narratives,
+                    session=session,
+                    decision_endpoint=decision_endpoint,
+                    is_user_chat=is_user_chat,
+                    trigger=trigger,
+                )
+            logger.info(
+                "[NarrativeSelect] decision model unavailable for this user "
+                "(no platform key, no qualifying provider key) — two-call path"
             )
 
         # Continuity detection — wrapped in timed() so its LLM call is visible
@@ -540,7 +550,7 @@ class NarrativeService:
         query_text: str,
         max_narratives: int,
         session: Optional[ConversationSession],
-        awareness: Optional[str],
+        decision_endpoint: "DecisionEndpoint",
         is_user_chat: bool,
         trigger: str,
     ) -> NarrativeSelectionResult:
@@ -560,7 +570,7 @@ class NarrativeService:
             query_text=query_text,
             max_narratives=max_narratives,
             session=session,
-            awareness=awareness,
+            decision_endpoint=decision_endpoint,
             is_user_chat=is_user_chat,
             trigger=trigger,
         )

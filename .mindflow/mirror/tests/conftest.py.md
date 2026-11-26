@@ -1,6 +1,6 @@
 ---
 code_file: tests/conftest.py
-last_verified: 2026-10-29
+last_verified: 2026-11-25
 stub: false
 ---
 
@@ -36,3 +36,16 @@ module singleton would fill across modules and surface as an order-dependent
 swaps in a fresh limiter at the shipped/env-resolved limit around every test,
 and like `_clear_health_cache` it only touches the module if something
 already imported it.
+
+## 2026-11-25 — provider config proxies unpinned per test
+
+`api_config.openai_config` / `claude_config` / … are `_ConfigProxy` objects that
+resolve each read from the current task's ContextVar (else the global holder).
+`monkeypatch.setattr(proxy, field, x)` records the old value through the
+proxy's `__getattr__` and, on undo, writes it back as a real instance
+attribute — so the field stays pinned for every later test and per-task
+configs become invisible ("green alone, red in the full run"; hit by the
+decision-credential tests after `test_structured_blocklist_isolation.py` and
+`test_nexus_inprocess_steering.py`). An autouse teardown strips any instance
+attribute other than the proxy's own two after each test; it runs after
+monkeypatch's undo because monkeypatch is set up later and torn down first.

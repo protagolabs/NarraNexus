@@ -1,10 +1,23 @@
 ---
 code_file: src/narranexus/platform/narrative/_narrative_impl/merged_select.py
-last_verified: 2026-08-27
+last_verified: 2026-11-25
 stub: false
 ---
 
 # merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
+
+## 2026-11-25 — 决策者换成决策模型;凭据每轮由调用方解析
+
+快门之外的那一次判决现在是 `merged_router.decide(input, endpoint)`(决策模型,
+无 LLM)。`select_merged` 收 `decision_endpoint`(service 每轮解析好的凭据;没有
+凭据的轮次根本到不了这里),不再收 `awareness`(决策请求不含它)。计时器不再
+`tag_last_llm_call`——这条路上没有 helper LLM,那个 contextvar 只会标出陈旧/
+别处的型号——改为用 `DecisionResult` 打 `model / structured=decision /
+input_tokens / output_tokens`。token 用量**只记在 [TIMED] 行,不进 cost_records**:
+`record_cost` 会把行归到用户 helper 槽的 provider card(并可能触发配额钩子),
+而这次调用不是那张卡付的钱——硬塞进去是失真。`audit.merged_input_chars /
+merged_truncated` 改读 `decision.request`。落点与兜底一个字未改。
+
 
 ## 2026-08-27(round 9)— 锚点不得同时坐在 participant 段(I1)
 
@@ -52,8 +65,8 @@ MERGED_MENU_SIZE 管。钉:test_the_menu_knob_does_not_shrink_the_match_landing�
 (顺序=P0-4 优先级,只许前缀切片),**进 input 的 = prompt 显示的**;
 截断标记由本文件补进 merged_truncated(渲染器不再见到被切的尾巴)。
 钉子:`test_rule6_an_index_into_the_unrendered_participant_tail_is_refused`。
-BM25 准备段改调 [[merged_prep]] 的模块函数(round 2 I6);LLM 计时打标改走
-`agent_framework.llm.call_tagging.tag_last_llm_call`(I4,三处拷贝收敛)。
+BM25 准备段改调 [[merged_prep]] 的模块函数(round 2 I6)。(当时的 LLM 计时打标
+已于 2026-11-25 随决策模型替换移除。)
 
 ## 为什么存在
 
@@ -66,15 +79,15 @@ review 2026-08-27 Important 2:narrative_service.py 越过 800 行上限后又
 
 - `select_merged(crud, retrieval, write_audit, *, ...)` 主编排(round 7 起
   收**三个显式协作者**,不再收 service 实例):BM25 prepare(经
-  [[merged_prep]])→ 快门或一次 LLM → `_land(crud, retrieval, ...)` 按
+  [[merged_prep]])→ 快门或一次决策模型调用 → `_land(crud, retrieval, ...)` 按
   verdict 分发 → `anchor_rules.advance_session_anchor` → `write_audit`。
   service 侧只剩同名薄委托,传 `self._crud/_retrieval/_write_audit`。
 - 五个 verdict 的落点全部经 [[landings]] 的执行器(`Landing` 值对象也
   住在那里):`assemble_match_landing` / `load_participant_landing` /
   `land_no_topic`(直调模块函数,不绕 service)/ `create_from_query`
   (retrieval 方法)。**决策语义与最初搬迁时逐字一致**。
-- `_land_failure`:RULE 6(失败不是判决)单独成函,prompt 拼装失败与
-  provider 失败同归此处(日志文案区分两者)。
+- `_land_failure`:RULE 6(失败不是判决)单独成函,请求组装失败与
+  决策调用失败同归此处(日志文案区分两者)。
 
 ## 坑
 

@@ -513,8 +513,9 @@ class RoutingAudit(BaseModel):
     # like a switch-off row.)
     pool_is_shadow: bool = False
 
-    # ── merged routing (one call instead of two) ─────────────────────────
-    # Filled only when NARRATIVE_MERGED_ROUTING_ENABLED is on. On the two-call
+    # ── merged routing (one decision-model call instead of two) ──────────
+    # Filled only on turns that took the merged path (flag on AND a decision
+    # credential resolved for the turn). On the two-call
     # path the write side stores 0 / "" (merged_call, merged_verdict,
     # merged_truncated) and NULL for the rest (merged_ms, merged_input_chars,
     # anchor_*); rows written BEFORE this deploy are NULL throughout. So a
@@ -538,16 +539,13 @@ class RoutingAudit(BaseModel):
     # the same wrong conclusion ("routing spends 6 seconds in the database");
     # see todo/2026-08-25-retrieve-ms-nests-judge-ms.md.
     merged_ms: Optional[int] = None
-    # EVERY character the call sent — instructions AND user input. The x-axis
-    # of the latency model: instructions vary by variant and the variant
-    # correlates with the turn shape, so a user_input-only count would bias
-    # the slope (review round 2, I2), and the input budgets are only
-    # convertible to milliseconds if production records what it actually sent.
+    # Characters of the serialised decision request (state + questions). The
+    # x-axis of the latency model: the question count follows the turn shape,
+    # so a state-only count would bias the slope.
     merged_input_chars: Optional[int] = None
-    # Comma-separated section codes that hit their read-side cap
-    # (prev_response / prev_query / anchor_summary / awareness / query /
-    # participants). Empty when nothing was clamped — a silently shortened
-    # prompt is one nobody can explain afterwards.
+    # Comma-separated field codes that hit their read-side cap
+    # (prev_response / prev_query / query / participants). Empty when nothing
+    # was clamped — a silently shortened request cannot be explained later.
     merged_truncated: str = ""
 
     # ── the anchor's standing in BM25 (the §3.2 instrument) ──────────────

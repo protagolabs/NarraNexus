@@ -1,8 +1,28 @@
 ---
 code_file: src/narranexus/platform/narrative/config.py
-last_verified: 2026-08-27
+last_verified: 2026-11-25
 stub: false
 ---
+
+## 2026-11-25 — 合并路由改用决策模型;凭据每轮解析;启动校验
+
+`NARRATIVE_MERGED_ROUTING_ENABLED=1` 现在的意思是"用决策模型路由"(无 LLM、无
+LLM 兜底)。新增 `NARRATIVE_DECISION_API_BASE / _API_KEY / _MODEL /
+_TIMEOUT_SECONDS` 与三个阈值 `NARRATIVE_DECISION_STAY / SWITCH / NO_TOPIC_THRESHOLD`
+(0.2 / 0.3 / 0.5),是这些值的**唯一定义**;客户端本身不读环境变量。
+
+**凭据每轮解析**(`merged_router.decision_endpoint_for_turn`):平台 key 非空用
+平台 key;否则当前用户自己的 provider key,仅当其 base URL 的 host 等于
+`NARRATIVE_DECISION_API_BASE` 的 host;都没有 → 该轮走两次调用路径(正常部署形态,
+不是错误)。所以**开关开而平台 key 为空是合法的**,不做 key 的启动校验。
+
+**启动校验**(`_reject_invalid_decision_settings`,只在开关开时):阈值不在
+[0, 1]、超时 ≤ 0、base 没有 host → 拒绝启动。这些错不会让某一轮失败,而是静默
+关掉某个判决或所有用户 key 查找,所以在启动时拦。桶×合并互斥检查原样保留。
+
+删除 `MERGED_AWARENESS_MAX_CHARS`(决策请求不含 awareness)与
+`MERGED_ANCHOR_SUMMARY_MAX_CHARS`(锚点与其它候选一样走 `candidate_labels`)。
+注释块按新决策者重写;旧的退役条件条目指向的是已删除的合并 LLM prompt,一并移除。
 
 ## 2026-08-26 — `NARRATIVE_MERGED_ROUTING_ENABLED` + 合并 prompt 的输入预算
 
@@ -26,8 +46,7 @@ prompt 常量关时无引用;共享渲染块对 continuity/judge 字节相同(�
 是**读侧**上限:只裁 prompt 看到的内容,不改任何存储字段,全部保头。为什么
 两次调用时代不需要:那时每个 tier 只读字段的一个子集,而锚点块只在有锚点的
 轮次渲染;合并 prompt 每一轮都渲染全套,于是"某个字段偶尔很长"从一个 tier 的
-坏运气变成每一轮的延迟与账单。退役条件立单在
-`todo/2026-08-26-merged-routing-flag-retirement-condition.md`。
+坏运气变成每一轮的延迟与账单。
 
 ## 2026-08-16 — NARRATIVE_DEFAULT_BUCKETS_ENABLED（C-1 default 桶治理）
 

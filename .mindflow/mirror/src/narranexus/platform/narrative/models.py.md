@@ -1,10 +1,19 @@
 ---
 code_file: src/narranexus/platform/narrative/models.py
-last_verified: 2026-09-04
+last_verified: 2026-11-25
 stub: false
 ---
 
 # models.py — Narrative 模块所有数据模型的唯一来源
+
+## 2026-11-25 — `merged_input_chars` / `merged_truncated` 的口径随决策模型改变
+
+合并路径的判决改由决策模型作出后:`merged_input_chars` = 序列化后的决策请求
+(state + 全部问题)的字符数(原为 LLM instructions + user_input);
+`merged_truncated` 的字段码变为 prev_response / prev_query / query / participants
+(awareness 与 anchor_summary 不再出现)。开关在 prod 从未开过,没有存量行受影响;
+列类型与可空性不变。合并行现在只写在"开关开且本轮有决策凭据"的轮上。
+
 
 ## 2026-08-26 — `RoutingAudit` 的合并路由八列(全部可空、纯增量)
 

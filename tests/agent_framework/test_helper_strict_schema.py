@@ -116,7 +116,8 @@ def test_discovery_finds_the_helper_models():
     names = {qualified.rsplit(".", 1)[1] for qualified, _ in _DISCOVERED}
     # The two models from the 2026-08-25 incident must be in the sweep.
     assert {"ContinuityOutput", "UnifiedMatchOutput"} <= names
-    assert len(_DISCOVERED) >= 16, sorted(names)
+    # 15 since the merged-routing LLM call (MergedRoutingOutput) was removed.
+    assert len(_DISCOVERED) >= 15, sorted(names)
 
 
 @pytest.mark.parametrize(

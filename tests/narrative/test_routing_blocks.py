@@ -25,9 +25,8 @@ invalidate every one of them. Hence these are golden-string tests, transcribed
 from the pre-extraction source: they fail if the shared block renders so much as
 a different newline.
 
-The `include_score` / `summary_max_chars` / `include_bucket_note` parameters
-exist for the merged router, and each defaults to the old behaviour. This file
-asserts the DEFAULTS; `test_merged_routing_prompt.py` asserts the overrides.
+The renderers now serve only these two tiers; the read-side clamp they also
+export is pinned at the bottom of this file.
 """
 from __future__ import annotations
 

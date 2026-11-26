@@ -1,10 +1,21 @@
 ---
 code_file: src/narranexus/platform/narrative/narrative_service.py
-last_verified: 2026-08-27
+last_verified: 2026-11-25
 stub: false
 ---
 
 # narrative_service.py — Narrative 统一门面
+
+## 2026-11-25 — 合并路径的进入条件:开关开 **且** 本轮解析到决策凭据
+
+`select()` 的提前 return 现在先调 `merged_router.decision_endpoint_for_turn()`
+(函数内 import——开关关时既不 import 也不解析):有凭据 → `_select_merged(...,
+decision_endpoint=…)`;开关开但本轮没有凭据(无平台 key、用户也没有同 host 的
+provider key)→ 记一行 info 后落到下面的两次调用路径,原样执行;开关关 → 两次调用
+路径逐字节不变。`_select_merged` 不再传 `awareness`(决策请求不含它;两次调用路径
+的 continuity 照旧用)。合并路径一旦选定,调用失败走 `_land_failure`,**不**回落
+到 LLM 路径。
+
 
 ## 2026-08-27(round 7)— 委托改传三个协作者
 
@@ -55,7 +66,7 @@ test_a_background_continuation_turn_is_not_recorded 钉住。这是范围选择
 走 `_select_merged`。刻意是提前 return 而不是把分支织进方法体 —— 它下面的
 所有代码就是今天的两次调用路径**原样**,于是"开关关 = 今天的行为"是一条
 可以读出来的性质,不是一句要人相信的话(测试 `test_with_the_switch_off_the_
-two_call_path_is_untouched` 连 `build_merged_prompt` 都设成地雷)。
+two_call_path_is_untouched` 把凭据解析与请求组装都设成地雷)。
 
 **为什么值得做**(spec `2026-08-25-merged-routing-design.md` §4):prod 7 天
 真人轮 n=189 里 43 轮付两次调用,串行 p50 8,924ms / 均值 13,004ms,而整个

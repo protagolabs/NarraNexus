@@ -1,10 +1,21 @@
 ---
 code_file: src/narranexus/platform/narrative/_narrative_impl/routing_blocks.py
-last_verified: 2026-08-26
+last_verified: 2026-11-25
 stub: false
 ---
 
 # routing_blocks.py — 路由 prompt 的四个共享渲染块
+
+## 2026-11-25 — 合并 LLM prompt 删除,只服务 continuity 与 judge
+
+合并路径改用决策模型后不再渲染任何文本块。只为它存在的具名参数随之删除
+(`render_anchor_context` 的 header / absent_note / summary_max_chars /
+include_bucket_note,`render_previous_turn` 的两个 cap 与 absent_note),
+`Rendered.truncated` 也删了——没有调用方再传 cap。continuity / judge 的渲染字节
+不变(`test_routing_blocks.py` 的 golden 断言未改动且通过)。
+`render_search_candidates` 的 header / empty_note / include_score 保留:judge 与
+golden 测试显式传它们。`clamp_head` 保留,合并决策请求仍用它做读侧保头裁剪。
+
 
 ## 为什么存在
 
@@ -20,26 +31,18 @@ BM25 菜单、participant 线**。历史上每一次"复制而不是共享",复�
   review round 2 抓到的。
 
 合并调用是第四个消费者 —— 正是这个模式会重演的时刻。所以块下沉到这里,
-合并 prompt 是这些块的**组合**,不是第四份文案。
+合并 prompt 曾是这些块的**组合**(2026-11-25 起合并路径改用决策模型,不再渲染文本)。
 
 ## 字节相同是硬契约
 
 continuity 与 judge 必须渲染出**与本文件出现之前完全一样**的文本:它们的
 prompt 被一堆实测数字钉着(M6 = 20.8%、P1 校准、description 退休干跑),
-一个空格的变化就静默作废那些数字。所以合并路径需要的每一处差异都是
-**具名参数,老行为做默认值**:
+一个空格的变化就静默作废那些数字。曾经只为合并 LLM prompt 存在的具名参数已于
+2026-11-25 删除(见上);剩下的 `render_search_candidates(header, empty_note,
+include_score)` 由 judge 显式传值。
 
-| 参数 | 谁用 | 为什么不同 |
-|---|---|---|
-| `header` | 合并路径给锚点块换成"staying here is the DEFAULT" | 不对称性铁规要在标题上就说清 |
-| `summary_max_chars` | 只有合并路径传 | 锚点块在每一轮合并里都渲染,summary 没有硬上界 |
-| `include_bucket_note` | 合并路径传 False | 桶开关与合并开关互斥断言 ⇒ 桶不可能占锚点位,留着是自相矛盾的惰性指令 |
-| `include_score` | judge 传 True(钉住),合并传 False | 挤压分跨池无意义,与"快门不读总分"同一条纪律 |
-| `absent_note` | 两边各自的"没有锚点"措辞 | 缺失的段落读作"没提",显式的"没有"读作事实 |
-| `max_candidates` | 只有合并路径传 | 取**前缀**,顺序就是 P0-4 优先级,不许为了塞进预算重排 |
-
-`test_merged_routing_prompt.py` 里有四条 golden 断言(judge 菜单、judge 空
-菜单、continuity 锚点块、continuity 上一轮块)逐字节钉住老渲染。
+`test_routing_blocks.py` 里的 golden 断言(judge 菜单、judge 空菜单、continuity
+锚点块、continuity 上一轮块)逐字节钉住老渲染。
 
 ## 读侧裁剪
 
@@ -51,7 +54,7 @@ prompt 被一堆实测数字钉着(M6 = 20.8%、P1 校准、description 退休�
 ## 上下游关系
 
 - **被谁用**: `continuity.py`(锚点块 + 上一轮块)、`_retrieval_llm.py`
-  (菜单 + participant 区)、`merged_router.py`(四个都用)
+  (菜单 + participant 区)、`merged_router.py`(只用 `clamp_head`)
 - **依赖谁**: 只依赖 `models.Narrative` 的字段与 `loguru`。**没有** DB、
   没有 LLM、没有 config —— 预算常量由调用方传入,这样它是纯函数、可 golden 测
 
