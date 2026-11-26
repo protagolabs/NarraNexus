@@ -6,6 +6,13 @@ stub: false
 
 # merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
 
+## 2026-11-26 — 网关 key 不记 owner 的账
+
+新增的 `key_source=agent_scoped`(云端每 agent 的封顶网关 key)与平台 key 一样是
+平台的花费:`_book_borrowed_key_usage` 仍只在 `key_source == helper_llm` 时记账,
+代码未改,只更新 docstring;有测试钉(同一 owner 若被借 key 会记一行,网关 key 优先
+时 `cost_records` 为空)。
+
 ## 2026-11-25(修订)— 借来的 key 记到出钱的那张卡上
 
 此前"决策调用不进 cost_records"的理由只对平台 key 成立。借用 owner 的 helper 槽
@@ -15,7 +22,7 @@ key 时,出钱的正是那张卡,所以 `_book_borrowed_key_usage` 经同一个
 input/output tokens;平台 key 只记 [TIMED] 行。`record_cost` 只写一行账,不扣配额、
 不动钱包(它不带任何配额/钱包钩子);这行会进 per-user 日花费熔断(job 的 B-14)的
 求和——那是真实花费,不算重复扣费。免费档网关卡按 host 规则永远不会被借,所以不会有
-决策账记到它头上(有测试钉)。`typesafe/jev-1.13` 的价格来自
+决策账记到它头上(有测试钉)。`typesafe/jev-1.13` / `typesafe/jev-1.14` 的价格来自
 `utils/model_pricing.py` 的 `_LOCAL_OVERRIDES`:厂商公开标价 $0.042 / 1M 输入 token、
 输出免费(标价,不是聚合商发票价)。换成价目表里没有的模型名(如以后的新版本)时,
 `price_for` 返回 None,tokens 照记,费用记 $0,并对每个进程警告一次,需补一条。

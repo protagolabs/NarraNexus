@@ -10,6 +10,8 @@ up looking like "the user has no free tier".
 """
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -17,6 +19,7 @@ from narranexus.platform.integrations.free_tier.wallet_client import (
     WalletClient,
     WalletDenied,
     WalletMissing,
+    WalletRejected,
     WalletUnavailable,
 )
 
@@ -125,3 +128,88 @@ def test_from_settings_is_none_when_unconfigured(monkeypatch):
 
     monkeypatch.setenv("FREE_TIER_WALLET_API_TOKEN", "tok")
     assert WalletClient.from_settings() is not None
+
+
+# ── decision keys ──────────────────────────────────────────────────────────
+
+DECISION_KEY = "sk-nxdm-" + "ab" * 32
+GATEWAY = "http://litellm:4000/v1"
+
+
+@pytest.mark.asyncio
+async def test_decision_key_posts_the_agent_and_returns_its_key():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={
+            "agent_id": "agent_1", "api_key": DECISION_KEY, "base_url": GATEWAY,
+            "max_budget": 1.0, "budget_duration": "30d",
+        })
+
+    grant = await _client(handler).decision_key("agent_1")
+    assert (grant.api_key, grant.base_url) == (DECISION_KEY, GATEWAY)
+    assert DECISION_KEY not in repr(grant)
+    (request,) = seen
+    assert (request.method, request.url.path) == ("POST", "/v1/decision-keys")
+    assert request.headers["Authorization"] == "Bearer tok"
+    assert json.loads(request.content) == {"agent_id": "agent_1"}
+
+
+@pytest.mark.asyncio
+async def test_decision_key_404_means_an_older_quota_api_not_a_missing_wallet():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": "Not Found"})
+
+    with pytest.raises(WalletUnavailable, match="decision-keys"):
+        await _client(handler).decision_key("agent_1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status, error",
+    [
+        (401, WalletDenied), (422, WalletRejected), (502, WalletUnavailable),
+        # Busy, not a bad input: service-level, so the caller pauses once.
+        (408, WalletUnavailable), (429, WalletUnavailable),
+    ],
+)
+async def test_decision_key_errors_keep_the_wallet_vocabulary(status, error):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={"detail": "nope"})
+
+    with pytest.raises(error):
+        await _client(handler).decision_key("agent_1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"base_url": GATEWAY}, {"api_key": "", "base_url": GATEWAY},
+        {"api_key": 7, "base_url": GATEWAY}, ["sk-x"],
+        # An older quota-api (no base_url) or a malformed one: never guessed.
+        {"api_key": DECISION_KEY},
+        {"api_key": DECISION_KEY, "base_url": ""},
+        {"api_key": DECISION_KEY, "base_url": "litellm:4000/v1"},
+        {"api_key": DECISION_KEY, "base_url": "/v1"},
+        {"api_key": DECISION_KEY, "base_url": "ftp://litellm/v1"},
+        {"api_key": DECISION_KEY, "base_url": 7},
+        # Userinfo, a query or a fragment: the key could go elsewhere.
+        {"api_key": DECISION_KEY, "base_url": "https://gw@other/v1"},
+        {"api_key": DECISION_KEY, "base_url": "http://user:pw@litellm:4000/v1"},
+        {"api_key": DECISION_KEY, "base_url": "http://litellm:4000/v1?to=other"},
+        {"api_key": DECISION_KEY, "base_url": "http://litellm:4000/v1?"},
+        {"api_key": DECISION_KEY, "base_url": "http://litellm:4000/v1#frag"},
+        # A key the resolver would silently drop (uncapped fallback): refused.
+        {"api_key": "sk-nxdm-has space", "base_url": GATEWAY},
+        {"api_key": "sk-nxdm-\n", "base_url": GATEWAY},
+        {"api_key": "sk-nxdm-\u00e9", "base_url": GATEWAY},
+    ],
+)
+async def test_decision_key_without_a_key_or_an_absolute_base_url_is_unavailable(body):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    with pytest.raises(WalletUnavailable):
+        await _client(handler).decision_key("agent_1")

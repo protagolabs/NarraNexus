@@ -8,7 +8,7 @@ stub: false
 
 ## 为什么存在
 
-决策模型(当前是 TypeSafe `jev-1.13`,经 `/alpha/decisions` 提供)和 helper
+决策模型(当前默认是 TypeSafe `jev-1.14`,经 `/alpha/decisions` 提供)和 helper
 LLM 是两种调用形状:它不写文本,只对一个 state 回答若干 typed 问题,每题回一个
 "是"的概率。硬塞进 `helper_sdk.llm_function` 只会扭曲那个契约,所以单独一个小
 API。第一个消费者是叙事合并路由(`narrative/_narrative_impl/merged_router.py`)。
@@ -21,7 +21,12 @@ API。第一个消费者是叙事合并路由(`narrative/_narrative_impl/merged_
    由调用方以 `DecisionEndpoint` 显式传入。
 2. **凭据解析** `resolve_decision_endpoint(...)`:每轮调用一次,**凭据策略只住在
    这一个函数里**(平台 key 适用于哪些用户等策略将来只改这里):
-   - 平台 key 可发送(见下)→ 用它,`key_source=platform`,对所有轮次生效;
+   - 调用方传入的 `agent_scoped`(`AgentScopedKey`:为本轮 agent 单独签发的 key +
+     它必须发往的 base)可发送 → 用它,请求发往**它自己的 base**,
+     `key_source=agent_scoped`(用量是平台的花费,不记 owner 的账);取这把 key 要
+     agent id、冷缓存时要走网络,所以由调用方异步取好再传进来,本函数保持同步、
+     不认识任何厂商/网关;
+   - 否则平台 key 可发送(见下)→ 用它,`key_source=platform`,对所有轮次生效;
    - 否则 **agent owner 的 active helper 槽凭据**——即该轮 ingress
      (`get_agent_owner_runtime_llm_configs`)装进当前 task 的配置——按
      `get_helper_sdk` 的同一优先级取:装了订阅/CLI helper → 无 key 可借;装了
@@ -31,6 +36,13 @@ API。第一个消费者是叙事合并路由(`narrative/_narrative_impl/merged_
    - 都没有 → None(该轮走两次调用路径)。
 
 ## 设计决策
+
+- **签发方的"key 被拒"钩子挂在 endpoint 上**:`DecisionEndpoint.on_rejected`(不参与
+  repr/比较)。`ask_yes_no` 收到 **401 或 403**(有的网关对被封禁的 key 回 403)时先调
+  它再抛 `http_<status>`——签发方借此安排复查(轮换 / 吊销;如何处理是签发方的事,
+  见 `integrations/free_tier/decision_keys`);其它任何失败(422/5xx/超时)都不调——
+  422 是花费上限,不是 key 坏了,不能触发 key 查询。客户端只知道"凭据被拒",不知道是
+  谁签发的,换签发方不动调用方。
 
 - **只认当前 task 上真正装好的配置**(`snapshot_user_config()`),不读 proxy 的
   进程级 holder 回落:每一轮的 ingress 在云端与本地模式下都会装 owner 的已解析

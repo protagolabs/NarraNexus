@@ -261,13 +261,16 @@ class NarrativeConfig:
     # of routing is 47.6ms mean.
     #
     # The decision credential is resolved PER TURN (decision_model.
-    # resolve_decision_endpoint): NARRATIVE_DECISION_API_KEY if set, else the
-    # agent owner's helper-slot provider key (the configs the turn's ingress
-    # installed) when its base-URL host equals NARRATIVE_DECISION_API_BASE's
-    # host. A turn with no qualifying credential takes the two-call path — a
-    # normal deployment shape (local/desktop without that provider, free-tier
-    # owners on the internal gateway), not an error. A borrowed key's usage is
-    # booked to that owner's helper card; the platform key's is only logged.
+    # resolve_decision_endpoint): in the cloud with the free-tier gateway
+    # (FREE_TIER_WALLET_API_URL/_TOKEN set), the agent's own capped gateway
+    # key, sent to the gateway address quota-api returns with it; else
+    # NARRATIVE_DECISION_API_KEY if set; else the agent owner's helper-slot
+    # provider key (the configs the turn's ingress installed) when its
+    # base-URL host equals NARRATIVE_DECISION_API_BASE's host. A turn with no
+    # qualifying credential takes the two-call path — a normal deployment
+    # shape (local/desktop without that provider), not an error. A borrowed
+    # key's usage is booked to that owner's helper card; the gateway key's and
+    # the platform key's are the platform's and only logged.
     #
     # ROLLBACK IS THE FLAG, and it rolls back exactly the ROUTING STRUCTURE:
     #   * the shared prompt blocks (`routing_blocks.py`) render the continuity
@@ -291,7 +294,7 @@ class NarrativeConfig:
         "NARRATIVE_DECISION_API_BASE", netmind_inference_url("openai")
     )
     NARRATIVE_DECISION_API_KEY = _env("NARRATIVE_DECISION_API_KEY", "")
-    NARRATIVE_DECISION_MODEL = _env("NARRATIVE_DECISION_MODEL", "typesafe/jev-1.13")
+    NARRATIVE_DECISION_MODEL = _env("NARRATIVE_DECISION_MODEL", "typesafe/jev-1.14")
     # Hard total wall for the one request. No retry: on a failure the turn
     # stays where it was, which is cheaper than a second round trip.
     NARRATIVE_DECISION_TIMEOUT_SECONDS = float(
@@ -478,7 +481,8 @@ def _reject_invalid_decision_settings(cfg: "NarrativeConfig") -> None:
     fail a turn — it silently disables a verdict, every decision call, every
     owner-key lookup, or the platform key — so it is caught here, in the
     same fail-closed style as the check above. The key is NOT required:
-    without one, turns with no qualifying owner key take the two-call path.
+    without one, turns with neither an agent gateway key nor a qualifying
+    owner key take the two-call path.
     """
     if not cfg.NARRATIVE_MERGED_ROUTING_ENABLED:
         return

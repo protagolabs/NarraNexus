@@ -180,7 +180,9 @@ append 进 `agent_slot_clear_audit`，让误操作**可追溯、可据此恢复*
 ## 2026-11-26 — `merged_verdict` 列注释:两次调用路径不再只写空串
 
 无 schema 变更。两次调用路径在开关开而本轮没走合并路径时写 `no_credential` /
-`credential_error`(见 [[narrative_service]]),列注释同步。
+`key_service_unavailable` / `credential_error`(见 [[narrative_service]]、
+[[merged_router]]),列注释同步;最长的 `key_service_unavailable` 23 字符,装得进
+MySQL 的 `VARCHAR(32)`。
 
 ## 2026-08-26 — `narrative_routing_audit` 的合并路由八列(纯增量)
 

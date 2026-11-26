@@ -6,10 +6,33 @@ stub: false
 
 # merged_router.py — 合并路由的决策器:一次决策模型请求回答"续不续 / 去哪儿"
 
+## 2026-11-26 — 云端先用 agent 自己的网关 key
+
+`decision_endpoint_for_turn(agent_id)` 变成 async、收 agent id:若
+`integrations.free_tier.decision_keys.decision_key_issuer()` 存在(云端 + 免费档钱包
+服务已配),先 `await issuer.key_for(agent_id)` 取该 agent 的封顶网关 key 及 quota-api
+给的网关地址(不是配置里的 LLM 网关地址,那是拒绝决策路由的沙箱代理),作为
+`agent_scoped` 传给 `resolve_decision_endpoint`;优先级仍只住在那个函数里(网关 key
+→ 平台 key → owner helper 槽 key → None),本函数只收集输入。取不到 key(quota-api
+不可达 / 旧版 / 超时)时 issuer 返回 None,自然落到平台 key。issuer 以模块级名字导入,
+流程测试 monkeypatch `merged_router.decision_key_issuer` 注入真 issuer + 假网络。
+
+**解析时机没有后移到决策调用前**(评审 Minor 3 的取舍):凭据在 `select()` 里、
+合并路径之前解析,所以快门本可零调用回答的轮次在冷缓存时也付一次取 key。后移需要
+`select_merged` 在 BM25 prep 之后、审计行已标 `merged_call=1` 时再退回两次调用路径
+(重跑检索、`no_credential` / `credential_error` 的标注分散到两处),不是小而干净的
+改动,所以保留现状。代价有界:每进程每 agent 一次 quota-api 往返(失败时每个 60s
+间隔至多一次),上限 2s;热缓存只是一次字典查找。
+
+`decide` 的调用失败日志带上 `key_source`:网关 key 上的 `http_422`(该 agent 当月
+额度用完,`budget_exceeded`)与其它来源上的同一状态码由此可区分,日志里还有已擦除
+key 的响应体摘录。审计行不变(`merged_verdict='failed'`、reason=`http_422`)——额度
+用完就是普通的决策失败:守锚点、不换凭据、不走 LLM。
+
 ## 2026-11-25 — 决策者从 helper LLM 换成决策模型
 
 Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.decision_model`,
-当前 `typesafe/jev-1.13`)作出,**速度优先于准确**——agent loop 里的
+当前默认 `typesafe/jev-1.14`)作出,**速度优先于准确**——agent loop 里的
 `switch_narrative` / `create_narrative` 是误归档的兜底。本路径**没有任何 LLM
 调用,也没有 LLM 兜底**。原来的五选一 prompt(`prompts_merged.py`、
 `build_merged_prompt`、`MergedRoutingOutput`、相关字面量与测试)已整体删除。
@@ -34,9 +57,20 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
   可问且 ≥ stay → continue_anchor;否则 no_topic ≥ 阈值 → no_topic;否则 new。
   刻意偏向留下(0.2 < 0.3,457 轮人工标注集上保住 92.0% 的真续接)。缺分数抛
   KeyError,不默认。阈值是 `DecisionThresholds`,`decide` 每次从 config 取。
-- `VERDICT_NO_CREDENTIAL` / `VERDICT_CREDENTIAL_ERROR`:不是合并路径的判决,而是
-  [[narrative_service]] 在**两次调用路径**的审计行上写的"开关开但没走合并路径"的
-  原因;放在这里是因为 `merged_verdict` 的词表只在一处定义。
+- `VERDICT_NO_CREDENTIAL` / `VERDICT_KEY_SERVICE_UNAVAILABLE` /
+  `VERDICT_CREDENTIAL_ERROR`:不是合并路径的判决,而是 [[narrative_service]] 在**两次
+  调用路径**的审计行上写的"开关开但没走合并路径"的原因;放在这里是因为
+  `merged_verdict` 的词表只在一处定义。`decision_endpoint_for_turn` 返回
+  `TurnDecisionCredential(endpoint, skip_verdict)`(`skip_verdict` 无默认值,"既无
+endpoint 又无判决"无法被顺手构造出来),service 只照抄 `skip_verdict`,
+  不知道免费档的存在。**`key_service_unavailable`(23 字符,装得进 MySQL 的
+  `VARCHAR(32)`)**:本部署**有** per-agent key 服务(issuer 存在),它这一轮给不出
+  key(quota-api 宕机/暂停中、拒绝了该 agent、回复缺可用 `base_url`),且平台 key 与
+  owner key 都不合格——把"密钥服务挂了"写进审计表,重启后仍可 SQL 查到,而不只靠一条
+  日志(`[DecisionKeys] quota-api …` warning 仍在,给出具体原因)。**`no_credential`**
+  只留给根本没有 issuer 的部署(本地/桌面、没配钱包服务的云端)且没有别的凭据。issuer
+  给不出 key 但平台 key / owner key 合格时,照常走合并路径,不额外标注。持有 key 的
+  agent 不受暂停影响,仍走合并路径。
 - `decide(inp, endpoint)`:一次调用,永不抛、永不猜。组装失败 / 调用失败 / 分数不
   可用或越出契约 → `ok=False, verdict=failed`,日志文案区分"组装失败"与"调用失败"。
   失败的 `reason` **只含固定类别**(`assembly` / `timeout` / `transport` /
@@ -51,9 +85,9 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
 输入字段、展示 flag);问题构建、阈值规则、`allowed_verdicts`、越界检查、
 `resolve_choice` 都按这张表走。key 里的序号就是对应输入列表的下标。
 
-`decision_endpoint_for_turn()` 把叙事配置接到通用的凭据解析上(平台 key → agent
-owner 的 active helper 槽、同 host 的 provider key(该轮 ingress 装进 task 的配置)
-→ None;策略本身只住在 `decision_model.resolve_decision_endpoint`),由
+`decision_endpoint_for_turn(agent_id)` 把叙事配置接到通用的凭据解析上(agent 的
+网关 key → 平台 key → agent owner 的 active helper 槽、同 host 的 provider key(该轮
+ingress 装进 task 的配置)→ None;策略本身只住在 `decision_model.resolve_decision_endpoint`),由
 `narrative_service.select()` 每轮调用;None 时该轮走两次调用路径。凭据以参数显式
 传给 `decide`,并发轮次不可能串 key。
 
@@ -70,7 +104,8 @@ owner 的 active helper 槽、同 host 的 provider key(该轮 ingress 装进 ta
 
 - **被谁用**:`merged_select.select_merged`(`decide` / `resolve_choice` /
   verdict 常量)、`narrative_service.select`(`decision_endpoint_for_turn`)。
-- **依赖谁**:`agent_framework.llm.decision_model`、`landings.candidate_labels`、
+- **依赖谁**:`agent_framework.llm.decision_model`、
+  `integrations.free_tier.decision_keys`、`landings.candidate_labels`、
   `routing_blocks.clamp_head`、`config`(阈值 / 上限 / 决策端点)。
 - **测试**:`tests/narrative/test_merged_decider.py`(三个单元各自)、
   `tests/narrative/test_merged_routing.py`(端到端落点、凭据、兜底)。

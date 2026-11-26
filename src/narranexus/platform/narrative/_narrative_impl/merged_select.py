@@ -273,8 +273,8 @@ async def _book_borrowed_key_usage(
 ) -> None:
     """A borrowed helper-slot key's call is that card's spend: book it through
     the same seam as helper calls, so the ledger attributes it to the owner's
-    helper card. The platform key is not the owner's spend — its usage stays
-    on the [TIMED] line only."""
+    helper card. The platform key and an agent-scoped gateway key are not the
+    owner's spend — their usage stays on the [TIMED] line only."""
     if endpoint.key_source != KEY_SOURCE_HELPER_SLOT:
         return
     from narranexus.platform.utils.cost_tracker import (

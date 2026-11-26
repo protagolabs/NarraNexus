@@ -299,10 +299,10 @@ class NarrativeService:
         # Merged routing (off by default): BM25 runs FIRST, then either a
         # zero-call shutter or ONE decision-model call answers both questions
         # the rest of this method asks serially. It needs a decision credential
-        # resolved for THIS turn; without one (or if resolution itself breaks)
-        # the turn takes the two-call path below — a normal shape, not an
-        # error. An early return rather than a woven branch, so "flag off =
-        # today's behaviour" stays readable.
+        # resolved for THIS turn and agent; without one (or if resolution
+        # itself breaks) the turn takes the two-call path below — a normal
+        # shape, not an error. An early return rather than a woven branch, so
+        # "flag off = today's behaviour" stays readable.
         #
         # `merged_skip` is why a flag-on turn is on the two-call path anyway;
         # it lands in the audit row's `merged_verdict` so the merged path's
@@ -311,12 +311,11 @@ class NarrativeService:
         if config.NARRATIVE_MERGED_ROUTING_ENABLED:
             from ._narrative_impl.merged_router import (
                 VERDICT_CREDENTIAL_ERROR,
-                VERDICT_NO_CREDENTIAL,
                 decision_endpoint_for_turn,
             )
 
             try:
-                decision_endpoint = decision_endpoint_for_turn()
+                credential = await decision_endpoint_for_turn(agent_id)
             except Exception as e:  # noqa: BLE001 — routing must still happen
                 logger.warning(
                     f"[NarrativeSelect] decision credential resolution failed: "
@@ -324,14 +323,15 @@ class NarrativeService:
                 )
                 decision_endpoint, merged_skip = None, VERDICT_CREDENTIAL_ERROR
             else:
+                decision_endpoint = credential.endpoint
                 if decision_endpoint is None:
                     # A normal shape on every such turn — the audit row is the
                     # signal, so this stays out of the info stream.
                     logger.debug(
                         "[NarrativeSelect] no qualifying decision credential "
-                        "for this turn — two-call path"
+                        f"for this turn ({credential.skip_verdict}) — two-call path"
                     )
-                    merged_skip = VERDICT_NO_CREDENTIAL
+                    merged_skip = credential.skip_verdict
             if decision_endpoint is not None:
                 return await self._select_merged(
                     agent_id=agent_id,

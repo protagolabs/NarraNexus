@@ -43,6 +43,7 @@ from narranexus.platform.agent_framework.llm.decision_model import (
     resolve_decision_endpoint,
     serialise,
 )
+from narranexus.platform.integrations.free_tier.decision_keys import decision_key_issuer
 
 from ..config import config
 from . import routing_blocks
@@ -79,6 +80,11 @@ VERDICT_FAILED = "failed"
 #: row and the merged path's coverage cannot be read from the table.
 VERDICT_NO_CREDENTIAL = "no_credential"
 VERDICT_CREDENTIAL_ERROR = "credential_error"
+#: Like `no_credential`, but this deployment HAS a per-agent key service and it
+#: could not supply a key for this turn (down, paused, refused the agent, or
+#: an unusable reply). Separate so "the key service failed" survives a restart
+#: as SQL, not only as a log line. Fits the column (VARCHAR(32)).
+VERDICT_KEY_SERVICE_UNAVAILABLE = "key_service_unavailable"
 
 
 # ── candidate kinds ────────────────────────────────────────────────────────
@@ -341,17 +347,39 @@ def verdict_from_scores(
 # ── the call ───────────────────────────────────────────────────────────────
 
 
-def decision_endpoint_for_turn() -> Optional[DecisionEndpoint]:
-    """This turn's decision credential, or None (the turn then takes the
-    two-call path). Order: `NARRATIVE_DECISION_API_KEY`, else the agent
-    owner's helper-slot provider key (installed by the turn's ingress) on the
-    host of `NARRATIVE_DECISION_API_BASE` — the policy itself lives in
-    `decision_model.resolve_decision_endpoint`."""
-    return resolve_decision_endpoint(
+@dataclass(frozen=True)
+class TurnDecisionCredential:
+    """This turn's decision endpoint, or why there is none."""
+
+    endpoint: Optional[DecisionEndpoint]
+    #: The `merged_verdict` for the two-call row when ``endpoint`` is None;
+    #: "" when there is an endpoint. No default: a caller must say which.
+    skip_verdict: str
+
+
+async def decision_endpoint_for_turn(agent_id: str) -> TurnDecisionCredential:
+    """This turn's decision credential, or none (the turn then takes the
+    two-call path). Order: the agent's own gateway key (cloud with the
+    free-tier gateway; sent to the gateway address quota-api returns with it),
+    else `NARRATIVE_DECISION_API_KEY`, else the agent owner's helper-slot
+    provider key (installed by the turn's ingress) on the host of
+    `NARRATIVE_DECISION_API_BASE` — the policy itself lives in
+    `decision_model.resolve_decision_endpoint`; this only gathers its inputs."""
+    issuer = decision_key_issuer()
+    endpoint = resolve_decision_endpoint(
         base_url=config.NARRATIVE_DECISION_API_BASE,
         platform_key=config.NARRATIVE_DECISION_API_KEY,
         model=config.NARRATIVE_DECISION_MODEL,
         timeout_seconds=config.NARRATIVE_DECISION_TIMEOUT_SECONDS,
+        agent_scoped=await issuer.key_for(agent_id) if issuer is not None else None,
+    )
+    if endpoint is not None:
+        return TurnDecisionCredential(endpoint, "")
+    # An issuer's key would have won, so with an issuer present "nothing
+    # qualified" means it could not supply one.
+    return TurnDecisionCredential(
+        None,
+        VERDICT_KEY_SERVICE_UNAVAILABLE if issuer is not None else VERDICT_NO_CREDENTIAL,
     )
 
 
@@ -389,9 +417,12 @@ async def decide(
         result = await ask_yes_no(endpoint, request.state, request.questions)
     except DecisionModelError as e:
         elapsed_ms = int((_perf.monotonic() - started) * 1000)
-        # The client builds and scrubs this detail; it carries no key.
+        # The client builds and scrubs this detail; it carries no key. The
+        # key source tells "this agent's gateway cap is used up" (a 422 on an
+        # agent-scoped key) apart from the same status elsewhere.
         logger.warning(
-            f"[MergedRouting] decision call failed after {elapsed_ms}ms: "
+            f"[MergedRouting] decision call failed after {elapsed_ms}ms "
+            f"(key_source={endpoint.key_source}): "
             f"{e.category}: {e} (the turn stays where it was)"
         )
         return failed(e.category, elapsed_ms, request=request)

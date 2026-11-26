@@ -598,3 +598,60 @@ async def test_local_mode_turns_borrow_the_owner_key_the_ingress_installed(monke
 
     ep = await asyncio.create_task(ingress_then_resolve())
     assert ep is not None and ep.api_key == "desktop-owner-key"
+
+
+# ── an agent-scoped key comes first ────────────────────────────────────────
+
+from narranexus.platform.agent_framework.llm.decision_model import (  # noqa: E402
+    KEY_SOURCE_AGENT_SCOPED,
+    AgentScopedKey,
+)
+
+GATEWAY_BASE = "http://litellm:4000/v1"
+
+
+async def test_an_agent_scoped_key_wins_over_the_platform_and_the_owner_key():
+    rejected: list[str] = []
+
+    async def run():
+        set_user_config(
+            ClaudeConfig(), OpenAIConfig(api_key="owner-key", base_url=DECISION_BASE),
+            CodexConfig(), None, None,
+        )
+        return resolve_decision_endpoint(
+            base_url=DECISION_BASE, platform_key="platform-key",
+            model="typesafe/jev-1.13", timeout_seconds=3.0,
+            agent_scoped=AgentScopedKey(
+                GATEWAY_BASE, "sk-nxdm-agent", on_rejected=lambda: rejected.append("x")
+            ),
+        )
+
+    ep = await asyncio.create_task(run())
+    assert ep is not None and ep.api_key == "sk-nxdm-agent"
+    assert ep.key_source == KEY_SOURCE_AGENT_SCOPED
+    assert ep.base_url == GATEWAY_BASE, "sent to the issuer, not the decision base"
+    ep.on_rejected()
+    assert rejected == ["x"], "the issuer's hook rides on the endpoint"
+
+
+@pytest.mark.parametrize("key", UNSENDABLE_KEYS)
+async def test_an_unsendable_agent_scoped_key_falls_through_to_the_platform_key(key):
+    ep = resolve_decision_endpoint(
+        base_url=DECISION_BASE, platform_key="platform-key",
+        model="typesafe/jev-1.13", timeout_seconds=3.0,
+        agent_scoped=AgentScopedKey(GATEWAY_BASE, key),
+    )
+    assert ep is not None and ep.key_source == KEY_SOURCE_PLATFORM
+
+
+async def test_a_refused_key_tells_the_issuer_and_other_failures_do_not():
+    """401 and 403 (some gateways answer a blocked key with 403) refuse the
+    key; 422 is the spend cap and must not trigger key lookups."""
+    for status, expected in ((401, ["rejected"]), (403, ["rejected"]), (422, []), (500, [])):
+        told: list[str] = []
+        endpoint = _endpoint(on_rejected=lambda: told.append("rejected"))
+        async with _client(lambda req, s=status: httpx.Response(s, json={})) as client:
+            with pytest.raises(DecisionModelError) as exc:
+                await ask_yes_no(endpoint, {"m": "hi"}, QUESTIONS, client=client)
+        assert exc.value.category == f"http_{status}"
+        assert told == expected, status
