@@ -1,14 +1,21 @@
 ---
 code_file: src/narranexus/platform/narrative/_narrative_impl/_retrieval_llm.py
-last_verified: 2026-08-26
+last_verified: 2026-11-25
 stub: false
 ---
+
+## 2026-11-25 — 菜单渲染不再传 `include_score`
+
+`routing_blocks.render_search_candidates` 删除了只剩一个取值的 `include_score`
+参数(judge 总是渲染分数),本文件去掉该实参;judge 的 prompt 字节不变
+(`test_routing_blocks.py` 的 golden 断言未改)。
+
 
 ## 2026-08-26 — 菜单与 participant 区改由共享块渲染(judge 输出字节不变)
 
 `## Participant-Associated Topics` 与 `## Existing Topics` 两段的拼装搬进
 [[routing_blocks]],本文件改为调用。**judge 的 prompt 一个字节没动**
-(`test_merged_routing_prompt.py` 里两条 golden 断言逐字节钉住,含空菜单那
+(`test_routing_blocks.py` 里两条 golden 断言逐字节钉住,含空菜单那
 句"(none — …)")。
 
 为什么现在搬:合并调用是这两段文案的**第四个**消费者,而这个文件已经为

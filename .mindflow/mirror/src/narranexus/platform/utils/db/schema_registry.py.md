@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/utils/db/schema_registry.py
-last_verified: 2026-10-29
+last_verified: 2026-11-26
 stub: false
 ---
 
@@ -176,6 +176,11 @@ append 进 `agent_slot_clear_audit`，让误操作**可追溯、可据此恢复*
 **没有只读查询入口、也没有保留策略**——恢复是人工/脚本按审计行回写，不是自动的；
 需要时再补读侧 API + TTL。由 [[slot_service]] 的批量清除写入。双方言列已填全，
 四个快照列可空（NULL 原样透传）。
+
+## 2026-11-26 — `merged_verdict` 列注释:两次调用路径不再只写空串
+
+无 schema 变更。两次调用路径在开关开而本轮没走合并路径时写 `no_credential` /
+`credential_error`(见 [[narrative_service]]),列注释同步。
 
 ## 2026-08-26 — `narrative_routing_audit` 的合并路由八列(纯增量)
 

@@ -60,7 +60,7 @@ Design rules
    import failure or odd entry degrades to ``None``.
 2. **Never invent a price.** Models the upstream table does not know stay
    unknown and get warned about, by name, once. ``_LOCAL_OVERRIDES`` exists
-   for the operator to fill in from an invoice — not for us to estimate.
+   to be filled in from a published rate card or an invoice — never estimated.
    The line this draws is "is there a published rate for this model id", NOT
    "is that rate what we are actually charged" — see the limitation below.
 3. **Warn once per model, not once per call.** 2254 helper calls would mean
@@ -101,10 +101,21 @@ class ModelPrice:
 # (NetMind's "minimax/minimax-m2.5", "deepseek-ai/DeepSeek-V4-Flash", …) whose
 # price is set by the aggregator's own rate card, not by the model vendor.
 #
-# DELIBERATELY EMPTY. Add an entry only from a rate card or an invoice, never
-# from an estimate — see design rule 2. The warning emitted by ``price_for``
-# names the exact model id to add, so the log tells you what is missing.
-_LOCAL_OVERRIDES: Dict[str, ModelPrice] = {}
+# Add an entry only from a published rate card or an invoice, never from an
+# estimate — see design rule 2. The warning emitted by ``price_for`` names the
+# exact model id to add, so the log tells you what is missing.
+_LOCAL_OVERRIDES: Dict[str, ModelPrice] = {
+    # TypeSafe's published list rate: $0.042 per 1M input tokens, output free
+    # (list price, not the aggregator's invoice — see "Known limitation").
+    "typesafe/jev-1.13": ModelPrice(
+        input_per_token=0.042e-6,
+        output_per_token=0.0,
+        cache_write_per_token=None,
+        cache_read_per_token=None,
+        resolved_id="typesafe/jev-1.13",
+        source="override",
+    ),
+}
 
 
 _lock = threading.Lock()

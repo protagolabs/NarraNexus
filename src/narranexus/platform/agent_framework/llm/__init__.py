@@ -4,8 +4,8 @@
 @date: 2026-07-24
 @description: Atomic LLM operations — single calls, no agent loop: the
 protocol-keyed helper factory (helper_sdk) with its anthropic/cli/gemini
-backends, failure classification (failure), and audio transcription
-(transcription/).
+backends, failure classification (failure), audio transcription
+(transcription/), and the decision-model client (decision_model).
 
 One re-export: `prompt_probe_emit`. The helper backends that call it
 (anthropic_helper, cli_helper) ship in the `builtin.llm_clients` wheel since

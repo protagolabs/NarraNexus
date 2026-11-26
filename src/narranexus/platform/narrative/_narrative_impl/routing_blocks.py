@@ -2,48 +2,25 @@
 @file_name: routing_blocks.py
 @date: 2026-08-26
 @description: The prompt blocks narrative routing renders — ONE definition each,
-shared by the continuity tier, the LLM judge, and the merged router.
+shared by the continuity tier and the LLM judge — plus the read-side clamp the
+merged decision request also uses.
 
-WHY THIS FILE EXISTS
+Why shared: two tiers describe the same things to a model (the anchored
+thread, the previous turn, the BM25 menu, the PARTICIPANT threads), and every
+time one description was copied instead of shared the copies drifted and only
+one got fixed.
 
-Three tiers describe the same four things to a model: the thread the
-conversation is already on, the previous turn, the BM25 menu, and the
-PARTICIPANT threads. Every time one of those descriptions was copied instead of
-shared, the copies drifted and only one of them got fixed:
+Byte-identity is the contract: both prompts are pinned by measured numbers,
+so `test_routing_blocks.py` pins every rendering byte for byte.
 
-  * the judge's search branch and its PARTICIPANT branch were two
-    implementations of "what a candidate shows the model"; on 2026-04-15 only
-    the search branch moved onto the live `narrative_info` fields, and the other
-    spent two months labelling 72-event threads by a frozen creation-time hint;
-  * the two judge prompt variants forked THREE times over the no-topic rubric,
-    the last one caught in PR #361 review round 2.
-
-The merged router adds a fourth consumer, which is exactly the moment that
-pattern would repeat. So the blocks live here and the merged prompt is a
-COMPOSITION of them, not a fourth copy.
-
-BYTE-IDENTITY IS THE CONTRACT
-
-The continuity tier and the judge must render exactly what they rendered before
-this file existed — their prompts are pinned by measured numbers (M6 = 20.8%,
-the P1 calibration, the description-retirement dry run), and a whitespace change
-would quietly invalidate all of them. Every difference the merged path needs is
-therefore a NAMED PARAMETER with the old behaviour as its default, and
-`test_merged_routing_prompt.py` pins both renderings byte for byte.
-
-READ-SIDE CLAMPS ONLY
-
-`clamp_head` shortens what a prompt SHOWS. It never touches what is stored, and
-it always keeps the head: the referent of a follow-up ("讲第一个" / "the first
-one") sits at the start of the agent's previous reply, so clamping the tail
-would drop the one thing the previous turn is in the prompt for. Every clamp
-reports itself, because a silently shortened prompt cannot be explained after
-the fact.
+`clamp_head` shortens what a request SHOWS, never what is stored, and keeps
+the head: the referent of a follow-up ("the first one") sits at the start of
+the agent's previous reply.
 """
 
 from __future__ import annotations
 
-from typing import List, NamedTuple, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import NamedTuple, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from loguru import logger
 
@@ -52,15 +29,9 @@ if TYPE_CHECKING:
 
 
 class Rendered(NamedTuple):
-    """A prompt block plus the names of any sections that hit their cap.
-
-    ``truncated`` rides into ``narrative_routing_audit.merged_truncated``.
-    Callers that pass no caps (continuity, the judge) always get ``()`` and
-    ignore it.
-    """
+    """A rendered prompt block — the one return shape of every renderer."""
 
     text: str
-    truncated: Tuple[str, ...] = ()
 
 
 #: Appended in place of what was cut, so the model can tell a clamped block from
@@ -83,10 +54,7 @@ CONTINUITY_ANCHOR_HEADER = "Current Narrative Information:"
 CONTINUITY_ANCHOR_ABSENT_NOTE = (
     "\nNo current Narrative information (this is a new session or no history)\n"
 )
-#: Continuity's closing sentence about legacy containers. The merged prompt
-#: leaves it out: bucket governance is asserted OFF whenever merged routing is
-#: on, so a bucket can never occupy the anchor slot there, and an inert
-#: instruction that contradicts the continue rule above it is worse than none.
+#: Continuity's closing sentence about legacy containers.
 _LEGACY_BUCKET_NOTE = (
     "\nNote: If this is a [Special Default Narrative], its boundaries are very "
     "strict. Once the user mentions specific objects, tasks, or ongoing topics, "
@@ -94,14 +62,7 @@ _LEGACY_BUCKET_NOTE = (
 )
 
 
-def render_anchor_context(
-    narrative: Optional["Narrative"],
-    *,
-    header: str = CONTINUITY_ANCHOR_HEADER,
-    absent_note: str = CONTINUITY_ANCHOR_ABSENT_NOTE,
-    summary_max_chars: Optional[int] = None,
-    include_bucket_note: bool = True,
-) -> Rendered:
+def render_anchor_context(narrative: Optional["Narrative"]) -> Rendered:
     """The anchored thread's identity, as a model reads it.
 
     ``description`` appears only while the thread has no real summary yet — see
@@ -113,7 +74,7 @@ def render_anchor_context(
     mentioning it.
     """
     if narrative is None:
-        return Rendered(absent_note)
+        return Rendered(CONTINUITY_ANCHOR_ABSENT_NOTE)
 
     info = narrative.narrative_info
     label = (
@@ -125,33 +86,23 @@ def render_anchor_context(
     description_line = (
         f"\n- Description: {birth_certificate}" if birth_certificate else ""
     )
-    summary, clipped = clamp_head(info.current_summary, summary_max_chars)
     keywords = (
         ", ".join(narrative.topic_keywords) if narrative.topic_keywords else "None"
     )
-    note = _LEGACY_BUCKET_NOTE if include_bucket_note else ""
     return Rendered(
-        f"\n{header}\n"
+        f"\n{CONTINUITY_ANCHOR_HEADER}\n"
         f"{label}\n"
         f"- Name: {info.name}{description_line}\n"
-        f"- Current Summary: {summary}\n"
+        f"- Current Summary: {info.current_summary}\n"
         f"- Topic Keywords: {keywords}\n"
-        f"{note}",
-        ("anchor_summary",) if clipped else (),
+        f"{_LEGACY_BUCKET_NOTE}"
     )
 
 
 # ── the previous turn ───────────────────────────────────────────────────────
 
 
-def render_previous_turn(
-    previous_query: str,
-    previous_response: str,
-    *,
-    query_max_chars: Optional[int] = None,
-    response_max_chars: Optional[int] = None,
-    absent_note: Optional[str] = None,
-) -> Rendered:
+def render_previous_turn(previous_query: str, previous_response: str) -> Rendered:
     """Whatever the user last SAW in their chat box.
 
     Two shapes, and the second one is not an edge case:
@@ -160,38 +111,20 @@ def render_previous_turn(
         so there is no prior user query and a short reply ("好" / "yes") is
         almost certainly answering THAT message. The prompt says so explicitly
         rather than leaving the model to infer it from an empty field.
-
-    ``absent_note`` covers "there is no previous turn at all", which the
-    continuity tier never reaches (``detect`` returns ``new_session`` first) and
-    the merged router does — a first-ever message still needs routing.
     """
-    query, query_clipped = clamp_head(previous_query, query_max_chars)
-    response, response_clipped = clamp_head(previous_response, response_max_chars)
-    truncated = tuple(
-        code
-        for code, clipped in (
-            ("prev_query", query_clipped),
-            ("prev_response", response_clipped),
-        )
-        if clipped
-    )
-
-    if not query and not response and absent_note is not None:
-        return Rendered(absent_note)
-
+    query = previous_query or ""
+    response = previous_response or ""
     if query:
         return Rendered(
             f"Previous conversation turn:\n"
             f"User asked: {query}\n"
-            f"Agent's reply/reasoning: {response}",
-            truncated,
+            f"Agent's reply/reasoning: {response}"
         )
     return Rendered(
         "Previous turn (the agent messaged the user proactively — "
         "there was no prior user query; the user's current message is "
         "most likely replying to this):\n"
-        f"Agent said to user: {response}",
-        truncated,
+        f"Agent said to user: {response}"
     )
 
 
@@ -208,7 +141,6 @@ def render_search_candidates(
     *,
     header: str,
     empty_note: str,
-    include_score: bool,
 ) -> Rendered:
     """The keyword menu, with the evidence that put each row on it.
 
@@ -217,12 +149,6 @@ def render_search_candidates(
     CJK tokenizer a semantically unrelated thread reaches a squashed 0.91 out of
     request-frame characters (帮/查/一/下) with zero topic-bearing overlap — and
     the judge runs precisely when the numeric gate found the candidates crowded.
-
-    ``include_score`` exists because the two consumers disagree for a reason.
-    The judge keeps rendering it (its prompt is pinned by measured numbers).
-    The merged router does not: ``similarity_score`` is ``raw/(raw+1)`` over an
-    IDF table computed on this pool alone, so it carries no meaning the model can
-    use — the same reason the shutter is forbidden to read the total score.
 
     The header is rendered even when the list is empty. With nothing to match
     against, the model must be TOLD, not left to infer it from a missing section.
@@ -234,8 +160,7 @@ def render_search_candidates(
     for i, candidate in enumerate(candidates):
         out.append(f"[Topic-{i}] {candidate['name']}\n")
         out.append(f"Description: {candidate['description']}\n")
-        if include_score:
-            out.append(f"Similarity score: {candidate['score']:.2f}\n")
+        out.append(f"Similarity score: {candidate['score']:.2f}\n")
         if candidate.get("matched_terms"):
             out.append(f"Matched terms: {', '.join(candidate['matched_terms'])}\n")
         if candidate.get("matched_content"):
@@ -273,11 +198,7 @@ def render_participant_candidates(
 ) -> Rendered:
     """Threads the user was INVITED into — rendered first, by priority (P0-4).
 
-    Renders EXACTLY what it is given — deliberately no cap parameter (round
-    8, I1): the one cut lives at the merged path's entry, where the same
-    list also bounds the contract's index check. A renderer-side cap would
-    be the one-kwarg switch that re-opens the ballot/render split (round 2,
-    I1), and rule #2 does not keep switches around for the sake of it.
+    Renders EXACTLY what it is given; any cap belongs to the caller.
     """
     if not candidates:
         return Rendered("")

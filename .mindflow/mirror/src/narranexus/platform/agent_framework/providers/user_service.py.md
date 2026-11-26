@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/agent_framework/providers/user_service.py
-last_verified: 2026-10-28
+last_verified: 2026-11-25
 stub: false
 ---
+
+## 2026-11-25 — NetMind 子路径规则移到 `settings.netmind_inference_url`
+
+`_netmind_base_for` + `_NETMIND_INFERENCE_SUBPATHS` 上移为 `settings.netmind_inference_url`
+(叙事路由的决策端点默认值也要用同一条规则,不能再多一处硬编码 NetMind URL)。本文件
+行为不变:仍只在 card_type=="netmind" 且调用方传了 inference_base 时派生。
+
 
 ## 2026-10-28（三）— 保存行 Test 与读取路径共用平台 source 白名单
 
@@ -361,7 +368,7 @@ provider leaves dangling per-agent overrides that fail at resolve.
 
 _build_dual_providers / _verify_onboard_key / add_provider / onboard_one_key gained
 an optional inference_base. When set AND card_type=="netmind", the two provider
-rows' base_url is derived from it (_netmind_base_for: {base}/anthropic,
+rows' base_url is derived from it (settings.netmind_inference_url: {base}/anthropic,
 {base}/openai/v1) and the pre-write probe uses the same base. Default (None) =
 the hardcoded prod _DUAL_PROVIDER_CONFIGS. ONLY use-subscription passes it (from
 settings.netmind_inference_base); manual /onboard paste passes nothing → prod.

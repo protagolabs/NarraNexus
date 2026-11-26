@@ -68,3 +68,29 @@ def test_to_cli_env_never_points_default_model_redirects_at_aliases():
     # api_key transport: alias resolved to a concrete id → redirects set.
     key_env = ClaudeConfig(model="opus", auth_type="api_key", api_key="sk-x").to_cli_env()
     assert key_env["ANTHROPIC_DEFAULT_OPUS_MODEL"].startswith("claude-")
+
+
+def test_unpin_restores_delegation_after_a_pinned_field():
+    """`setattr(proxy, field, x)` shadows `__getattr__` for good (monkeypatch's
+    undo does exactly this); `unpin_config_proxies` drops every such pin on
+    every proxy, whatever field was pinned, and keeps the proxy's own state."""
+    import contextvars
+
+    from narranexus.platform.agent_framework import api_config as ac
+
+    ac.openai_config.base_url = "https://pinned.example/v1"  # type: ignore[misc]
+    ac.claude_config.some_future_field = "pinned"  # type: ignore[attr-defined]
+    try:
+        def in_task():
+            ac.set_user_config(
+                ac.ClaudeConfig(), ac.OpenAIConfig(base_url="https://per-task.example/v1"),
+            )
+            return ac.openai_config.base_url
+
+        assert contextvars.copy_context().run(in_task) == "https://pinned.example/v1"
+        ac.unpin_config_proxies()
+        assert contextvars.copy_context().run(in_task) == "https://per-task.example/v1"
+        assert "some_future_field" not in vars(ac.claude_config)
+        assert vars(ac.openai_config).keys() == {"_attr_name", "_ctx_var"}
+    finally:
+        ac.unpin_config_proxies()

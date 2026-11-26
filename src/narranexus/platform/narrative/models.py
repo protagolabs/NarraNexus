@@ -513,11 +513,17 @@ class RoutingAudit(BaseModel):
     # like a switch-off row.)
     pool_is_shadow: bool = False
 
-    # ── merged routing (one call instead of two) ─────────────────────────
-    # Filled only when NARRATIVE_MERGED_ROUTING_ENABLED is on. On the two-call
-    # path the write side stores 0 / "" (merged_call, merged_verdict,
-    # merged_truncated) and NULL for the rest (merged_ms, merged_input_chars,
-    # anchor_*); rows written BEFORE this deploy are NULL throughout. So a
+    # ── merged routing (one decision-model call instead of two) ──────────
+    # Filled only on turns that took the merged path (flag on AND a decision
+    # credential resolved for the turn). On the two-call
+    # path the write side stores 0 / "" (merged_call, merged_truncated) and
+    # NULL for the rest (merged_ms, merged_input_chars, anchor_*);
+    # `merged_verdict` there is "" with the flag off, and `no_credential` /
+    # `credential_error` on a flag-on turn that could not take the merged path
+    # — so merged coverage is `merged_call = 1` over those plus itself.
+    # Fast-path rows (`selection_method = 'fast'`) never consult the flag and
+    # always carry "". Rows
+    # written BEFORE this deploy are NULL throughout. So a
     # filter must be NULL-safe: `merged_call = 0` evaluates NULL to false and
     # silently drops every pre-deploy row — which is the entire baseline
     # window. Use `COALESCE(merged_call, 0) <> 1` — the one form valid on BOTH
@@ -528,7 +534,8 @@ class RoutingAudit(BaseModel):
     # took the merged path and asked nobody, so it carries merged_call=1 with
     # `merged_verdict` empty and `merged_ms` NULL.
     merged_call: bool = False
-    # continue_anchor | match | participant | new | no_topic | failed.
+    # Merged path: continue_anchor | match | participant | new | no_topic |
+    # failed. Two-call path of a flag-on turn: no_credential | credential_error.
     # `failed` is deliberately a value rather than an absence: "the model was
     # asked and could not be used" and "no model was asked" are different rows,
     # and only the first one is a provider problem.
@@ -538,16 +545,13 @@ class RoutingAudit(BaseModel):
     # the same wrong conclusion ("routing spends 6 seconds in the database");
     # see todo/2026-08-25-retrieve-ms-nests-judge-ms.md.
     merged_ms: Optional[int] = None
-    # EVERY character the call sent — instructions AND user input. The x-axis
-    # of the latency model: instructions vary by variant and the variant
-    # correlates with the turn shape, so a user_input-only count would bias
-    # the slope (review round 2, I2), and the input budgets are only
-    # convertible to milliseconds if production records what it actually sent.
+    # Characters of the serialised decision request (state + questions). The
+    # x-axis of the latency model: the question count follows the turn shape,
+    # so a state-only count would bias the slope.
     merged_input_chars: Optional[int] = None
-    # Comma-separated section codes that hit their read-side cap
-    # (prev_response / prev_query / anchor_summary / awareness / query /
-    # participants). Empty when nothing was clamped — a silently shortened
-    # prompt is one nobody can explain afterwards.
+    # Comma-separated field codes that hit their read-side cap
+    # (prev_response / prev_query / query / participants). Empty when nothing
+    # was clamped — a silently shortened request cannot be explained later.
     merged_truncated: str = ""
 
     # ── the anchor's standing in BM25 (the §3.2 instrument) ──────────────

@@ -125,7 +125,6 @@ async def llm_judge_unified(
             search_candidates or [],
             header=routing_blocks.JUDGE_MENU_HEADER,
             empty_note=routing_blocks.JUDGE_MENU_EMPTY_NOTE,
-            include_score=True,
         ).text
 
         user_input += f"## User's New Query:\n{query}\n\n"

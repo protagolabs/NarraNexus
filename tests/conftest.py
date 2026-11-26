@@ -230,3 +230,17 @@ def _clear_login_ip_throttles():
     _reset()
     yield
     _reset()
+
+
+@pytest.fixture(autouse=True)
+def _unpin_provider_config_proxies():
+    """`monkeypatch.setattr(api_config.openai_config, "base_url", ...)` reads
+    the old value THROUGH the proxy and, on undo, writes it back as an instance
+    attribute — pinning that field for every later test, so the proxy stops
+    reading the per-task ContextVars. Unpin after each test (after
+    monkeypatch's own undo, which runs first). Only touches the module when it
+    is already imported."""
+    yield
+    module = sys.modules.get("narranexus.platform.agent_framework.api_config")
+    if module is not None:
+        module.unpin_config_proxies()

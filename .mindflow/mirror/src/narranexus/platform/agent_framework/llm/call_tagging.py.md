@@ -1,8 +1,15 @@
 ---
 code_file: src/narranexus/platform/agent_framework/llm/call_tagging.py
-last_verified: 2026-08-27
+last_verified: 2026-11-25
 stub: false
 ---
+
+## 2026-11-25 — 合并路由不再是调用方
+
+合并路径改用决策模型后不跑 helper LLM,读这个 contextvar 只会标出陈旧/别处的
+型号,所以 `merged_select` 不再调用本函数,改用决策结果自己打标。剩下的调用方是
+continuity 计时与 judge 计时。
+
 
 # call_tagging.py — 计时器打 LLM 型号标的唯一入口
 

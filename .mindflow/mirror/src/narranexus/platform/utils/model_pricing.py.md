@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/utils/model_pricing.py
-last_verified: 2026-08-03
+last_verified: 2026-11-26
 stub: false
 ---
 
@@ -87,7 +87,9 @@ Anthropic 形状的账单需要的。铁律 #9 的考虑：litellm 只当**数�
 1. **绝不抛异常** —— 成本记账是可观测性不是流程控制（`warn_missing_usage` 已有
    的同一条规矩）。litellm 形状变化 / 导入失败 / 条目畸形，一律降级 None。
 2. **绝不编价格** —— 上游不认识的 model 就是不认识，`_LOCAL_OVERRIDES`
-   **故意留空**，是给运维照着账单填的，不是给我们估的。
+   只收公开价目表或账单上的数字，不收估算。目前一条：`typesafe/jev-1.13`
+   （厂商公开标价 $0.042 / 1M 输入 token、输出免费；是标价不是聚合商发票价，
+   同"已知局限"一节），否则借用 owner key 的决策调用在 `cost_records` 里记 $0。
 3. **每个 model 只警告一次**，不是每次调用一次 —— 2254 次调用会产出 2254 条相同
    警告，那只会训练人去过滤日志。而它取代的 `logger.debug` 是另一个极端：静默了
    几个月没人发现。

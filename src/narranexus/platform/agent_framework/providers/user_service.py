@@ -23,6 +23,7 @@ from loguru import logger
 from pydantic import ValidationError
 
 from narranexus.platform.agent_framework.providers.model_identity import framework_of
+from narranexus.platform.settings import netmind_inference_url
 from narranexus.platform.agent_framework.providers.model_catalog import (
     get_default_models,
 )
@@ -949,7 +950,7 @@ class UserProviderService:
             if ptype == FREE_TIER_SOURCE:
                 base_url = free_tier_endpoints().for_protocol("anthropic")
             elif ptype == "netmind" and inference_base:
-                base_url = _netmind_base_for("anthropic", inference_base)
+                base_url = netmind_inference_url("anthropic", inference_base)
             probe_cfg = ProviderConfig(
                 provider_id="_onboard_verify",
                 name="onboard verify",
@@ -1332,16 +1333,10 @@ _DUAL_PROVIDER_CONFIGS = {
 }
 
 
-# NetMind's two inference sub-endpoints hang off one base prefix
-# (prod: https://api.netmind.ai/inference-api). ONLY netmind's base is
-# environment-swappable — a key minted on dev NetMind must hit dev inference
-# (https://test.api.netmind.ai/inference-api). yunwu/openrouter are single-env.
-_NETMIND_INFERENCE_SUBPATHS = {"anthropic": "/anthropic", "openai": "/openai/v1"}
-
-
-def _netmind_base_for(protocol: str, inference_base: str) -> str:
-    """Derive netmind's per-protocol inference URL from a base prefix override."""
-    return inference_base.rstrip("/") + _NETMIND_INFERENCE_SUBPATHS[protocol]
+# NetMind's two inference sub-endpoints hang off one base prefix; ONLY
+# netmind's base is environment-swappable — a key minted on dev NetMind must hit
+# dev inference. yunwu/openrouter are single-env. The rule lives in
+# settings.netmind_inference_url (shared with narrative routing's default).
 
 
 def _build_dual_providers(
@@ -1373,7 +1368,7 @@ def _build_dual_providers(
             # deployment and there is no meaningful hardcoded default.
             base_url = free_tier_endpoints().for_protocol(protocol)
         elif card_type == "netmind" and inference_base:
-            base_url = _netmind_base_for(protocol, inference_base)
+            base_url = netmind_inference_url(protocol, inference_base)
         result.append({
             "provider_id": _generate_provider_id(),
             "name": info["name"],
