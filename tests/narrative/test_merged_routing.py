@@ -1384,7 +1384,10 @@ async def test_a_free_tier_gateway_owner_is_never_asked_nor_charged(
 # Cloud with the free-tier gateway: the agent's own capped key first    #
 # ===================================================================== #
 
+#: Where quota-api says the gateway is, deliberately unlike the configured LLM
+#: gateway (the sandbox proxy, which refuses the decision route).
 GATEWAY_BASE = "http://litellm:4000/v1"
+SANDBOX_LLM_GATEWAY = "http://llm-gateway:4000/v1"
 QUOTA_API = "http://quota-api:8110"
 
 
@@ -1397,6 +1400,7 @@ class _Gateway:
 
     def __init__(self):
         self.generation = 1
+        self.base_url: str | None = GATEWAY_BASE
         self.quota_status = 200
         self.quota_exc: Exception | None = None
         self.quota_delay = 0.0
@@ -1419,6 +1423,7 @@ class _Gateway:
                 return httpx.Response(self.quota_status, json={"detail": "nope"})
             return httpx.Response(200, json={
                 "agent_id": body["agent_id"], "api_key": self.key(body["agent_id"]),
+                **({"base_url": self.base_url} if self.base_url else {}),
                 "max_budget": 1.0, "budget_duration": "30d",
             })
         self.decisions.append({"url": str(req.url), "auth": req.headers.get("authorization")})
@@ -1449,7 +1454,8 @@ def gateway(monkeypatch):
             k2: v for k2, v in k.items() if k2 != "transport"
         }),
     )
-    issuer = DecisionKeyIssuer(WalletClient(QUOTA_API, "tok"), GATEWAY_BASE)
+    monkeypatch.setenv("FREE_TIER_GATEWAY_OPENAI_BASE_URL", SANDBOX_LLM_GATEWAY)
+    issuer = DecisionKeyIssuer(WalletClient(QUOTA_API, "tok"))
     monkeypatch.setattr(merged_router, "decision_key_issuer", lambda: issuer)
     return gw
 
@@ -1541,7 +1547,7 @@ async def test_after_a_401_the_agent_stays_on_its_own_key_not_the_platform_key(
 
 @pytest.mark.parametrize(
     "failure",
-    ["older_quota_api", "gateway_down", "unreachable", "timeout"],
+    ["older_quota_api", "no_base_url", "gateway_down", "unreachable", "timeout"],
 )
 async def test_no_gateway_key_falls_through_to_the_platform_key_and_the_turn_lands(
     service, db_client, merged_on, monkeypatch, gateway, failure
@@ -1550,6 +1556,8 @@ async def test_no_gateway_key_falls_through_to_the_platform_key_and_the_turn_lan
 
     if failure == "older_quota_api":
         gateway.quota_status = 404
+    elif failure == "no_base_url":  # a quota-api that predates the field
+        gateway.base_url = None
     elif failure == "gateway_down":
         gateway.quota_status = 502
     elif failure == "unreachable":

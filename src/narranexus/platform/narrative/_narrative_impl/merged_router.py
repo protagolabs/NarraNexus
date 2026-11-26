@@ -345,11 +345,11 @@ def verdict_from_scores(
 async def decision_endpoint_for_turn(agent_id: str) -> Optional[DecisionEndpoint]:
     """This turn's decision credential, or None (the turn then takes the
     two-call path). Order: the agent's own gateway key (cloud with the
-    free-tier gateway; sent to the gateway), else `NARRATIVE_DECISION_API_KEY`,
-    else the agent owner's helper-slot provider key (installed by the turn's
-    ingress) on the host of `NARRATIVE_DECISION_API_BASE` — the policy itself
-    lives in `decision_model.resolve_decision_endpoint`; this only gathers
-    its inputs."""
+    free-tier gateway; sent to the gateway address quota-api returns with it),
+    else `NARRATIVE_DECISION_API_KEY`, else the agent owner's helper-slot
+    provider key (installed by the turn's ingress) on the host of
+    `NARRATIVE_DECISION_API_BASE` — the policy itself lives in
+    `decision_model.resolve_decision_endpoint`; this only gathers its inputs."""
     issuer = decision_key_issuer()
     return resolve_decision_endpoint(
         base_url=config.NARRATIVE_DECISION_API_BASE,

@@ -10,7 +10,8 @@ stub: false
 
 `decision_endpoint_for_turn(agent_id)` 变成 async、收 agent id:若
 `integrations.free_tier.decision_keys.decision_key_issuer()` 存在(云端 + 免费档钱包
-服务已配),先 `await issuer.key_for(agent_id)` 取该 agent 的封顶网关 key,作为
+服务已配),先 `await issuer.key_for(agent_id)` 取该 agent 的封顶网关 key 及 quota-api
+给的网关地址(不是配置里的 LLM 网关地址,那是拒绝决策路由的沙箱代理),作为
 `agent_scoped` 传给 `resolve_decision_endpoint`;优先级仍只住在那个函数里(网关 key
 → 平台 key → owner helper 槽 key → None),本函数只收集输入。取不到 key(quota-api
 不可达 / 旧版 / 超时)时 issuer 返回 None,自然落到平台 key。issuer 以模块级名字导入,

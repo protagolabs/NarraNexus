@@ -24,8 +24,9 @@ into "it failed":
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
@@ -83,6 +84,17 @@ class ProvisionedWallet:
     # why the provisioner must treat "already exists" as a no-op rather than
     # trying to re-read the key from anywhere.
     api_key: Optional[str]
+
+
+@dataclass(frozen=True)
+class DecisionKey:
+    """An agent's decision-route key and where to send it: ``base_url`` is the
+    gateway itself (``{base_url}/alpha/decisions``), NOT the deployment's LLM
+    gateway address — that one may be the sandbox proxy, which refuses this
+    route by design."""
+
+    api_key: str = field(repr=False)
+    base_url: str
 
 
 class WalletClient:
@@ -150,12 +162,15 @@ class WalletClient:
         )
         return WalletBalance.from_payload(data)
 
-    async def decision_key(self, agent_id: str) -> str:
-        """The agent's capped key for the gateway's decision route.
+    async def decision_key(self, agent_id: str) -> DecisionKey:
+        """The agent's capped key for the gateway's decision route, and the
+        route's base URL.
 
         Idempotent: the same agent gets the same key on every call — until an
         operator rotates the gateway admin key, so callers may cache it but
-        must re-ask once the gateway rejects it. The key is never logged.
+        must re-ask once the gateway rejects it. The key is never logged. A
+        reply without a key or an absolute ``base_url`` (malformed, or a
+        quota-api that predates the field) is `WalletUnavailable`.
         """
         try:
             data = await self._request(
@@ -167,10 +182,16 @@ class WalletClient:
             raise WalletUnavailable(
                 "wallet service has no /v1/decision-keys (older quota-api)"
             ) from None
-        key = data.get("api_key") if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            data = {}
+        key, base_url = data.get("api_key"), data.get("base_url")
         if not isinstance(key, str) or not key:
             raise WalletUnavailable("wallet service returned no decision key")
-        return key
+        if not _is_absolute_http_url(base_url):
+            raise WalletUnavailable(
+                "wallet service returned no usable decision base_url (older quota-api?)"
+            )
+        return DecisionKey(api_key=key, base_url=base_url)
 
     # -- transport ---------------------------------------------------------
 
@@ -206,3 +227,10 @@ class WalletClient:
             return resp.json()
         except Exception as e:  # noqa: BLE001
             raise WalletUnavailable(f"wallet service returned non-JSON: {e!r}") from e
+
+
+def _is_absolute_http_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    parsed = urlparse(value)
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname)

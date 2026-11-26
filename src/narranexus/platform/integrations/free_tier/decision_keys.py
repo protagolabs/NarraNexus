@@ -7,8 +7,11 @@
 In the cloud, narrative routing asks the decision model through the LiteLLM
 gateway with one capped key PER AGENT, so the upstream key stays in the
 gateway and one hammered agent cannot run up the bill. ``quota-api`` hands the
-key out (idempotently); this module caches it per process and offers it to the
-generic resolver as an `AgentScopedKey`.
+key out (idempotently) together with the gateway address to ask with it; this
+module caches both per process and offers them to the generic resolver as an
+`AgentScopedKey`. The address always comes from quota-api, never from the
+deployment's LLM gateway setting: that is the sandbox proxy, which refuses the
+decision route by design.
 
 Never raises and never blocks a turn for long: when no key can be had the
 resolver falls through to the next credential source. An agent that HAS a key
@@ -28,6 +31,7 @@ from loguru import logger
 
 from narranexus.platform.agent_framework.llm.decision_model import AgentScopedKey
 from narranexus.platform.integrations.free_tier.wallet_client import (
+    DecisionKey,
     WalletClient,
     WalletError,
     WalletRejected,
@@ -48,7 +52,7 @@ _MAX_CACHED_AGENTS = 4096
 @dataclass
 class _Entry:
     #: None: quota-api refused this agent (a per-agent 4xx).
-    key: Optional[str]
+    grant: Optional[DecisionKey]
     #: 0 while the key is trusted; otherwise quota-api is not asked about
     #: this agent before this clock value.
     recheck_at: float = 0.0
@@ -62,19 +66,17 @@ _UNAVAILABLE = _Unavailable()
 
 
 class DecisionKeyIssuer:
-    """agent_id -> that agent's gateway key, one quota-api call per agent per
-    process. Concurrent first turns of one agent may each fetch; the endpoint
+    """agent_id -> that agent's gateway key and address, one quota-api call
+    per agent per process. Concurrent first turns of one agent may each fetch; the endpoint
     is idempotent, so that costs a duplicate call, never a second key."""
 
     def __init__(
         self,
         wallet: WalletClient,
-        gateway_base_url: str,
         *,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._wallet = wallet
-        self._base_url = gateway_base_url
         self._clock = clock
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         #: Service-level pause: no quota-api call at all before this.
@@ -91,22 +93,23 @@ class DecisionKeyIssuer:
                 entry = await self._recheck(agent_id, entry)
         elif self._may_ask(0.0):
             entry = await self._first_fetch(agent_id)
-        if entry is None or entry.key is None:
+        if entry is None or entry.grant is None:
             return None
+        grant = entry.grant
         return AgentScopedKey(
-            self._base_url, entry.key,
-            on_rejected=functools.partial(self._rejected, agent_id, entry.key),
+            grant.base_url, grant.api_key,
+            on_rejected=functools.partial(self._rejected, agent_id, grant),
         )
 
-    def _rejected(self, agent_id: str, key: str) -> None:
-        """The gateway answered 401 for ``key``. Keep sending it (a blocked
+    def _rejected(self, agent_id: str, grant: DecisionKey) -> None:
+        """The gateway answered 401 for ``grant``. Keep sending it (a blocked
         agent must not fall through to another credential) and re-check with
         quota-api once the interval has passed, which picks up a rotation."""
         entry = self._entries.get(agent_id)
         # Only the first 401 sets the time: later ones must not push the
         # re-check forward, or an agent active every few seconds would never
         # pick up a rotated key.
-        if entry is not None and entry.key == key and not entry.recheck_at:
+        if entry is not None and entry.grant == grant and not entry.recheck_at:
             entry.recheck_at = self._clock() + _RETRY_AFTER_S
 
     def _may_ask(self, recheck_at: float) -> bool:
@@ -125,11 +128,12 @@ class DecisionKeyIssuer:
 
     async def _recheck(self, agent_id: str, entry: _Entry) -> _Entry:
         """A rejected key or a refused agent, once its interval has passed:
-        a new key replaces the entry, the same key is trusted again, and any
-        failure keeps what we had for another interval."""
+        a different key OR address replaces the entry, the same pair is
+        trusted again, and any failure keeps what we had for another
+        interval."""
         answer = await self._ask(agent_id)
-        if isinstance(answer, str):
-            if answer != entry.key:
+        if isinstance(answer, DecisionKey):
+            if answer != entry.grant:
                 # Through the bound: the entry may have been evicted while
                 # quota-api was being asked.
                 entry = self._store(agent_id, _Entry(answer))
@@ -146,8 +150,8 @@ class DecisionKeyIssuer:
             self._entries.popitem(last=False)
         return entry
 
-    async def _ask(self, agent_id: str) -> str | None | _Unavailable:
-        """The key; None when quota-api refused THIS agent; `_UNAVAILABLE`
+    async def _ask(self, agent_id: str) -> DecisionKey | None | _Unavailable:
+        """The key and address; None when quota-api refused THIS agent; `_UNAVAILABLE`
         (and a service-level pause) when quota-api could not answer at all."""
         try:
             async with asyncio.timeout(_FETCH_TIMEOUT_S):
@@ -177,9 +181,6 @@ def decision_key_issuer() -> Optional[DecisionKeyIssuer]:
     """The process's issuer, or None when this deployment has no free-tier
     gateway (local/desktop, or a cloud deploy without the wallet service).
     One instance per process so its cache outlives a turn."""
-    from narranexus.platform.agent_framework.providers.free_tier import (
-        free_tier_endpoints,
-    )
     from narranexus.platform.utils.deployment_mode import is_cloud_mode
 
     if not is_cloud_mode():
@@ -187,4 +188,4 @@ def decision_key_issuer() -> Optional[DecisionKeyIssuer]:
     wallet = WalletClient.from_settings()
     if wallet is None:
         return None
-    return DecisionKeyIssuer(wallet, free_tier_endpoints().openai_base_url)
+    return DecisionKeyIssuer(wallet)

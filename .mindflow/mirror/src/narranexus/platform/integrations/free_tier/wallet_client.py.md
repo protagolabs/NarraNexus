@@ -37,12 +37,15 @@ agent 包、反过来不行，所以共用的那块必须落在这里。
 
 ## decision_key(agent_id)
 
-`POST /v1/decision-keys` 取该 agent 在网关决策路由上的封顶 key（deploy 侧 quota-api
-签发，幂等：同一 agent 每次同一把，admin key 轮换后才会变）。调用方
+`POST /v1/decision-keys` 取该 agent 在网关决策路由上的封顶 key **和发往的地址**，
+返回 `DecisionKey(api_key, base_url)`（deploy 侧 quota-api 签发，幂等：同一 agent
+每次同一把，admin key 轮换后才会变）。`base_url` 是网关本身，调用方必须用它而不是
+自己发 LLM 请求的地址（部署里那是沙箱代理，按设计拒绝决策路由）。调用方
 [[decision_keys]] 按进程缓存。错误沿用分类词表，唯一例外：这里的 **404 不是
 「没有钱包」**，而是部署的 quota-api 早于这个端点，所以转成 `WalletUnavailable`
-（消息点名端点）；回复里没有非空字符串 `api_key` 同样是 `WalletUnavailable`。key
-不进任何日志或异常文本。
+（消息点名端点）；回复里没有非空字符串 `api_key`、或没有绝对 http(s) `base_url`
+（早于该字段的 quota-api / 格式错）同样是 `WalletUnavailable`，不猜地址。key 不进
+任何日志、异常文本或 `repr`。
 
 ## served_models() 为什么问网关而不是上游
 

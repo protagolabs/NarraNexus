@@ -42,6 +42,7 @@ class _QuotaApi:
         self.raise_exc = raise_exc
         self.delay = delay
         self.generation = 1
+        self.base_url = GATEWAY
         self.calls: list[str] = []
 
     def key(self, agent_id: str) -> str:
@@ -60,6 +61,7 @@ class _QuotaApi:
             return httpx.Response(self.status, json={"detail": "nope"})
         return httpx.Response(200, json={
             "agent_id": agent_id, "api_key": self.key(agent_id),
+            **({"base_url": self.base_url} if self.base_url is not None else {}),
             "max_budget": 1.0, "budget_duration": "30d",
         })
 
@@ -74,7 +76,7 @@ class _Clock:
 
 def _issuer(quota: _QuotaApi, clock: _Clock | None = None) -> DecisionKeyIssuer:
     wallet = WalletClient("http://quota-api", "tok", transport=httpx.MockTransport(quota))
-    return DecisionKeyIssuer(wallet, GATEWAY, clock=clock or _Clock())
+    return DecisionKeyIssuer(wallet, clock=clock or _Clock())
 
 
 async def test_many_turns_of_one_agent_cost_one_quota_api_call():
@@ -86,6 +88,46 @@ async def test_many_turns_of_one_agent_cost_one_quota_api_call():
     assert quota.calls == ["agent_a"]
     assert {k.api_key for k in keys} == {quota.key("agent_a")}
     assert all(k.base_url == GATEWAY for k in keys)
+
+
+async def test_the_key_goes_where_quota_api_says_not_to_the_configured_llm_gateway(
+    monkeypatch,
+):
+    """The configured LLM gateway is the sandbox proxy, which refuses the
+    decision route; only quota-api's base_url reaches the gateway itself."""
+    monkeypatch.setenv("FREE_TIER_GATEWAY_OPENAI_BASE_URL", "http://llm-gateway:4000/v1")
+    quota = _QuotaApi()
+    quota.base_url = "http://litellm:4000/v1"
+
+    key = await _issuer(quota).key_for("agent_a")
+
+    assert key.base_url == "http://litellm:4000/v1"
+
+
+async def test_a_reply_without_base_url_is_no_key_and_pauses_quota_api():
+    quota = _QuotaApi()
+    quota.base_url = None  # a quota-api that predates the field
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+
+    assert await issuer.key_for("agent_a") is None
+    assert await issuer.key_for("agent_b") is None
+    assert quota.calls == ["agent_a"], "service-level: every uncached agent waits"
+
+
+async def test_a_moved_gateway_with_the_same_key_is_picked_up_on_recheck():
+    quota = _QuotaApi()
+    clock = _Clock()
+    issuer = _issuer(quota, clock)
+    old = await issuer.key_for("agent_a")
+    old.on_rejected()
+    quota.base_url = "http://gateway-2:4000/v1"
+    clock.now += decision_keys._RETRY_AFTER_S + 1
+
+    moved = await issuer.key_for("agent_a")
+
+    assert moved.api_key == old.api_key
+    assert moved.base_url == "http://gateway-2:4000/v1"
 
 
 async def test_two_agents_get_their_own_keys():
@@ -344,14 +386,12 @@ def test_cloud_without_the_wallet_service_has_no_issuer(monkeypatch):
     assert decision_key_issuer() is None
 
 
-def test_cloud_with_the_wallet_service_sends_to_the_gateway_openai_base(monkeypatch):
+def test_cloud_with_the_wallet_service_has_one_issuer_per_process(monkeypatch):
     monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
     monkeypatch.setenv("FREE_TIER_WALLET_API_URL", "http://quota-api:8110")
     monkeypatch.setenv("FREE_TIER_WALLET_API_TOKEN", "tok")
-    monkeypatch.setenv("FREE_TIER_GATEWAY_OPENAI_BASE_URL", "http://gw.internal:4000/v1")
 
     issuer = decision_key_issuer()
 
     assert isinstance(issuer, DecisionKeyIssuer)
-    assert issuer._base_url == "http://gw.internal:4000/v1"
     assert decision_key_issuer() is issuer, "one per process: the cache outlives a turn"

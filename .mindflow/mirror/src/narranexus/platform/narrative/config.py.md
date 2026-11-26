@@ -7,8 +7,9 @@ stub: false
 ## 2026-11-26 — 凭据优先级前面多一个"agent 的网关 key"
 
 注释与 `_reject_invalid_decision_settings` 的 docstring 更新:云端配了免费档钱包服务
-(`FREE_TIER_WALLET_API_URL/_TOKEN`)时,每轮先用该 agent 的封顶网关 key(发往
-`FREE_TIER_GATEWAY_OPENAI_BASE_URL`),再平台 key,再 owner helper 槽 key。复用已有
+(`FREE_TIER_WALLET_API_URL/_TOKEN`)时,每轮先用该 agent 的封顶网关 key(发往 quota-api
+随 key 返回的网关地址——不是 `FREE_TIER_GATEWAY_OPENAI_BASE_URL`,那是拒绝决策路由
+的沙箱代理),再平台 key,再 owner helper 槽 key。复用已有
 免费档设置,没有新增环境变量;启动校验逻辑不变——平台 key 为空依旧合法。
 
 ## 2026-11-25 — 合并路由改用决策模型;凭据每轮解析;启动校验

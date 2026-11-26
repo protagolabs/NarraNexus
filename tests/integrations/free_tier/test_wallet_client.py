@@ -133,6 +133,7 @@ def test_from_settings_is_none_when_unconfigured(monkeypatch):
 # ── decision keys ──────────────────────────────────────────────────────────
 
 DECISION_KEY = "sk-nxdm-" + "ab" * 32
+GATEWAY = "http://litellm:4000/v1"
 
 
 @pytest.mark.asyncio
@@ -142,11 +143,13 @@ async def test_decision_key_posts_the_agent_and_returns_its_key():
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         return httpx.Response(200, json={
-            "agent_id": "agent_1", "api_key": DECISION_KEY,
+            "agent_id": "agent_1", "api_key": DECISION_KEY, "base_url": GATEWAY,
             "max_budget": 1.0, "budget_duration": "30d",
         })
 
-    assert await _client(handler).decision_key("agent_1") == DECISION_KEY
+    grant = await _client(handler).decision_key("agent_1")
+    assert (grant.api_key, grant.base_url) == (DECISION_KEY, GATEWAY)
+    assert DECISION_KEY not in repr(grant)
     (request,) = seen
     assert (request.method, request.url.path) == ("POST", "/v1/decision-keys")
     assert request.headers["Authorization"] == "Bearer tok"
@@ -180,8 +183,21 @@ async def test_decision_key_errors_keep_the_wallet_vocabulary(status, error):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("body", [{}, {"api_key": ""}, {"api_key": 7}, ["sk-x"]])
-async def test_decision_key_without_a_key_in_the_reply_is_unavailable(body):
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"base_url": GATEWAY}, {"api_key": "", "base_url": GATEWAY},
+        {"api_key": 7, "base_url": GATEWAY}, ["sk-x"],
+        # An older quota-api (no base_url) or a malformed one: never guessed.
+        {"api_key": DECISION_KEY},
+        {"api_key": DECISION_KEY, "base_url": ""},
+        {"api_key": DECISION_KEY, "base_url": "litellm:4000/v1"},
+        {"api_key": DECISION_KEY, "base_url": "/v1"},
+        {"api_key": DECISION_KEY, "base_url": "ftp://litellm/v1"},
+        {"api_key": DECISION_KEY, "base_url": 7},
+    ],
+)
+async def test_decision_key_without_a_key_or_an_absolute_base_url_is_unavailable(body):
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=body)
 

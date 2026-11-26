@@ -263,7 +263,7 @@ class NarrativeConfig:
     # The decision credential is resolved PER TURN (decision_model.
     # resolve_decision_endpoint): in the cloud with the free-tier gateway
     # (FREE_TIER_WALLET_API_URL/_TOKEN set), the agent's own capped gateway
-    # key, sent to FREE_TIER_GATEWAY_OPENAI_BASE_URL; else
+    # key, sent to the gateway address quota-api returns with it; else
     # NARRATIVE_DECISION_API_KEY if set; else the agent owner's helper-slot
     # provider key (the configs the turn's ingress installed) when its
     # base-URL host equals NARRATIVE_DECISION_API_BASE's host. A turn with no
