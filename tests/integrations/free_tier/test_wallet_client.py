@@ -10,6 +10,8 @@ up looking like "the user has no free tier".
 """
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -125,3 +127,58 @@ def test_from_settings_is_none_when_unconfigured(monkeypatch):
 
     monkeypatch.setenv("FREE_TIER_WALLET_API_TOKEN", "tok")
     assert WalletClient.from_settings() is not None
+
+
+# ── decision keys ──────────────────────────────────────────────────────────
+
+DECISION_KEY = "sk-nxdm-" + "ab" * 32
+
+
+@pytest.mark.asyncio
+async def test_decision_key_posts_the_agent_and_returns_its_key():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={
+            "agent_id": "agent_1", "api_key": DECISION_KEY,
+            "max_budget": 1.0, "budget_duration": "30d",
+        })
+
+    assert await _client(handler).decision_key("agent_1") == DECISION_KEY
+    (request,) = seen
+    assert (request.method, request.url.path) == ("POST", "/v1/decision-keys")
+    assert request.headers["Authorization"] == "Bearer tok"
+    assert json.loads(request.content) == {"agent_id": "agent_1"}
+
+
+@pytest.mark.asyncio
+async def test_decision_key_404_means_an_older_quota_api_not_a_missing_wallet():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": "Not Found"})
+
+    with pytest.raises(WalletUnavailable, match="decision-keys"):
+        await _client(handler).decision_key("agent_1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status, error",
+    [(401, WalletDenied), (422, WalletUnavailable), (502, WalletUnavailable)],
+)
+async def test_decision_key_errors_keep_the_wallet_vocabulary(status, error):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={"detail": "nope"})
+
+    with pytest.raises(error):
+        await _client(handler).decision_key("agent_1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [{}, {"api_key": ""}, {"api_key": 7}, ["sk-x"]])
+async def test_decision_key_without_a_key_in_the_reply_is_unavailable(body):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    with pytest.raises(WalletUnavailable):
+        await _client(handler).decision_key("agent_1")

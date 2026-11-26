@@ -6,6 +6,13 @@ stub: false
 
 # merged_select.py — 合并路由路径的编排(从 service 层搬入 impl)
 
+## 2026-11-26 — 网关 key 不记 owner 的账
+
+新增的 `key_source=agent_scoped`(云端每 agent 的封顶网关 key)与平台 key 一样是
+平台的花费:`_book_borrowed_key_usage` 仍只在 `key_source == helper_llm` 时记账,
+代码未改,只更新 docstring;有测试钉(同一 owner 若被借 key 会记一行,网关 key 优先
+时 `cost_records` 为空)。
+
 ## 2026-11-25(修订)— 借来的 key 记到出钱的那张卡上
 
 此前"决策调用不进 cost_records"的理由只对平台 key 成立。借用 owner 的 helper 槽

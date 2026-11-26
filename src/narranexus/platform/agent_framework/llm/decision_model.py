@@ -38,7 +38,7 @@ import json
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence
 from urllib.parse import urlparse
 
 import httpx
@@ -52,7 +52,8 @@ _API_KEY_AUTH_TYPES = frozenset({"api_key", "bearer_token"})
 _ERROR_BODY_EXCERPT_CHARS = 200
 
 #: Where a resolved key came from. A borrowed key's usage is the owning
-#: card's spend; the platform key's is not.
+#: card's spend; the platform key's and an agent-scoped key's are not.
+KEY_SOURCE_AGENT_SCOPED = "agent_scoped"
 KEY_SOURCE_PLATFORM = "platform"
 KEY_SOURCE_HELPER_SLOT = "helper_llm"
 
@@ -99,6 +100,11 @@ class DecisionEndpoint:
     model: str
     timeout_seconds: float
     key_source: str = KEY_SOURCE_PLATFORM
+    #: Told when the endpoint answers 401, so whoever issued the key can stop
+    #: handing it out. Not called on any other failure.
+    on_rejected: Optional[Callable[[], None]] = field(
+        default=None, repr=False, compare=False
+    )
 
     @property
     def configured(self) -> bool:
@@ -106,6 +112,19 @@ class DecisionEndpoint:
         return bool(self.base_url.strip() and self.model.strip()) and is_sendable_key(
             self.api_key
         )
+
+
+@dataclass(frozen=True)
+class AgentScopedKey:
+    """A key issued for ONE agent by the endpoint it must be sent to (e.g. a
+    capped gateway key). ``on_rejected`` lets the issuer drop a key the
+    endpoint no longer accepts."""
+
+    base_url: str
+    api_key: str = field(repr=False)
+    on_rejected: Optional[Callable[[], None]] = field(
+        default=None, repr=False, compare=False
+    )
 
 
 def is_sendable_key(key: str) -> bool:
@@ -189,6 +208,8 @@ async def ask_yes_no(
     elapsed_ms = int((time.monotonic() - started) * 1000)
 
     if response.status_code != 200:
+        if response.status_code == 401 and endpoint.on_rejected is not None:
+            endpoint.on_rejected()
         excerpt = response.text[:_ERROR_BODY_EXCERPT_CHARS]
         raise DecisionModelError(
             f"http_{response.status_code}",
@@ -213,14 +234,24 @@ async def ask_yes_no(
 
 
 def resolve_decision_endpoint(
-    *, base_url: str, platform_key: str, model: str, timeout_seconds: float
+    *,
+    base_url: str,
+    platform_key: str,
+    model: str,
+    timeout_seconds: float,
+    agent_scoped: Optional[AgentScopedKey] = None,
 ) -> Optional[DecisionEndpoint]:
     """The credential to ask with on THIS task, or None. The ONE place the
     credential policy lives.
 
-    1. ``platform_key`` (the deployment's own key), when it is sendable.
+    1. ``agent_scoped`` — a key issued for this turn's agent alone, when it is
+       sendable. The request goes to ITS ``base_url`` (the issuer fronts the
+       decision endpoint and caps that agent's spend there). Fetching it is
+       the caller's job — it needs the agent id and may need a network call —
+       so this function stays synchronous and vendor-free.
+    2. Else ``platform_key`` (the deployment's own key), when it is sendable.
        Applies to every turn.
-    2. Else the agent owner's ACTIVE helper-slot credential — the configs the
+    3. Else the agent owner's ACTIVE helper-slot credential — the configs the
        turn's ingress installed for this task, picked with `get_helper_sdk`'s
        precedence (a subscription/CLI helper has no key to borrow; else the
        anthropic-protocol config if installed; else the openai-protocol one)
@@ -229,7 +260,7 @@ def resolve_decision_endpoint(
        borrowed. Host equality is the whole rule: an internal gateway (the
        free-tier card) or any other aggregator holds a key the decision
        endpoint would reject.
-    3. Else None.
+    4. Else None.
 
     Only configs actually installed on this task count (the per-task
     snapshot), never the process-global fallback: every turn's ingress
@@ -239,6 +270,11 @@ def resolve_decision_endpoint(
     the cost ledger attributes non-agent-loop rows to the helper card, so an
     agent-slot key's spend could not be booked to the card that paid.
     """
+    if agent_scoped is not None and is_sendable_key(agent_scoped.api_key):
+        return DecisionEndpoint(
+            agent_scoped.base_url, agent_scoped.api_key, model, timeout_seconds,
+            key_source=KEY_SOURCE_AGENT_SCOPED, on_rejected=agent_scoped.on_rejected,
+        )
     if is_sendable_key(platform_key):
         return DecisionEndpoint(base_url, platform_key, model, timeout_seconds)
     target_host = urlparse(base_url).hostname
@@ -305,8 +341,10 @@ def _scrub(message: str, endpoint: DecisionEndpoint) -> str:
 
 
 __all__ = [
+    "KEY_SOURCE_AGENT_SCOPED",
     "KEY_SOURCE_HELPER_SLOT",
     "KEY_SOURCE_PLATFORM",
+    "AgentScopedKey",
     "DecisionEndpoint",
     "DecisionModelError",
     "DecisionResult",

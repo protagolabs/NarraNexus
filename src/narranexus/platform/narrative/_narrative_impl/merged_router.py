@@ -43,6 +43,7 @@ from narranexus.platform.agent_framework.llm.decision_model import (
     resolve_decision_endpoint,
     serialise,
 )
+from narranexus.platform.integrations.free_tier.decision_keys import decision_key_issuer
 
 from ..config import config
 from . import routing_blocks
@@ -341,17 +342,21 @@ def verdict_from_scores(
 # ── the call ───────────────────────────────────────────────────────────────
 
 
-def decision_endpoint_for_turn() -> Optional[DecisionEndpoint]:
+async def decision_endpoint_for_turn(agent_id: str) -> Optional[DecisionEndpoint]:
     """This turn's decision credential, or None (the turn then takes the
-    two-call path). Order: `NARRATIVE_DECISION_API_KEY`, else the agent
-    owner's helper-slot provider key (installed by the turn's ingress) on the
-    host of `NARRATIVE_DECISION_API_BASE` — the policy itself lives in
-    `decision_model.resolve_decision_endpoint`."""
+    two-call path). Order: the agent's own gateway key (cloud with the
+    free-tier gateway; sent to the gateway), else `NARRATIVE_DECISION_API_KEY`,
+    else the agent owner's helper-slot provider key (installed by the turn's
+    ingress) on the host of `NARRATIVE_DECISION_API_BASE` — the policy itself
+    lives in `decision_model.resolve_decision_endpoint`; this only gathers
+    its inputs."""
+    issuer = decision_key_issuer()
     return resolve_decision_endpoint(
         base_url=config.NARRATIVE_DECISION_API_BASE,
         platform_key=config.NARRATIVE_DECISION_API_KEY,
         model=config.NARRATIVE_DECISION_MODEL,
         timeout_seconds=config.NARRATIVE_DECISION_TIMEOUT_SECONDS,
+        agent_scoped=await issuer.key_for(agent_id) if issuer is not None else None,
     )
 
 
@@ -389,9 +394,12 @@ async def decide(
         result = await ask_yes_no(endpoint, request.state, request.questions)
     except DecisionModelError as e:
         elapsed_ms = int((_perf.monotonic() - started) * 1000)
-        # The client builds and scrubs this detail; it carries no key.
+        # The client builds and scrubs this detail; it carries no key. The
+        # key source tells "this agent's gateway cap is used up" (a 422 on an
+        # agent-scoped key) apart from the same status elsewhere.
         logger.warning(
-            f"[MergedRouting] decision call failed after {elapsed_ms}ms: "
+            f"[MergedRouting] decision call failed after {elapsed_ms}ms "
+            f"(key_source={endpoint.key_source}): "
             f"{e.category}: {e} (the turn stays where it was)"
         )
         return failed(e.category, elapsed_ms, request=request)

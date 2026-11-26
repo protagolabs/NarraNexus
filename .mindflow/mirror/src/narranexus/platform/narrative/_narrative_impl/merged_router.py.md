@@ -6,6 +6,21 @@ stub: false
 
 # merged_router.py — 合并路由的决策器:一次决策模型请求回答"续不续 / 去哪儿"
 
+## 2026-11-26 — 云端先用 agent 自己的网关 key
+
+`decision_endpoint_for_turn(agent_id)` 变成 async、收 agent id:若
+`integrations.free_tier.decision_keys.decision_key_issuer()` 存在(云端 + 免费档钱包
+服务已配),先 `await issuer.key_for(agent_id)` 取该 agent 的封顶网关 key,作为
+`agent_scoped` 传给 `resolve_decision_endpoint`;优先级仍只住在那个函数里(网关 key
+→ 平台 key → owner helper 槽 key → None),本函数只收集输入。取不到 key(quota-api
+不可达 / 旧版 / 超时)时 issuer 返回 None,自然落到平台 key。issuer 以模块级名字导入,
+流程测试 monkeypatch `merged_router.decision_key_issuer` 注入真 issuer + 假网络。
+
+`decide` 的调用失败日志带上 `key_source`:网关 key 上的 `http_422`(该 agent 当月
+额度用完,`budget_exceeded`)与其它来源上的同一状态码由此可区分,日志里还有已擦除
+key 的响应体摘录。审计行不变(`merged_verdict='failed'`、reason=`http_422`)——额度
+用完就是普通的决策失败:守锚点、不换凭据、不走 LLM。
+
 ## 2026-11-25 — 决策者从 helper LLM 换成决策模型
 
 Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.decision_model`,
@@ -51,9 +66,9 @@ Owner 决议:合并路径上的判决改由决策模型(`agent_framework.llm.dec
 输入字段、展示 flag);问题构建、阈值规则、`allowed_verdicts`、越界检查、
 `resolve_choice` 都按这张表走。key 里的序号就是对应输入列表的下标。
 
-`decision_endpoint_for_turn()` 把叙事配置接到通用的凭据解析上(平台 key → agent
-owner 的 active helper 槽、同 host 的 provider key(该轮 ingress 装进 task 的配置)
-→ None;策略本身只住在 `decision_model.resolve_decision_endpoint`),由
+`decision_endpoint_for_turn(agent_id)` 把叙事配置接到通用的凭据解析上(agent 的
+网关 key → 平台 key → agent owner 的 active helper 槽、同 host 的 provider key(该轮
+ingress 装进 task 的配置)→ None;策略本身只住在 `decision_model.resolve_decision_endpoint`),由
 `narrative_service.select()` 每轮调用;None 时该轮走两次调用路径。凭据以参数显式
 传给 `decide`,并发轮次不可能串 key。
 
@@ -70,7 +85,8 @@ owner 的 active helper 槽、同 host 的 provider key(该轮 ingress 装进 ta
 
 - **被谁用**:`merged_select.select_merged`(`decide` / `resolve_choice` /
   verdict 常量)、`narrative_service.select`(`decision_endpoint_for_turn`)。
-- **依赖谁**:`agent_framework.llm.decision_model`、`landings.candidate_labels`、
+- **依赖谁**:`agent_framework.llm.decision_model`、
+  `integrations.free_tier.decision_keys`、`landings.candidate_labels`、
   `routing_blocks.clamp_head`、`config`(阈值 / 上限 / 决策端点)。
 - **测试**:`tests/narrative/test_merged_decider.py`(三个单元各自)、
   `tests/narrative/test_merged_routing.py`(端到端落点、凭据、兜底)。

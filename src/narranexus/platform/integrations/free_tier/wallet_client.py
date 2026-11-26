@@ -6,8 +6,9 @@
 
 The free tier's money lives on the LiteLLM gateway, and only ``quota-api``
 holds that gateway's admin credential. This client is NarraNexus's whole view
-of it: open a wallet, read a balance. We never learn what a "virtual key" is —
-we receive an opaque api_key exactly like a user pasting their own.
+of it: open a wallet, read a balance, fetch an agent's decision-route key. We
+never learn what a "virtual key" is — we receive an opaque api_key exactly
+like a user pasting their own.
 
 Errors are split so callers can react correctly rather than lumping everything
 into "it failed":
@@ -139,6 +140,28 @@ class WalletClient:
             "POST", f"/v1/wallets/{user_id}/topup", json={"amount_usd": amount_usd}
         )
         return WalletBalance.from_payload(data)
+
+    async def decision_key(self, agent_id: str) -> str:
+        """The agent's capped key for the gateway's decision route.
+
+        Idempotent: the same agent gets the same key on every call — until an
+        operator rotates the gateway admin key, so callers may cache it but
+        must re-ask once the gateway rejects it. The key is never logged.
+        """
+        try:
+            data = await self._request(
+                "POST", "/v1/decision-keys", json={"agent_id": agent_id}
+            )
+        except WalletMissing:
+            # Unlike the wallet reads, this 404 is not "no such user": the
+            # deployed quota-api predates the endpoint.
+            raise WalletUnavailable(
+                "wallet service has no /v1/decision-keys (older quota-api)"
+            ) from None
+        key = data.get("api_key") if isinstance(data, dict) else None
+        if not isinstance(key, str) or not key:
+            raise WalletUnavailable("wallet service returned no decision key")
+        return key
 
     # -- transport ---------------------------------------------------------
 

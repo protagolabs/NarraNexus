@@ -19,8 +19,9 @@ The failure floor (rule 6): a decision call that fails must NOT be read as
 "new topic" (the D19 shape). Anchor present → stay on it, flagged
 `merged_fallback_anchor`; no anchor → create, flagged `merged_fallback_new`.
 
-The credential is resolved per turn (platform key, else the user's own key on
-the decision host); a turn without one takes the two-call path.
+The credential is resolved per turn (the agent's own gateway key in the cloud,
+else the platform key, else the user's own key on the decision host); a turn
+without one takes the two-call path.
 """
 from __future__ import annotations
 
@@ -1380,6 +1381,277 @@ async def test_a_free_tier_gateway_owner_is_never_asked_nor_charged(
 
 
 # ===================================================================== #
+# Cloud with the free-tier gateway: the agent's own capped key first    #
+# ===================================================================== #
+
+GATEWAY_BASE = "http://litellm:4000/v1"
+QUOTA_API = "http://quota-api:8110"
+
+
+class _Gateway:
+    """quota-api and the gateway's decision route behind ONE fake transport
+    (both clients build their httpx.AsyncClient through the same module).
+    quota-api hands out one key per agent (``generation`` bumps it, like an
+    admin-key rotation); the decision route answers "stay" unless a canned
+    ``(status, body)`` is queued."""
+
+    def __init__(self):
+        self.generation = 1
+        self.quota_status = 200
+        self.quota_exc: Exception | None = None
+        self.quota_delay = 0.0
+        self.quota_calls: list[str] = []
+        self.decisions: list[dict] = []
+        self.decision_replies: list[tuple[int, dict]] = []
+
+    def key(self, agent_id: str) -> str:
+        return f"sk-nxdm-{agent_id}-g{self.generation}"
+
+    async def __call__(self, req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        if str(req.url).startswith(QUOTA_API):
+            self.quota_calls.append(body["agent_id"])
+            if self.quota_delay:
+                await asyncio.sleep(self.quota_delay)
+            if self.quota_exc is not None:
+                raise self.quota_exc
+            if self.quota_status != 200:
+                return httpx.Response(self.quota_status, json={"detail": "nope"})
+            return httpx.Response(200, json={
+                "agent_id": body["agent_id"], "api_key": self.key(body["agent_id"]),
+                "max_budget": 1.0, "budget_duration": "30d",
+            })
+        self.decisions.append({"url": str(req.url), "auth": req.headers.get("authorization")})
+        if self.decision_replies:
+            status, reply = self.decision_replies.pop(0)
+            return httpx.Response(status, json=reply)
+        return httpx.Response(200, json={
+            "answers": {
+                key: {"type": "noul", "noul": 0.9 if key == "anchor" else 0.0}
+                for key in body["questions"]
+            },
+            "model": body["model"], "usage": {"input_tokens": 333, "output_tokens": 55},
+        })
+
+
+@pytest.fixture
+def gateway(monkeypatch):
+    """The REAL issuer and decision client; only the network is fake."""
+    from narranexus.platform.integrations.free_tier.decision_keys import DecisionKeyIssuer
+    from narranexus.platform.integrations.free_tier.wallet_client import WalletClient
+
+    gw = _Gateway()
+    transport = httpx.MockTransport(gw)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        decision_model.httpx, "AsyncClient",
+        lambda *a, **k: real_client(*a, transport=transport, **{
+            k2: v for k2, v in k.items() if k2 != "transport"
+        }),
+    )
+    issuer = DecisionKeyIssuer(WalletClient(QUOTA_API, "tok"), GATEWAY_BASE)
+    monkeypatch.setattr(merged_router, "decision_key_issuer", lambda: issuer)
+    return gw
+
+
+def _log_lines():
+    from loguru import logger
+
+    lines: list[str] = []
+    sink = logger.add(lambda m: lines.append(str(m)), level="DEBUG")
+    return lines, lambda: logger.remove(sink)
+
+
+async def test_the_agents_gateway_key_wins_over_the_platform_and_owner_keys(
+    service, db_client, merged_on, monkeypatch, gateway
+):
+    monkeypatch.setattr(config, "NARRATIVE_DECISION_API_BASE", DECISION_HOST_BASE)
+    anchor, _ = await _seed(service)
+    owner = OpenAIConfig(api_key="owner-own-key", base_url=DECISION_HOST_BASE)
+
+    result = await _as_owner(owner, lambda: service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    ))
+
+    assert result.selection_method == "merged_continue"
+    assert gateway.decisions == [{
+        "url": f"{GATEWAY_BASE}/alpha/decisions",
+        "auth": f"Bearer {gateway.key(AGENT)}",
+    }], "sent to the gateway with the agent's key — not the platform's, not the owner's"
+    assert gateway.quota_calls == [AGENT]
+
+
+async def test_many_turns_of_one_agent_ask_quota_api_once(
+    service, db_client, merged_on, gateway
+):
+    anchor, _ = await _seed(service)
+
+    for _ in range(3):
+        await service.select(
+            AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+            trigger="chat", is_user_chat=True,
+        )
+
+    assert gateway.quota_calls == [AGENT]
+    assert [c["auth"] for c in gateway.decisions] == [f"Bearer {gateway.key(AGENT)}"] * 3
+
+
+async def test_two_agents_resolve_to_their_own_gateway_keys(merged_on, gateway):
+    first = [await merged_router.decision_endpoint_for_turn(a) for a in ("agent_x", "agent_y")]
+    again = [await merged_router.decision_endpoint_for_turn(a) for a in ("agent_x", "agent_y")]
+
+    assert [e.api_key for e in first] == [gateway.key("agent_x"), gateway.key("agent_y")]
+    assert [e.api_key for e in again] == [e.api_key for e in first]
+    assert {e.base_url for e in first} == {GATEWAY_BASE}
+    assert gateway.quota_calls == ["agent_x", "agent_y"]
+
+
+async def test_a_401_from_the_gateway_evicts_the_key_and_the_next_turn_refetches(
+    service, db_client, merged_on, gateway
+):
+    anchor, _ = await _seed(service)
+    stale = gateway.key(AGENT)
+    gateway.decision_replies = [(401, {"error": {"message": "Authentication Error"}})]
+    lines, stop = _log_lines()
+    try:
+        failed = await service.select(
+            AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+            trigger="chat", is_user_chat=True,
+        )
+        assert (await _row(db_client))["merged_verdict"] == merged_router.VERDICT_FAILED
+        gateway.generation = 2  # the operator rotated the gateway admin key
+
+        recovered = await service.select(
+            AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+            trigger="chat", is_user_chat=True,
+        )
+    finally:
+        stop()
+
+    assert failed.selection_method == "merged_fallback_anchor"
+    assert len(gateway.decisions) == 2, "no retry within the failing turn"
+    assert gateway.quota_calls == [AGENT, AGENT]
+    assert gateway.decisions[1]["auth"] == f"Bearer {gateway.key(AGENT)}"
+    assert recovered.selection_method == "merged_continue"
+    assert not any(stale in line or gateway.key(AGENT) in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["older_quota_api", "gateway_down", "unreachable", "timeout"],
+)
+async def test_no_gateway_key_falls_through_to_the_platform_key_and_the_turn_lands(
+    service, db_client, merged_on, monkeypatch, gateway, failure
+):
+    from narranexus.platform.integrations.free_tier import decision_keys
+
+    if failure == "older_quota_api":
+        gateway.quota_status = 404
+    elif failure == "gateway_down":
+        gateway.quota_status = 502
+    elif failure == "unreachable":
+        gateway.quota_exc = httpx.ConnectError("refused")
+    else:
+        monkeypatch.setattr(decision_keys, "_FETCH_TIMEOUT_S", 0.05)
+        gateway.quota_delay = 5.0
+    monkeypatch.setattr(config, "NARRATIVE_DECISION_API_BASE", DECISION_HOST_BASE)
+    anchor, _ = await _seed(service)
+
+    result = await service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    )
+
+    assert result.selection_method == "merged_continue"
+    assert gateway.decisions == [{
+        "url": f"{DECISION_HOST_BASE}/alpha/decisions", "auth": f"Bearer {PLATFORM_KEY}",
+    }]
+
+
+async def test_no_gateway_key_and_no_platform_key_borrows_the_owner_key(
+    service, db_client, merged_on_no_platform_key, gateway
+):
+    gateway.quota_status = 502
+    anchor, _ = await _seed(service)
+    owner = OpenAIConfig(api_key="owner-own-key", base_url=DECISION_HOST_BASE)
+
+    result = await _as_owner(owner, lambda: service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    ))
+
+    assert result.selection_method == "merged_continue"
+    assert [c["auth"] for c in gateway.decisions] == ["Bearer owner-own-key"]
+
+
+async def test_no_gateway_key_and_nothing_else_takes_the_two_call_path(
+    service, db_client, merged_on_no_platform_key, monkeypatch, gateway
+):
+    gateway.quota_status = 502
+    anchor, _ = await _seed(service)
+    _two_call_continuity(service, monkeypatch)
+
+    result = await _as_owner(OpenAIConfig(), lambda: service.select(
+        AGENT, USER, ANCHOR_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    ))
+
+    assert result.selection_method == "continuous"
+    assert gateway.decisions == []
+    assert (await _row(db_client))["merged_verdict"] == merged_router.VERDICT_NO_CREDENTIAL
+
+
+async def test_the_gateway_key_books_nothing_to_the_owner(
+    service, db_client, merged_on_no_platform_key, gateway
+):
+    """Without the gateway key this owner's key would be borrowed AND booked;
+    the gateway key's usage is the platform's spend."""
+    anchor, _ = await _seed(service)
+    owner = OpenAIConfig(api_key="owner-own-key", base_url=DECISION_HOST_BASE)
+
+    await _as_owner_with_cost_context(owner, db_client, lambda: service.select(
+        AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+        trigger="chat", is_user_chat=True,
+    ))
+
+    assert [c["auth"] for c in gateway.decisions] == [f"Bearer {gateway.key(AGENT)}"]
+    assert await _cost_rows(db_client) == []
+
+
+async def test_a_used_up_agent_cap_lands_on_the_failure_floor(
+    service, db_client, merged_on, gateway
+):
+    """422 budget_exceeded is an ordinary decision failure: hold the anchor, no
+    other credential, no LLM (the `service` fixture's land mines)."""
+    anchor, _ = await _seed(service)
+    key = gateway.key(AGENT)
+    gateway.decision_replies = [(422, {"error": {
+        "type": "budget_exceeded", "message": f"Budget has been exceeded for {key}",
+    }})]
+    lines, stop = _log_lines()
+    try:
+        result = await service.select(
+            AGENT, USER, FOREIGN_QUERY, session=_session(anchor.id),
+            trigger="chat", is_user_chat=True,
+        )
+    finally:
+        stop()
+
+    assert result.selection_method == "merged_fallback_anchor"
+    assert [n.id for n in result.narratives] == [anchor.id]
+    assert result.selection_reason.endswith("decision model failure: http_422")
+    assert len(gateway.decisions) == 1, "no fallback to another credential"
+    row = await _row(db_client)
+    assert row["merged_verdict"] == merged_router.VERDICT_FAILED
+    failure_lines = [line for line in lines if "decision call failed" in line]
+    assert failure_lines and "key_source=agent_scoped" in failure_lines[0]
+    assert "budget_exceeded" in failure_lines[0], "the operator can read why"
+    assert not any(key in line for line in lines)
+    assert key not in result.selection_reason
+
+
+# ===================================================================== #
 # Credential resolution that breaks still routes                        #
 # ===================================================================== #
 
@@ -1391,7 +1663,7 @@ async def test_a_resolution_error_takes_the_two_call_path(
     _two_call_continuity(service, monkeypatch)
     _no_decider(monkeypatch)
 
-    def _broken():
+    async def _broken(agent_id):
         raise RuntimeError("provider config store unavailable")
 
     monkeypatch.setattr(merged_router, "decision_endpoint_for_turn", _broken)

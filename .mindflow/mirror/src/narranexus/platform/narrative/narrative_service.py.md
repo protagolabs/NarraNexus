@@ -6,6 +6,12 @@ stub: false
 
 # narrative_service.py — Narrative 统一门面
 
+## 2026-11-26 — 凭据解析改为 `await decision_endpoint_for_turn(agent_id)`
+
+解析需要 agent id(云端先取该 agent 的网关 key,冷缓存时走一次 quota-api),所以
+变成 async 调用;取不到网关 key 不算解析异常(落到下一个来源),`no_credential` /
+`credential_error` 的语义不变。
+
 ## 2026-11-25 — 合并路径的进入条件:开关开 **且** 本轮解析到决策凭据
 
 `select()` 的提前 return 现在先调 `merged_router.decision_endpoint_for_turn()`

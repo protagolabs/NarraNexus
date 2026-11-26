@@ -1,6 +1,6 @@
 ---
 code_file: src/narranexus/platform/integrations/free_tier/wallet_client.py
-last_verified: 2026-07-28
+last_verified: 2026-11-26
 stub: false
 ---
 
@@ -10,7 +10,7 @@ stub: false
 
 免费额度的钱在 LiteLLM 网关上，而网关的 admin key **只有 deploy 仓的
 quota-api 持有**（这正是那个服务存在的理由：后端不该拿到能给任何人开钱包的
-凭据）。本文件是这条边界的唯一穿越点：开钱包、查余额，仅此而已。我们从不
+凭据）。本文件是这条边界的唯一穿越点：开钱包、查余额、取 agent 的决策路由 key，仅此而已。我们从不
 知道「虚拟 key」是什么概念 —— 拿到的就是一个不透明的 api_key，和用户自己
 粘贴一把 NetMind key 没有区别。
 
@@ -28,6 +28,15 @@ agent 包、反过来不行，所以共用的那块必须落在这里。
 - `WalletUnavailable` —— 传输层 / 5xx。瞬时，登录路径吞掉，下次登录重试。
 - `WalletDenied` —— 401/403。共享 token 配错了，重试没用，必须在日志里刺眼。
 - `WalletMissing` —— 余额 404。用户就是还没开钱包（新用户会有几秒处于此态）。
+
+## decision_key(agent_id)
+
+`POST /v1/decision-keys` 取该 agent 在网关决策路由上的封顶 key（deploy 侧 quota-api
+签发，幂等：同一 agent 每次同一把，admin key 轮换后才会变）。调用方
+[[decision_keys]] 按进程缓存。错误沿用三分类词表，唯一例外：这里的 **404 不是
+「没有钱包」**，而是部署的 quota-api 早于这个端点，所以转成 `WalletUnavailable`
+（消息点名端点）；回复里没有非空字符串 `api_key` 同样是 `WalletUnavailable`。key
+不进任何日志或异常文本。
 
 ## served_models() 为什么问网关而不是上游
 

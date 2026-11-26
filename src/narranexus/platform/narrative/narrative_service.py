@@ -299,9 +299,9 @@ class NarrativeService:
         # Merged routing (off by default): BM25 runs FIRST, then either a
         # zero-call shutter or ONE decision-model call answers both questions
         # the rest of this method asks serially. It needs a decision credential
-        # resolved for THIS turn; without one (or if resolution itself breaks)
-        # the turn takes the two-call path below — a normal shape, not an
-        # error. An early return rather than a woven branch, so "flag off =
+        # resolved for THIS turn and agent; without one (or if resolution
+        # itself breaks) the turn takes the two-call path below — a normal
+        # shape, not an error. An early return rather than a woven branch, so "flag off =
         # today's behaviour" stays readable.
         #
         # `merged_skip` is why a flag-on turn is on the two-call path anyway;
@@ -316,7 +316,7 @@ class NarrativeService:
             )
 
             try:
-                decision_endpoint = decision_endpoint_for_turn()
+                decision_endpoint = await decision_endpoint_for_turn(agent_id)
             except Exception as e:  # noqa: BLE001 — routing must still happen
                 logger.warning(
                     f"[NarrativeSelect] decision credential resolution failed: "

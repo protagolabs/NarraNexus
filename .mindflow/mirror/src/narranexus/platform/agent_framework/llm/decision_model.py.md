@@ -21,7 +21,12 @@ API。第一个消费者是叙事合并路由(`narrative/_narrative_impl/merged_
    由调用方以 `DecisionEndpoint` 显式传入。
 2. **凭据解析** `resolve_decision_endpoint(...)`:每轮调用一次,**凭据策略只住在
    这一个函数里**(平台 key 适用于哪些用户等策略将来只改这里):
-   - 平台 key 可发送(见下)→ 用它,`key_source=platform`,对所有轮次生效;
+   - 调用方传入的 `agent_scoped`(`AgentScopedKey`:为本轮 agent 单独签发的 key +
+     它必须发往的 base)可发送 → 用它,请求发往**它自己的 base**,
+     `key_source=agent_scoped`(用量是平台的花费,不记 owner 的账);取这把 key 要
+     agent id、冷缓存时要走网络,所以由调用方异步取好再传进来,本函数保持同步、
+     不认识任何厂商/网关;
+   - 否则平台 key 可发送(见下)→ 用它,`key_source=platform`,对所有轮次生效;
    - 否则 **agent owner 的 active helper 槽凭据**——即该轮 ingress
      (`get_agent_owner_runtime_llm_configs`)装进当前 task 的配置——按
      `get_helper_sdk` 的同一优先级取:装了订阅/CLI helper → 无 key 可借;装了
@@ -31,6 +36,11 @@ API。第一个消费者是叙事合并路由(`narrative/_narrative_impl/merged_
    - 都没有 → None(该轮走两次调用路径)。
 
 ## 设计决策
+
+- **签发方的回收钩子挂在 endpoint 上**:`DecisionEndpoint.on_rejected`(不参与
+  repr/比较)。`ask_yes_no` 收到 **401** 时先调它再抛 `http_401`——签发方借此丢掉
+  被轮换/删除的 key,下一轮重取;其它任何失败(403/422/5xx/超时)都不调。客户端
+  只知道"凭据被拒",不知道是谁签发的,换签发方不动调用方。
 
 - **只认当前 task 上真正装好的配置**(`snapshot_user_config()`),不读 proxy 的
   进程级 holder 回落:每一轮的 ingress 在云端与本地模式下都会装 owner 的已解析
